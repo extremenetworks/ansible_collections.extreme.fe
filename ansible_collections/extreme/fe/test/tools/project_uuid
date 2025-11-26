@@ -1,0 +1,9 @@
+#!/bin/bash
+
+source ../cfg/gns3.cfg
+
+# Return the project UUID from the GNS3 server 
+uuid=$(check_project_UUID)
+
+echo "$uuid"
+exit 0

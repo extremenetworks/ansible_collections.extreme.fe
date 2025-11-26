@@ -1,0 +1,125 @@
+---
+- name: Exercise Fabric Engine Fabric L2 module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    fabric_isid: 6200
+    fabric_name_initial: "Coverage-ISID"
+    fabric_name_updated: "Coverage-ISID-Updated"
+    fabric_cvlan: 620
+
+  tasks:
+    - name: Ensure supporting CVLAN exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ fabric_cvlan }}"
+        vlan_name: "Coverage-{{ fabric_cvlan }}"
+        state: merged
+      register: fabric_vlan_present
+      ignore_errors: true
+
+    - name: Preview ISID creation in check mode
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        name: "{{ fabric_name_initial }}"
+        state: merged
+      check_mode: true
+      register: fabric_check_present
+      ignore_errors: true
+
+    - name: Create ISID bound to CVLAN
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        name: "{{ fabric_name_initial }}"
+        state: merged
+      register: fabric_create
+      ignore_errors: true
+
+    - name: Update ISID friendly name only
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        name: "{{ fabric_name_updated }}"
+        state: merged
+      register: fabric_update_name
+      ignore_errors: true
+
+    - name: Attempt creation without CVLAN (expected failure)
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid + 1 }}"
+        name: "Missing-CVLAN"
+        state: merged
+      register: fabric_missing_cvlan
+      ignore_errors: true
+
+    - name: Replace ISID definition with canonical values
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        name: "{{ fabric_name_updated }}"
+        state: replaced
+      register: fabric_replaced
+      ignore_errors: true
+
+    - name: Clear friendly name using overridden state
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        state: overridden
+      register: fabric_overridden
+      ignore_errors: true
+
+    - name: Gather ISID information
+      extreme.fe.extreme_fe_fabric_l2:
+        state: gathered
+        gather_filter:
+          - "{{ fabric_isid | int }}"
+      register: fabric_gathered
+      ignore_errors: true
+
+    - name: Preview ISID deletion in check mode
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        state: deleted
+      check_mode: true
+      register: fabric_check_absent
+      ignore_errors: true
+
+    - name: Delete ISID binding
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        cvlan: "{{ fabric_cvlan }}"
+        state: deleted
+      register: fabric_delete
+      ignore_errors: true
+
+    - name: Attempt deletion without CVLAN (expected failure)
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ fabric_isid }}"
+        state: deleted
+      register: fabric_delete_missing_cvlan
+      ignore_errors: true
+
+    - name: Clean up supporting CVLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ fabric_cvlan }}"
+        state: deleted
+      register: fabric_vlan_delete
+      ignore_errors: true
+
+    - name: Summarise Fabric L2 coverage outcomes
+      debug:
+        msg:
+          - "VLAN present: {{ fabric_vlan_present | default({}) }}"
+          - "Check present: {{ fabric_check_present | default({}) }}"
+          - "Create ISID: {{ fabric_create | default({}) }}"
+          - "Update name: {{ fabric_update_name | default({}) }}"
+          - "Missing CVLAN create: {{ fabric_missing_cvlan | default({}) }}"
+          - "Replaced state: {{ fabric_replaced | default({}) }}"
+          - "Overridden state: {{ fabric_overridden | default({}) }}"
+          - "Gathered state: {{ fabric_gathered | default({}) }}"
+          - "Check absent: {{ fabric_check_absent | default({}) }}"
+          - "Delete ISID: {{ fabric_delete | default({}) }}"
+          - "Del missing cvlan: {{ fabric_delete_missing_cvlan | default({}) }}"
+          - "VLAN delete: {{ fabric_vlan_delete | default({}) }}"

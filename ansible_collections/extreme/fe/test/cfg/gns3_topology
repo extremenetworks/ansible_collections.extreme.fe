@@ -1,0 +1,166 @@
+#!/bin/bash
+
+# Note: $HOME = /home/$USER
+
+if [ "$ANSIBLE" = "" ] ; then
+    echo "Please set the ANSIBLE environment variable to point to your Ansible directory"
+    exit 1
+fi
+
+source ${ANSIBLE}/test/cfg/gns3.cfg
+
+set -o errexit
+
+# Initialize variables
+UUID_PROJ=$(check_project_UUID)
+
+# Make sure a GNS3 server is running
+check_gns3_server exit_on_error true
+
+# Check if project already exists, if it doesn't, create it
+if [ "$1" = "check" ] ; then
+    if [ "$UUID_PROJ" != "" ] ; then
+        echo "Project $GNS3_PROJECT_NAME already exist: UUID: $UUID_PROJ"
+        # Also check if all the nodes are started, they may not in some cases
+        start_all_nodes
+        exit 0
+    fi
+fi
+
+if [ "$1" = "stop" ] ; then
+    remove_gns3_project 
+    exit 0
+fi
+
+#############################################################
+## create GNS3 project using API
+#############################################################
+create_new_project 500 500 25 75 true false
+create_LAN_node "LAN" 0 312 12 60
+create_subNetRouter_node 0 238 -110 10
+
+# Create the Traffic PCs
+create_tpc "TPC-1" "$pct_t_id" 1  -280 -224 "02:42:d0:aa:00:50" 
+create_tpc "TPC-2" "$pct_t_id" 2   280 -224 "02:42:d0:aa:00:70" 
+
+#############################################################
+## create Mgmt_SW using API
+#############################################################
+create_switch "Mgmt_SW" 0 0 143 -83 20
+
+# Create the 6 l2 switches
+create_switch "L2_SW1" 1   508 -220 0 -35 
+#create_switch "L2_SW2" 2 -300    0 
+#create_switch "L2_SW3" 3 -300  200 
+create_switch "L2_SW4" 4  -508 -220 0 -35
+#create_switch "L2_SW5" 5  300   0  
+#create_switch "L2_SW6" 6  300  200 
+
+# Link the tpc's mgmt interface to L2_SW4 for management
+# create_link <node_id> <adapter> <port> <node_id> <adapter> <port> 
+connect_nodes ${UUID_TPC[1]} 0 0 "Mgmt" ${UUID_SW[4]} 0 1 "1"
+connect_nodes ${UUID_TPC[2]} 0 0 "Mgmt" ${UUID_SW[1]} 0 1 "1"
+
+# Start voss DTs
+OS="voss"
+
+# Func     Device name              dt#    BASE MAC           port#           DISK IMAGE          X    Y  S P
+create_dt "5420F-16W-32P-4XE" "voss"  1 "0a:b9:22:00:10:00" "53" "$DT_IMAGE_PATH/voss-1.qcow2"  -126 -405 4 2    # 1 OOB-MAC=0x81
+create_dt "5320-16P-4XE"      "voss"  2 "0a:b9:22:00:20:00" "21" "$DT_IMAGE_PATH/voss-2.qcow2"   126 -405 1 3    # 2 MGT-MAC=21:01
+
+#create_dt "7520-48XT-6C"      "voss"  3 "0a:b9:22:00:30:00" "56" "$DT_IMAGE_PATH/voss-3.qcow2"   126 -549 1 3    # 3 MGT-MAC=30:81
+create_dt "5520-48T"          "voss"  4 "0a:b9:22:00:40:00" "51" "$DT_IMAGE_PATH/voss-4.qcow2"   -126  -40 0 5    # 4 MGT-MAC=40:81
+create_dt "5520-48SE"         "voss"  5 "0a:b9:22:00:50:00" "51" "$DT_IMAGE_PATH/voss-5.qcow2"    126  -40 0 6    # 5 MGT-MAC=50:81
+#create_dt "5520-24T"          "voss"  6 "0a:b9:22:00:60:00" "27" "$DT_IMAGE_PATH/voss-6.qcow2"  -776 -535 1 6    # 6 OOB-MAC=60:81
+#create_dt "5720-48MW"         "voss"  7 "0a:b9:22:00:70:00" "51" "$DT_IMAGE_PATH/voss-7.qcow2"  -766 -327 2 1    # 7 MGT-MAC=70:81
+#create_dt "5720-24MXW"        "voss"  8 "0a:b9:22:00:80:00" "29" "$DT_IMAGE_PATH/voss-8.qcow2"  -702 -131 2 2    # 8 OOB-MAC=80:81
+#create_dt "7520-48YE-8CE"     "voss"  9 "0a:b9:22:00:90:00" "58" "$DT_IMAGE_PATH/voss-9.qcow2"  -840    0 2 3    # 9 MGT-MAC=90:81
+#create_dt "7720-32C"          "voss" 10 "0a:b9:22:00:a0:00" "33" "$DT_IMAGE_PATH/voss-10.qcow2" -700  160 2 4    # 10 MGT-MAC=A0:81
+#create_dt "8730-32D"          "voss" 12 "0a:b9:22:00:c0:00" "32" "$DT_IMAGE_PATH/voss-12.qcow2" -712  516 3 2    # 12 MGT-MAC=C0:81
+#create_dt "5320-48P-8XE"      "voss" 15 "0a:b9:22:00:f0:00" "57" "$DT_IMAGE_PATH/voss-15.qcow2" -173  606 3 5    # 15 MGT-MAC=f1:01
+#create_dt "5320-24T-8XE"      "voss" 16 "0a:b9:22:01:00:00" "33" "$DT_IMAGE_PATH/voss-16.qcow2" -122  434 3 6    # 16 MGT-MAC=01:01
+
+echo "Starting nodes ...."
+
+# Now start all the nodes, this will loop through all nodes in the project and start them
+start_all_nodes
+
+#start_node ${UUID_SROUTER} &
+
+#start_node ${UUID_TPC[1]} &
+#start_node ${UUID_TPC[2]} &
+
+#start_node ${UUID_VOSS_DT[1]} &
+#start_node ${UUID_VOSS_DT[2]} &
+##start_node ${UUID_VOSS_DT[3]} &
+#start_node ${UUID_VOSS_DT[4]} &
+#start_node ${UUID_VOSS_DT[5]} &
+##start_node ${UUID_VOSS_DT[6]} &
+##start_node ${UUID_VOSS_DT[7]} &
+##start_node ${UUID_VOSS_DT[8]} &
+##start_node ${UUID_VOSS_DT[9]} &
+##start_node ${UUID_VOSS_DT[10]} &
+ #start_node ${UUID_VOSS_DT[11]} & Doesn't  run
+##start_node ${UUID_VOSS_DT[12]} &
+##start_node ${UUID_VOSS_DT[13]}  Doesn't  run&
+##start_node ${UUID_VOSS_DT[14]}  Doesn't  run&
+##start_node ${UUID_VOSS_DT[15]} &
+##start_node ${UUID_VOSS_DT[16]} &
+##start_node ${UUID_VOSS_DT[17]}  Doesn't  run&
+#
+# Link the PC's through the DT's
+#
+
+# 1: TPC-1:1 to DT-1:4
+connect_nodes ${UUID_TPC[1]} 1 0 "eth1" ${UUID_VOSS_DT[1]} 4 0 "1/4"
+# 1: TPC-1:2 to DT-4:8
+connect_nodes ${UUID_TPC[1]} 2 0 "eth2" ${UUID_VOSS_DT[4]} 8 0 "1/8"
+
+
+# 2: TPC-2:1 to DT-2:4
+connect_nodes ${UUID_TPC[2]} 1 0 "eth1" ${UUID_VOSS_DT[2]} 4 0 "1/4"
+# 2: TPC-2:2 to DT-5:8
+connect_nodes ${UUID_TPC[2]} 2 0 "eth2" ${UUID_VOSS_DT[5]} 8 0 "1/8"
+
+
+# 3: Link DT-1:7 to DT-2:7 ( connect DT1 and DT2)
+connect_nodes ${UUID_VOSS_DT[1]} 7 0 "1/7" ${UUID_VOSS_DT[2]} 7 0 "1/7"
+
+# Create a LAG on ports 10 and 11 for DT4 and DT5
+# 4: Link DT-4:10 to DT-5:10 ( connect DT4 and DT5) (LAG)
+connect_nodes ${UUID_VOSS_DT[4]} 10 0 "1/10" ${UUID_VOSS_DT[5]} 10 0 "1/10"
+# 4: Link DT-2:12 to DT-4:12 ( connect DT2 and DT4) (LAG)
+connect_nodes ${UUID_VOSS_DT[4]} 11 0 "1/11" ${UUID_VOSS_DT[5]} 11 0 "1/11"
+
+
+# Cross connect DT's on ports 12
+# 5: Link DT-1:12 to DT-5:12 ( connect DT1 and DT5)
+connect_nodes ${UUID_VOSS_DT[1]} 12 0 "1/12" ${UUID_VOSS_DT[5]} 12 0 "1/12"
+# 5: Link DT-2:12 to DT-4:12 ( connect DT2 and DT4)
+connect_nodes ${UUID_VOSS_DT[2]} 12 0 "1/12" ${UUID_VOSS_DT[4]} 12 0 "1/12"
+
+# Connect the Dt1 and Dt4, for vIST connection and to test MLAG, use ports 15
+connect_nodes ${UUID_VOSS_DT[1]} 15 0 "1/15" ${UUID_VOSS_DT[4]} 15 0 "1/15"
+
+# Connect the Dt2 and Dt5, for vIST connection and to test MLAG, use ports 15
+connect_nodes ${UUID_VOSS_DT[2]} 15 0 "1/15" ${UUID_VOSS_DT[5]} 15 0 "1/15"
+
+wait
+echo "GNS3 configured and running"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

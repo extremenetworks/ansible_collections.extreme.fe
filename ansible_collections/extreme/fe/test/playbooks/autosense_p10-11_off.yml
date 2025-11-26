@@ -1,0 +1,15 @@
+---
+- name: Disable Fabric Engine auto-sense on a port
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  tasks:
+    - name: Enable auto-sense off port 1:10
+      extreme.fe.extreme_fe_autosense:
+        ports:
+          - name: "1:10"
+            enable: false
+    - name: Enable auto-sense off port 1:11
+      extreme.fe.extreme_fe_autosense:
+        ports:
+          - name: "1:11"
+            enable: false

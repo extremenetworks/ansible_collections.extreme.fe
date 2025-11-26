@@ -1,0 +1,46 @@
+---
+- name: Exercise Fabric Engine CLI command module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    cli_sequence_success:
+      - enable
+      - terminal more disable
+      - show vlan basic
+    cli_sequence_failure:
+      - enable
+      - show versionx
+  tasks:
+    - name: Preview CLI sequence in check mode
+      extreme.fe.extreme_fe_command:
+        commands: "{{ cli_sequence_success | list }}"
+      check_mode: true
+      register: command_preview
+
+    - name: Execute CLI sequence on device
+      extreme.fe.extreme_fe_command:
+        commands: "{{ cli_sequence_success | list }}"
+      register: command_run
+      ignore_errors: true
+
+    - name: Assert preview response structure
+      ansible.builtin.assert:
+        that:
+          - command_preview.changed | bool
+          - command_preview.responses | length == cli_sequence_success | length
+        fail_msg: >-
+          Check-mode preview did not return responses for each command
+
+    - name: Execute CLI with continue_on_failure (expected error)
+      extreme.fe.extreme_fe_command:
+        commands: "{{ cli_sequence_failure | list }}"
+        continue_on_failure: true
+      register: command_continue_failure
+      ignore_errors: true
+
+    - name: Summarise CLI command coverage results
+      ansible.builtin.debug:
+        msg:
+          - "Preview responses: {{ command_preview.responses | default([]) }}"
+          - "Command run: {{ command_run | default({}) }}"
+          - "Continue-on-failure: {{ command_continue_failure | default({}) }}"

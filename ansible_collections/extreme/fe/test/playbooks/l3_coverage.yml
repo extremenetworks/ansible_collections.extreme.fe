@@ -1,0 +1,229 @@
+---
+- name: Exercise Fabric Engine L3 interface module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    test_vlan_id: 310
+    test_vlan_name: "VLAN 310"
+    test_loopback_id: 77
+
+  tasks:
+    - name: Gather all configured L3 interfaces
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: gathered
+      register: l3_gather_all
+      ignore_errors: true
+
+    - name: Gather specific VLAN interface
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: gathered
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+      register: l3_gather_vlan
+      ignore_errors: true
+
+    - name: Gather loopback interface by name inference
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: gathered
+        config:
+          - name: "Loopback {{ test_loopback_id }}"
+      register: l3_gather_loopback_name
+      ignore_errors: true
+
+    - name: Ensure test VLAN exists for coverage
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        vlan_name: "{{ test_vlan_name }}"
+        state: merged
+      register: l3_vlan_present
+      ignore_errors: true
+
+    - name: Merge IPv4 and IPv6 addresses on test VLAN
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            name: "{{test_vlan_name}}"
+            ipv4:
+              - address: 10.110.10.1
+                mask: 255.255.255.0
+              - 10.110.11.1/24
+            ipv6:
+              - address: 2001:db8:310::1
+                prefix: 64
+              - 2001:db8:310:1::1/64
+      register: l3_merge_initial
+      ignore_errors: true
+
+    - name: Merge additional addresses on test VLAN
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - address: 10.110.12.1
+                mask_length: 28
+            ipv6:
+              - 2001:db8:310:2::1/64
+      check_mode: true
+      register: l3_merge_expand
+      ignore_errors: true
+
+    - name: Replace address set on VLAN with new values
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: replaced
+        config:
+          - type: vlan
+            vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - 10.121.10.1/24
+            ipv6:
+              - address: 2001:db8:310:ff::10
+                prefix: 64
+      register: l3_replace_vlan
+      ignore_errors: true
+
+    - name: Delete specific address entries from VLAN
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: deleted
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - address: 10.121.10.1
+                prefix: 24
+      check_mode: true
+      register: l3_delete_partial
+      ignore_errors: true
+
+    - name: Override VLAN addressing with new set
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: overridden
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv6:
+              - 2001:db8:310:3::1/64
+      check_mode: true
+      register: l3_override_vlan
+      ignore_errors: true
+
+    - name: Delete all addressing from VLAN
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: deleted
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv6: []
+      register: l3_delete_all
+      ignore_errors: true
+
+    - name: Gather VLAN after address operations
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: gathered
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+      register: l3_gather_post
+      ignore_errors: true
+
+    - name: Check-mode merge preview
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - 10.200.10.1/24
+      check_mode: true
+      register: l3_check_merge
+      ignore_errors: true
+
+    - name: Check-mode delete preview
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: deleted
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+      check_mode: true
+      register: l3_check_delete
+      ignore_errors: true
+
+    - name: Check-mode merge on loopback interface
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - type: loopback
+            loopback_id: "{{ test_loopback_id }}"
+            ipv4:
+              - 198.51.{{ test_loopback_id }}.10/32
+            ipv6:
+              - 2001:db8:{{ test_loopback_id }}::10/128
+      check_mode: true
+      register: l3_loopback_check
+      ignore_errors: true
+
+    - name: Trigger validation error with malformed IPv4 entry
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - 10.255.1.1
+      register: l3_invalid_ipv4
+      ignore_errors: true
+
+    - name: Trigger validation error with malformed IPv6 entry
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv6:
+              - 2001:db8:310::
+      register: l3_invalid_ipv6
+      ignore_errors: true
+
+    - name: Trigger validation error with missing IPv4 address field
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: "{{ test_vlan_id }}"
+            ipv4:
+              - prefix: 24
+      register: l3_invalid_ipv4_dict
+      ignore_errors: true
+
+    - name: Trigger validation error with unsupported type
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - type: ethernet
+            name: Invalid
+            ipv4:
+              - 203.0.113.1/24
+      register: l3_invalid_type
+      ignore_errors: true
+
+    - name: Remove coverage VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        state: deleted
+      register: l3_vlan_delete
+      ignore_errors: true
+
+    - name: Summarise L3 coverage outcomes
+      debug:
+        msg:
+          - "Gather all: {{ l3_gather_all | default({}) }}"
+          - "Gather VLAN: {{ l3_gather_vlan | default({}) }}"
+          - "Gather loopback name: {{ l3_gather_loopback_name | default({}) }}"
+          - "VLAN present: {{ l3_vlan_present | default({}) }}"
+          - "Merge initial: {{ l3_merge_initial | default({}) }}"
+          - "Merge expand: {{ l3_merge_expand | default({}) }}"
+          - "Replace VLAN: {{ l3_replace_vlan | default({}) }}"
+          - "Delete partial: {{ l3_delete_partial | default({}) }}"
+          - "Override VLAN: {{ l3_override_vlan | default({}) }}"
+          - "Delete all: {{ l3_delete_all | default({}) }}"
+          - "Gather post: {{ l3_gather_post | default({}) }}"
+          - "Check merge: {{ l3_check_merge | default({}) }}"
+          - "Check delete: {{ l3_check_delete | default({}) }}"
+          - "Loopback check: {{ l3_loopback_check | default({}) }}"
+          - "Invalid IPv4: {{ l3_invalid_ipv4 | default({}) }}"
+          - "Invalid IPv6: {{ l3_invalid_ipv6 | default({}) }}"
+          - "Invalid IPv4 dict: {{ l3_invalid_ipv4_dict | default({}) }}"
+          - "Invalid type: {{ l3_invalid_type | default({}) }}"
+          - "VLAN delete: {{ l3_vlan_delete | default({}) }}"

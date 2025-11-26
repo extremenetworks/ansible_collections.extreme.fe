@@ -1,0 +1,14 @@
+---
+- name: Save Fabric Engine configuration to a specific file
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  tasks:
+    - name: Save running configuration to config-test.cfg
+      extreme.fe.extreme_fe_save_config:
+        name: config-test.cfg
+        verbose: false
+      register: save_result
+
+    - name: Display save result summary
+      ansible.builtin.debug:
+        msg: "Save request response: {{ save_result.response | default({}) }}"

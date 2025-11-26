@@ -1,0 +1,196 @@
+---
+- name: Exercise extreme_fe_poe module behaviours
+  hosts: fe_dt_1_hosts
+  gather_facts: false
+  vars:
+    coverage_power_limit: 45000
+  tasks:
+    - name: Gather PoE data for all available ports
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+      register: poe_all
+
+    - name: Confirm PoE discovery succeeded
+      ansible.builtin.assert:
+        that:
+          - poe_all.changed | bool == false
+          - poe_all.ports | length > 0
+        fail_msg: "PoE capabilities should be discovered for at least one port"
+
+    - name: Select first two PoE ports for mutation
+      ansible.builtin.set_fact:
+        coverage_ports: >-
+          {{ (
+              poe_all.ports
+              | map(attribute='port')
+              | list
+          )[:2] }}
+
+    - name: Verify we captured two PoE ports
+      ansible.builtin.assert:
+        that:
+          - coverage_ports | length == 2
+
+    - name: Preview disabling PoE using check mode
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            enable: false
+      check_mode: true
+      register: poe_check
+
+    - name: Assert check mode computed a change
+      ansible.builtin.assert:
+        that:
+          - poe_check.changed | bool
+          - poe_check.submitted[coverage_ports[0]].payload.enable is defined
+
+    - name: Apply PoE configuration across selected ports
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            enable: true
+            power_limit: "{{ coverage_power_limit }}"
+            priority: CRITICAL
+            fast_poe: true
+            perpetual_poe: false
+          - port: "{{ coverage_ports[1] }}"
+            enable: true
+            power_limit: "{{ coverage_power_limit }}"
+            priority: CRITICAL
+            fast_poe: true
+            perpetual_poe: false
+      register: poe_config
+
+    - name: Reapply PoE configuration to confirm idempotency
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            enable: true
+            power_limit: "{{ coverage_power_limit }}"
+            priority: CRITICAL
+            fast_poe: true
+            perpetual_poe: false
+          - port: "{{ coverage_ports[1] }}"
+            enable: true
+            power_limit: "{{ coverage_power_limit }}"
+            priority: CRITICAL
+            fast_poe: true
+            perpetual_poe: false
+      register: poe_idempotent
+
+    - name: Validate second application was idempotent
+      ansible.builtin.assert:
+        that:
+          - not poe_idempotent.changed
+          - poe_idempotent.submitted == {}
+
+    - name: Gather PoE data for specific ports to exercise filtering
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+        config:
+          - port: "{{ coverage_ports[0] }}"
+          - port: "{{ coverage_ports[1] }}"
+      register: poe_filtered
+
+    - name: Assert filtered gather returned two entries
+      ansible.builtin.assert:
+        that:
+          - poe_filtered.ports | length == 2
+          - poe_filtered.changed | bool == false
+
+    - name: Replace configuration on the first port to clear unspecified fields
+      extreme.fe.extreme_fe_poe:
+        state: replaced
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            enable: true
+      register: poe_replaced
+
+    - name: Stash replacement defaults for assertions
+      ansible.builtin.set_fact:
+        coverage_default_power: >-
+          {{ poe_replaced.ports[0].capability.capabilities.poeMaxPower }}
+      changed_when: false
+
+    - name: Validate replacement removed extra attributes
+      ansible.builtin.assert:
+        that:
+          - poe_replaced.changed | bool
+          - >-
+            poe_replaced.ports[0].differences.powerLimit.after ==
+            coverage_default_power
+          - poe_replaced.ports[0].differences.priority.after == 'LOW'
+
+    - name: Override configuration to keep only the first port managed
+      extreme.fe.extreme_fe_poe:
+        state: overridden
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            enable: true
+      register: poe_overridden
+
+    - name: Ensure override removed the second port configuration
+      ansible.builtin.assert:
+        that:
+          - poe_overridden.changed | bool
+          - poe_overridden.submitted[coverage_ports[1]].deleted | bool
+
+    - name: Introduce non-default attribute before deletion
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            fast_poe: true
+      register: poe_predelete
+
+    - name: Confirm pre-delete mutation applied
+      ansible.builtin.assert:
+        that:
+          - poe_predelete.changed | bool
+
+    - name: Delete remaining overrides from the first port
+      extreme.fe.extreme_fe_poe:
+        state: deleted
+        config:
+          - port: "{{ coverage_ports[0] }}"
+      register: poe_deleted
+
+    - name: Confirm deletion issued a delete operation
+      ansible.builtin.assert:
+        that:
+          - poe_deleted.changed | bool
+          - poe_deleted.submitted[coverage_ports[0]].deleted | bool
+
+    - name: Attempt configuration with invalid power limit
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ coverage_ports[0] }}"
+            power_limit: 100
+      register: poe_invalid_limit
+      ignore_errors: true
+
+    - name: Validate invalid power limit failed fast
+      ansible.builtin.assert:
+        that:
+          - poe_invalid_limit is failed
+          - "'must be between' in poe_invalid_limit.msg"
+
+    - name: Attempt to target a non PoE port
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "99:99"
+            enable: true
+      register: poe_invalid_port
+      ignore_errors: true
+
+    - name: Validate non PoE port rejection surfaced error details
+      ansible.builtin.assert:
+        that:
+          - poe_invalid_port is failed
+          - "poe_invalid_port.msg is search('PoE-capable')"

@@ -1,0 +1,11 @@
+---
+- name: Delete VLANs 2 through 500 on ExtremeNetworks Fabric Engine switches
+  hosts: fe_dt_1_hosts
+  gather_facts: false
+  collections:
+    - local.extreme_fe
+  tasks:
+    - name: Gather VLAN snapshot prior to deletion
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+      register: vlan_snapshot_no_filter
