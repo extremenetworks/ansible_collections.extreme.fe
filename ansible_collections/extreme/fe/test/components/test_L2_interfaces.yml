@@ -1,0 +1,18 @@
+# L2 interface tests
+- name: L2-Interfaces 1.0 - interfaces coverage
+  Playbooks:
+  - File: l2_interfaces_coverage.yml
+    ok: 13
+    changed: 7
+    ignored: 2
+- Name: L2-Interfaces 1.1 - Cleanup configuration
+  Playbooks:
+  - File: config_cleanup.yml
+    ok: '*'
+    changed: '*'
+    failed: '*'
+
+- Name: L2-Interfaces 1.2 - Check configuration
+  Script:
+    File: tools/cmp_cfg
+    fatal: true

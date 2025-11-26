@@ -1,0 +1,156 @@
+---
+- name: Exercise VLAN module behaviors for coverage
+  hosts: gns3_network
+  gather_facts: false
+  collections:
+    - local.extreme_fe
+  vars:
+    coverage_vlan_id: 123
+    coverage_missing_vlan_id: 1123
+    coverage_vlan_name_initial: "Coverage-123"
+    coverage_vlan_name_updated: "Coverage-123-Updated"
+    coverage_stp_initial: "0"
+    coverage_stp_updated: "1"
+  tasks:
+    - name: Ensure coverage VLANs start absent
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ item | int }}"
+        vr_name: GlobalRouter
+        state: deleted
+      loop:
+        - "{{ coverage_vlan_id }}"
+        - "{{ coverage_missing_vlan_id }}"
+
+    - name: Simulate VLAN creation in check mode
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vlan_name: "{{ coverage_vlan_name_initial }}"
+        vr_name: GlobalRouter
+        stp_name: "{{ coverage_stp_initial }}"
+        vlan_type: PORT_MSTP_RSTP
+        state: merged
+      check_mode: true
+      register: vlan_create_preview
+
+    - name: Create coverage VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vlan_name: "{{ coverage_vlan_name_initial }}"
+        vr_name: GlobalRouter
+        stp_name: "{{ coverage_stp_initial }}"
+        vlan_type: PORT_MSTP_RSTP
+        state: merged
+
+    - name: Gather VLANs including coverage and missing identifiers
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+        gather_filter:
+          - "{{ coverage_vlan_id | int }}"
+          - "{{ coverage_missing_vlan_id | int }}"
+      register: vlan_gather_existing
+
+    - name: Update coverage VLAN attributes
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vlan_name: "{{ coverage_vlan_name_updated }}"
+        stp_name: "{{ coverage_stp_updated }}"
+        vr_name: GlobalRouter
+        state: merged
+
+    - name: Preview merged behavior
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        state: merged
+      check_mode: true
+      register: vlan_present_preview
+
+    - name: Preview LAG and ISIS membership adjustments
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        lag_interfaces:
+          - name: "10"
+            tag: tagged
+        isis_logical_interfaces:
+          - name: "200"
+            tag: untagged
+        remove_lag_interfaces:
+          - name: "12"
+            tag: tagged
+        state: merged
+      check_mode: true
+      register: vlan_membership_preview
+
+    - name: Reconcile membership using replaced semantics
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        lag_interfaces:
+          - name: "10"
+            tag: tagged
+        remove_lag_interfaces:
+          - name: "11"
+            tag: tagged
+        isis_logical_interfaces:
+          - name: "200"
+            tag: untagged
+        state: replaced
+      check_mode: true
+      register: vlan_replaced_preview
+
+    - name: Preview overridden membership purge
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        lag_interfaces:
+          - name: "10"
+            tag: tagged
+        state: overridden
+      check_mode: true
+      register: vlan_overridden_preview
+
+    - name: Dry run removing coverage VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        state: deleted
+      check_mode: true
+      register: vlan_remove_preview
+
+    - name: Remove coverage VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_vlan_id | int }}"
+        vr_name: GlobalRouter
+        state: deleted
+
+    - name: Verify absent alias for non-existent VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ coverage_missing_vlan_id | int }}"
+        vr_name: GlobalRouter
+        state: deleted
+      check_mode: true
+      register: vlan_absent_preview
+
+    - name: Gather VLANs after removal
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+        gather_filter:
+          - "{{ coverage_vlan_id | int }}"
+          - "{{ coverage_missing_vlan_id | int }}"
+      register: vlan_gather_after
+
+    - name: Gather all VLANs without filter
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+      register: vlan_gather_all
+
+    - name: Execute local VLAN module coverage helper
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../tools/cover_extreme_fe_vlans.py"
+        chdir: "{{ playbook_dir }}/.."
+      delegate_to: localhost
+      run_once: true
+      changed_when: false

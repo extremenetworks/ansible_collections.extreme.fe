@@ -1,0 +1,35 @@
+---
+- name: Run ICMP ping checks from Fabric Engine switches
+  hosts: fe_dt_1_hosts
+  gather_facts: false
+  tasks:
+    - name: Ping DT 2
+      extreme.fe.extreme_fe_ping:
+        host: "10.0.1.102"
+        interface:
+          type: VLAN
+          vlan_id: 20
+        count: 2
+        datasize: 64
+        transmission_interval: 1
+        timeout_interval: 5
+    - name: Ping DT 2 size large
+      extreme.fe.extreme_fe_ping:
+        host: "10.0.1.102"
+        interface:
+          type: VLAN
+          vlan_id: 20
+        count: 3
+        datasize: 1200
+        transmission_interval: 1
+        timeout_interval: 2
+    - name: Ping DT 2 (set 3)
+      extreme.fe.extreme_fe_ping:
+        host: "10.0.1.103"
+        interface:
+          type: VLAN
+          vlan_id: 20
+        count: 2
+        datasize: 500
+        transmission_interval: 2
+        timeout_interval: 1

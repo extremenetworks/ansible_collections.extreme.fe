@@ -1,0 +1,10 @@
+---
+- name: Remove ISID 500 from ExtremeNetworks Fabric Engine switches
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Delete ISID 500 and its CVLAN association
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: 500
+        cvlan: 500
+        state: deleted

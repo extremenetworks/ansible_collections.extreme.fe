@@ -1,0 +1,195 @@
+---
+- name: Exercise Fabric Engine VLAN module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    test_vlan_id: 520
+    test_vlan_name: "VLAN 520"
+    updated_vlan_name: "VLAN 520 Updated"
+    test_lag_id: 391
+
+  tasks:
+    - name: Gather complete VLAN inventory
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+      register: vlan_gather_all
+      ignore_errors: true
+
+    - name: Gather filtered VLAN data
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+        gather_filter:
+          - 1
+          - 4092
+      register: vlan_gather_filtered
+      ignore_errors: true
+
+    - name: Preview VLAN creation in check mode
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        vlan_name: "{{ test_vlan_name }}"
+        stp_name: "0"
+        state: merged
+      check_mode: true
+      register: vlan_check_present
+      ignore_errors: true
+
+    - name: Create helper LAG for membership tests
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ test_lag_id }}"
+        name: "VLAN-Coverage-LAG"
+        mode: STATIC
+        add_member_ports:
+          - "1:15"
+      register: vlan_lag_helper
+      ignore_errors: true
+
+    - name: Ensure VLAN exists with base attributes
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        vlan_name: "{{ test_vlan_name }}"
+        stp_name: "0"
+        vr_name: GlobalRouter
+        state: merged
+      register: vlan_create
+      ignore_errors: true
+
+    - name: Simulate membership changes in check mode
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        lag_interfaces:
+          - name: "{{ test_lag_id }}"
+            tag: tagged
+        remove_lag_interfaces:
+          - name: "{{ test_lag_id }}"
+            tag: untagged
+        state: merged
+      check_mode: true
+      register: vlan_membership_check
+      ignore_errors: true
+
+    - name: Update VLAN name and VRF
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        vlan_name: "{{ updated_vlan_name }}"
+        vr_name: FabricRouter
+        state: merged
+      register: vlan_update
+      ignore_errors: true
+
+    - name: Ensure VLAN is idempotent on repeated apply
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        vlan_name: "{{ updated_vlan_name }}"
+        vr_name: FabricRouter
+        state: merged
+      register: vlan_idempotent
+      ignore_errors: true
+
+    - name: Add VLAN membership for LAG helper
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        lag_interfaces:
+          - name: "{{ test_lag_id }}"
+            tag: tagged
+        state: merged
+      register: vlan_membership_add
+      ignore_errors: true
+
+    - name: Remove VLAN membership for LAG helper
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        remove_lag_interfaces:
+          - name: "{{ test_lag_id }}"
+            tag: tagged
+        state: merged
+      register: vlan_membership_remove
+      ignore_errors: true
+
+    - name: Attempt ISIS logical interface membership (expected failure)
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        isis_logical_interfaces:
+          - name: "200"
+            tag: tagged
+        state: merged
+      register: vlan_membership_isis
+      ignore_errors: true
+
+    - name: Gather VLAN after membership operations
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+        gather_filter:
+          - "{{ test_vlan_id }}"
+      register: vlan_post_membership
+      ignore_errors: true
+
+    - name: Preview VLAN deletion
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        state: deleted
+      check_mode: true
+      register: vlan_check_absent
+      ignore_errors: true
+
+    - name: Delete coverage VLAN
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        state: deleted
+      register: vlan_delete
+      ignore_errors: true
+
+    - name: Delete helper LAG
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ test_lag_id }}"
+        state: absent
+      register: vlan_lag_delete
+      ignore_errors: true
+
+    - name: Trigger validation error with missing VLAN identifier
+      extreme.fe.extreme_fe_vlans:
+        vlan_name: Broken
+        state: merged
+      register: vlan_invalid_missing_id
+      ignore_errors: true
+
+    - name: Trigger validation error for interface membership definition
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        lag_interfaces:
+          - tag: tagged
+        state: merged
+      register: vlan_invalid_interface
+      ignore_errors: true
+
+    - name: Trigger validation error for tag choice
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ test_vlan_id }}"
+        lag_interfaces:
+          - name: "{{ test_lag_id }}"
+            tag: trunk
+        state: merged
+      register: vlan_invalid_tag
+      ignore_errors: true
+
+    - name: Summarise VLAN coverage outcomes
+      debug:
+        msg:
+          - "Gather all: {{ vlan_gather_all | default({}) }}"
+          - "Gather filtered: {{ vlan_gather_filtered | default({}) }}"
+          - "Check present: {{ vlan_check_present | default({}) }}"
+          - "LAG helper: {{ vlan_lag_helper | default({}) }}"
+          - "Create result: {{ vlan_create | default({}) }}"
+          - "Update result: {{ vlan_update | default({}) }}"
+          - "Membership check: {{ vlan_membership_check | default({}) }}"
+          - "Idempotent apply: {{ vlan_idempotent | default({}) }}"
+          - "Membership add: {{ vlan_membership_add | default({}) }}"
+          - "Membership remove: {{ vlan_membership_remove | default({}) }}"
+          - "Membership ISIS: {{ vlan_membership_isis | default({}) }}"
+          - "Post membership gather: {{ vlan_post_membership | default({}) }}"
+          - "Check absent: {{ vlan_check_absent | default({}) }}"
+          - "Delete result: {{ vlan_delete | default({}) }}"
+          - "LAG delete: {{ vlan_lag_delete | default({}) }}"
+          - "Invalid missing id: {{ vlan_invalid_missing_id | default({}) }}"
+          - "Invalid interface: {{ vlan_invalid_interface | default({}) }}"
+          - "Invalid tag: {{ vlan_invalid_tag | default({}) }}"

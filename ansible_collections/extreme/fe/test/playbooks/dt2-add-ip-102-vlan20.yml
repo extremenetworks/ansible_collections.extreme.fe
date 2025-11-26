@@ -1,0 +1,19 @@
+---
+- name: Configure IP 10.0.1.102/24 on VLAN 20
+  hosts: fe_dt_2_hosts
+  gather_facts: false
+  tasks:
+    - name: Ensure VLAN 20 exists on dt-2
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 20
+        vlan_name: Campus-5
+        vr_name: GlobalRouter
+        state: merged
+    - name: Add IPv4 address on VLAN 20 on dt-2
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - vlan_id: 20
+            name: VLAN 20
+            ipv4:
+              - 10.0.1.102/24

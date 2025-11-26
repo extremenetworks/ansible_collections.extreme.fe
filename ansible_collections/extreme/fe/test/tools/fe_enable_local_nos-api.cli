@@ -1,0 +1,10 @@
+enable
+Configure terminal
+application
+openapi local-mgmt enable
+no iqagent enable
+iqagent enable
+save config
+exit
+exit
+exit

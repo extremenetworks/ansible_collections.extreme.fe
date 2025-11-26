@@ -1,0 +1,11 @@
+---
+- name: Add member ports 10 and 11 to Fabric Engine LAG 10
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  tasks:
+    - name: Add ports 1:10 and 1:11 to LAG 10
+      extreme.fe.extreme_fe_lag:
+        lag_id: 10
+        add_member_ports:
+          - "1:10"
+          - "1:11"

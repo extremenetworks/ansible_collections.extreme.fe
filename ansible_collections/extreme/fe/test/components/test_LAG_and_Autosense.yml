@@ -1,0 +1,71 @@
+# LAG and Autosense tests
+- name: LAG-Autosense - 1.0 - Disable autosense on ports 10 and 11
+  Playbooks:
+  - File: autosense_p10-11_off.yml
+    ok: 2
+    changed: 2
+- name: LAG-Autosense - 1.1 - Create LAG 10 with ports 10 and 11
+  Playbooks:
+  - File: lag_create.yml
+    ok: 1
+    changed: 1
+- name: LAG-Autosense - 1.2 - Add LAG 10 to VLAN 12
+  Playbooks:
+  - File: vlan_add_lag_to_vlan.yml
+    ok: 1
+    changed: 1
+- Name: LAG-Autosense - 1.3 - Add port 1:8 to VLAN 12
+  Playbooks:
+  - File: vlan_12_add_p8.yml
+    ok: 1
+    changed: 1
+- Name: LAG-Autosense - 1.4 - Ping through VLAN / LAG
+  TrafficPCs:
+  - Host: 192.168.5.50
+    Ping:
+      Command: ping
+      Count: 3
+      Destination: 10.0.2.70
+      repeat: 30
+- name: LAG-Autosense - 1.5 - Remove LAG 10 from VLAN
+  Playbooks:
+  - File: vlan_remove_lag.yml
+    ok: 1
+    changed: 1
+- name: LAG-Autosense - 1.6 - Remove LAG 10
+  Playbooks:
+  - File: lag_delete.yml
+    ok: 3
+    changed: 1
+- name: LAG-Autosense - 1.7 - Remove VLAN 12
+  Playbooks:
+  - File: vlan12-delete.yml
+    ok: 1
+    changed: 1
+- name: LAG-Autosense - 1.8 - Enable autosense on ports 10 and 11
+  Playbooks:
+  - File: autosense_p10-11_on.yml
+    ok: 2
+    changed: 2
+- name: LAG-Autosense - 1.9 - Autosense coverage
+  Playbooks:
+  - File: autosense_coverage.yml
+    ok: 10
+    changed: 6
+- name: LAG-Autosense - 1.10 - LAG coverage
+  Playbooks:
+  - File: lag_coverage.yml
+    ok: 16
+    changed: 9
+    ignored: 2
+- Name: LAG-Autosense - 1.11 - Cleanup configuration
+  Playbooks:
+  - File: config_cleanup.yml
+    ok: '*'
+    changed: '*'
+    failed: '*'
+
+- Name: LAG-Autosense - 1.12 - Check configuration
+  Script:
+    File: tools/cmp_cfg
+    fatal: true

@@ -1,0 +1,1 @@
+md5sum voss.qcow2 | awk '{ print $1 }' >voss.qcow2.md5sum
