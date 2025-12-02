@@ -1,0 +1,7 @@
+# Ignore file for ansible-test sanity
+# Format: path/to/file action [version] [!version]
+# See: https://docs.ansible.com/ansible/latest/dev_guide/testing/sanity/ignores.html
+
+# Future ignores can be added here as needed
+# Example:
+# plugins/modules/example_module.py validate-modules:doc-missing-type

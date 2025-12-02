@@ -1,0 +1,8 @@
+---
+# Ansible collection runtime compatibility information
+# See: https://docs.ansible.com/ansible/latest/dev_guide/developing_collections_structure.html#meta-directory-and-runtime-yml
+
+requires_ansible: ">=2.14.0"
+
+plugin_routing:
+  modules: {}

@@ -1,0 +1,46 @@
+---
+# Ansible-lint configuration
+# See: https://ansible.readthedocs.io/projects/lint/configuring/
+
+profile: production
+
+exclude_paths:
+  - .git/
+  - .github/
+  - venv/
+  - .venv/
+  - tests/output/
+  - "*.tar.gz"
+
+# Enable specific rules
+enable_list:
+  - fqcn-builtins
+  - no-log-password
+  - no-same-owner
+
+# Skip specific rules
+skip_list:
+  - yaml[line-length]  # Allow longer lines in YAML
+  - name[missing]      # Not all tasks need names in test playbooks
+  - meta-no-info       # Collection meta already in galaxy.yml
+
+# Warn on these rules instead of failing
+warn_list:
+  - experimental
+  - ignore-errors
+
+# Set specific rule options
+kinds:
+  - playbook: "playbooks/*.{yml,yaml}"
+  - tasks: "playbooks/tasks/*.{yml,yaml}"
+  - vars: "playbooks/vars/*.{yml,yaml}"
+  - meta: "meta/*.{yml,yaml}"
+
+# Offline mode - don't try to install missing collections
+offline: false
+
+# Use default rules directory
+use_default_rules: true
+
+# Parseable output for CI
+parseable: true

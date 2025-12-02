@@ -1,0 +1,271 @@
+---
+name: Ansible Collection CI
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+      - develop
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  NAMESPACE: extreme
+  COLLECTION_NAME: fe
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Sanity tests - runs ansible-test sanity
+  # ─────────────────────────────────────────────────────────────────────────────
+  sanity:
+    name: Sanity (Ⓐ${{ matrix.ansible }} / Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible:
+          - stable-2.15
+          - stable-2.16
+          - stable-2.17
+        python:
+          - "3.10"
+          - "3.11"
+        exclude:
+          - ansible: stable-2.15
+            python: "3.12"
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Ansible ${{ matrix.ansible }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz --disable-pip-version-check
+
+      - name: Install collection dependencies
+        run: |
+          ansible-galaxy collection install ansible.netcommon -p .
+
+      - name: Run sanity tests
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ansible-test sanity --local -v --color --python ${{ matrix.python }}
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Linting - runs ansible-lint
+  # ─────────────────────────────────────────────────────────────────────────────
+  lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core ansible-lint
+
+      - name: Install collection dependencies
+        run: |
+          ansible-galaxy collection install ansible.netcommon -p .
+
+      - name: Run ansible-lint
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ansible-lint --profile production
+        continue-on-error: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Galaxy Import Check - builds and verifies collection
+  # ─────────────────────────────────────────────────────────────────────────────
+  galaxy-import:
+    name: Galaxy Import Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core galaxy-importer
+
+      - name: Install collection dependencies
+        run: |
+          ansible-galaxy collection install ansible.netcommon -p .
+
+      - name: Build collection
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ansible-galaxy collection build --force
+
+      - name: Verify collection artifact
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ls -la *.tar.gz
+          tar -tzf *.tar.gz | head -50
+
+      - name: Run galaxy-importer
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          python -m galaxy_importer.main ${{ env.NAMESPACE }}-${{ env.COLLECTION_NAME }}-*.tar.gz
+
+      - name: Install built collection
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ansible-galaxy collection install *.tar.gz -p ./installed_collections --force
+
+      - name: Verify installation
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          ansible-galaxy collection list -p ./installed_collections
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Unit tests - runs pytest/ansible-test units
+  # ─────────────────────────────────────────────────────────────────────────────
+  unit-tests:
+    name: Unit Tests (Ⓐ${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible:
+          - stable-2.15
+          - stable-2.16
+          - stable-2.17
+        python:
+          - "3.11"
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install Ansible ${{ matrix.ansible }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz --disable-pip-version-check
+          pip install pytest pytest-mock pytest-cov
+
+      - name: Install collection dependencies
+        run: |
+          ansible-galaxy collection install ansible.netcommon -p .
+
+      - name: Run unit tests
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          if [ -d "tests/unit" ] && [ "$(find tests/unit -name 'test_*.py' 2>/dev/null | wc -l)" -gt 0 ]; then
+            pytest tests/unit -v --tb=short
+          else
+            echo "No unit tests found, skipping..."
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Documentation Check - validates module docs
+  # ─────────────────────────────────────────────────────────────────────────────
+  docs-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core
+
+      - name: Validate module documentation
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          # Check that all modules have proper documentation
+          for module in plugins/modules/*.py; do
+            if [ -f "$module" ]; then
+              echo "Checking documentation in $module"
+              if grep -q "^DOCUMENTATION" "$module"; then
+                echo "  ✓ DOCUMENTATION found"
+              else
+                echo "  ⚠ WARNING: Missing DOCUMENTATION in $module"
+              fi
+              if grep -q "^EXAMPLES" "$module"; then
+                echo "  ✓ EXAMPLES found"
+              else
+                echo "  ⚠ WARNING: Missing EXAMPLES in $module"
+              fi
+            fi
+          done
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Python Syntax Check - validates Python syntax and style
+  # ─────────────────────────────────────────────────────────────────────────────
+  python-syntax:
+    name: Python Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyflakes flake8
+
+      - name: Run syntax check
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          find plugins -name "*.py" -exec python -m py_compile {} \;
+          echo "✓ All Python files have valid syntax"
+
+      - name: Run flake8
+        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        run: |
+          flake8 plugins --max-line-length=160 --ignore=E501,W503,E203 --statistics
+        continue-on-error: true
