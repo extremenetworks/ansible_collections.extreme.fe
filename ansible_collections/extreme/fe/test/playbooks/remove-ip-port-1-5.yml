@@ -1,0 +1,21 @@
+---
+- name: Remove routed IPv4 address from port 1:5 (VLAN 105)
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Keep port 1:5 as access member of VLAN 105
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:5
+        port_type: ACCESS
+        untagged_vlan: 105
+        tagged_vlans: []
+        state: replaced
+
+    - name: Delete IPv4 address from VLAN 105 for port 1:5
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: deleted
+        config:
+          - vlan_id: 105
+            name: VLAN 105
+            ipv4:
+              - 192.0.2.5/24

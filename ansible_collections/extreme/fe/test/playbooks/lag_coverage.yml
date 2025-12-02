@@ -1,0 +1,157 @@
+---
+- name: Exercise Fabric Engine LAG module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    lag_test_id: 390
+    lag_test_name: LogCoverage-Initial
+    lag_updated_name: LogCoverage-Updated
+    lag_ports_desired:
+      - "1:13"
+      - "1:14"
+    lag_ports_additional:
+      - "1:15"
+    lag_ports_remove:
+      - "1:16"
+
+  tasks:
+    - name: Disable auto-sense port 1:13, 1:14, 1:15, 1:16
+      extreme.fe.extreme_fe_autosense:
+        ports:
+          - name: "1:13"
+            enable: false
+          - name: "1:14"
+            enable: false
+          - name: "1:15"
+            enable: false
+          - name: "1:16"
+            enable: false
+    - name: Gather full LAG inventory
+      extreme.fe.extreme_fe_lag:
+        state: gathered
+      register: all_lags
+      # ignore_errors: true
+
+    - name: Gather specific LAG that may not exist
+      extreme.fe.extreme_fe_lag:
+        state: gathered
+        gather_filter:
+          - "{{ lag_test_id }}"
+      register: filtered_lag
+      # ignore_errors: true
+
+    - name: Create baseline LAG for coverage
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        name: "{{ lag_test_name }}"
+        mode: LACP
+        lacp_key: "{{ lag_test_id }}"
+      register: create_lag_result
+      # ignore_errors: true
+
+    - name: Simulate membership changes in check mode
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        member_ports: "{{ lag_ports_desired }}"
+        add_member_ports: "{{ lag_ports_additional }}"
+        remove_member_ports: "{{ lag_ports_remove }}"
+        purge_member_ports: true
+      register: check_mode_membership
+      check_mode: true
+      # ignore_errors: true
+
+    - name: Update LAG descriptive attributes
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        name: "{{ lag_updated_name }}"
+        lacp_key: "{{ lag_test_id + 10 }}"
+        load_balance_algo: L3_L4
+      register: update_lag_result
+      # ignore_errors: true
+
+    - name: Attempt unsupported mode change (expected failure)
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        mode: STATIC
+      register: mode_change_failure
+      ignore_errors: true
+
+    - name: Try adding member ports on live device (may fail if ports absent)
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        add_member_ports: "{{ lag_ports_additional }}"
+      register: live_add_members
+      # ignore_errors: true
+
+    - name: Try removing member ports on live device
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        remove_member_ports: "{{ lag_ports_remove }}"
+      register: live_remove_members
+      # ignore_errors: true
+
+    - name: Purge membership with empty desired list
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        member_ports: []
+        purge_member_ports: true
+      register: purge_membership_result
+      # ignore_errors: true
+
+    - name: Run check mode deletion preview
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        state: deleted
+      register: check_mode_absent
+      check_mode: true
+      # ignore_errors: true
+
+    - name: Delete test LAG to clean up
+      extreme.fe.extreme_fe_lag:
+        lag_id: "{{ lag_test_id }}"
+        state: deleted
+      register: delete_lag_result
+      # ignore_errors: true
+
+    - name: Confirm LAG removal via gather
+      extreme.fe.extreme_fe_lag:
+        state: gathered
+        gather_filter:
+          - "{{ lag_test_id }}"
+      register: post_delete_check
+      # ignore_errors: true
+
+    - name: Trigger validation error with invalid identifier
+      extreme.fe.extreme_fe_lag:
+        lag_id: false
+        state: merged
+      register: invalid_id_response
+      ignore_errors: true
+
+    - name: Summarise LAG coverage outcomes
+      debug:
+        msg:
+          - "Initial gather: {{ all_lags | default({}) }}"
+          - "Filtered gather: {{ filtered_lag | default({}) }}"
+          - "Create result: {{ create_lag_result | default({}) }}"
+          - "Check-mode membership: {{ check_mode_membership | default({}) }}"
+          - "Update result: {{ update_lag_result | default({}) }}"
+          - "Mode change attempt: {{ mode_change_failure | default({}) }}"
+          - "Live add members: {{ live_add_members | default({}) }}"
+          - "Live remove members: {{ live_remove_members | default({}) }}"
+          - "Purge membership: {{ purge_membership_result | default({}) }}"
+          - "Check absent: {{ check_mode_absent | default({}) }}"
+          - "Delete result: {{ delete_lag_result | default({}) }}"
+          - "Post-delete gather: {{ post_delete_check | default({}) }}"
+          - "Invalid id response: {{ invalid_id_response | default({}) }}"
+    - name: Enable auto-sense port 1:13, 1:14, 1:15, 1:16
+      extreme.fe.extreme_fe_autosense:
+        ports:
+          - name: "1:13"
+            enable: true
+          - name: "1:14"
+            enable: true
+          - name: "1:15"
+            enable: true
+          - name: "1:16"
+            enable: true

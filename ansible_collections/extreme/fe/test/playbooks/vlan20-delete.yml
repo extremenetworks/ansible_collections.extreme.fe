@@ -1,0 +1,10 @@
+---
+- name: Delete VLAN 20 on ExtremeNetworks Fabric Engine switches
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Remove VLAN 20 if present
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 20
+        vr_name: GlobalRouter
+        state: deleted

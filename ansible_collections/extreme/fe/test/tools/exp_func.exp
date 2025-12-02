@@ -1,0 +1,208 @@
+# Common helper procedures for Fabric Engine Expect automation
+
+if {![info exists ::fe_disconnect_expected]} {
+    set ::fe_disconnect_expected 0
+}
+if {![info exists ::fe_disconnect_expected_ip]} {
+    set ::fe_disconnect_expected_ip ""
+}
+
+proc get_known_hosts_path {} {
+    if {[info exists ::env(HOME)]} {
+        return [file join $::env(HOME) ".ssh" "known_hosts"]
+    }
+    return "~/.ssh/known_hosts"
+}
+
+proc remove_host_key {known_hosts ip} {
+    if {[catch {exec ssh-keygen -f $known_hosts -R $ip} msg]} {
+        puts stderr $msg
+    } else {
+        puts $msg
+    }
+}
+
+proc command_expects_disconnect {cmd} {
+    # Detect commands that intentionally drop the SSH session (for example, device reboots).
+    set lowered [string tolower $cmd]
+    foreach keyword {reset reboot reload shutdown "power-off" "power off"} {
+        if {[string match "*$keyword*" $lowered]} {
+            return 1
+        }
+    }
+    return 0
+}
+
+proc connect_ssh {ip user pass known_hosts {prompt {\r\n.*[#>$] *$}} {attempt 1}} {
+    global spawn_id
+    if {$attempt > 3} {
+        puts stderr "Exceeded maximum attempts to connect to $ip"
+        exit 1
+    }
+
+    puts "Connecting to $user@$ip (attempt $attempt)..."
+    spawn ssh $user@$ip
+
+    while {1} {
+        expect {
+            -re "Are you sure you want to continue connecting.*" {
+                send -- "yes\r"
+                exp_continue
+            }
+            -re "Please type 'yes' or 'no':" {
+                send -- "yes\r"
+                exp_continue
+            }
+            -re "Please type 'yes', 'no' or the fingerprint:" {
+                send -- "yes\r"
+                exp_continue
+            }
+            -re "REMOTE HOST IDENTIFICATION HAS CHANGED" {
+                puts stderr "Host key mismatch detected for $ip. Removing stale key and retrying..."
+                close
+                wait
+                remove_host_key $known_hosts $ip
+                return [connect_ssh $ip $user $pass $known_hosts $prompt [expr {$attempt + 1}]]
+            }
+            -re "Host key verification failed" {
+                puts stderr "Host key verification failed for $ip. Cleaning entry and retrying..."
+                close
+                wait
+                remove_host_key $known_hosts $ip
+                return [connect_ssh $ip $user $pass $known_hosts $prompt [expr {$attempt + 1}]]
+            }
+            -re "(?i)password:" {
+                send -- "$pass\r"
+                exp_continue
+            }
+            -re "Permission denied" {
+                puts stderr "Authentication failed for $user@$ip"
+                exit 1
+            }
+            -re $prompt {
+                return $spawn_id
+            }
+            eof {
+                if {$::fe_disconnect_expected && $::fe_disconnect_expected_ip eq $ip} {
+                    puts "Connection to $ip closed after expected session termination."
+                    return ""
+                }
+                puts stderr "Connection to $ip closed unexpectedly"
+                exit 1
+            }
+            timeout {
+                puts stderr "Connection to $ip timed out"
+                exit 1
+            }
+        }
+    }
+}
+
+proc run_cli_commands {commands {prompt {\r\n.*[#>$] *$}}} {
+    set ::fe_disconnect_expected 0
+    set filtered {}
+    foreach raw_cmd $commands {
+        set cmd [string trim $raw_cmd]
+        if {$cmd eq ""} {
+            continue
+        }
+        lappend filtered $cmd
+    }
+
+    if {[llength $filtered] == 0} {
+        puts "No CLI commands to execute."
+        return 0
+    }
+
+    set index 0
+    set total [llength $filtered]
+    set disconnect_triggered 0
+    foreach cmd $filtered {
+        incr index
+        puts "Executing: $cmd"
+        send -- "$cmd\r"
+
+        set expects_disconnect [command_expects_disconnect $cmd]
+        if {$expects_disconnect} {
+            set ::fe_disconnect_expected 1
+        }
+        if {[info exists ::timeout]} {
+            set original_timeout $::timeout
+        } else {
+            set original_timeout 10
+        }
+        if {$expects_disconnect && $original_timeout < 180} {
+            set ::timeout 180
+        }
+
+        set command_completed 0
+        while {!$command_completed} {
+            expect {
+                -re "--More--" {
+                    send " "
+                    exp_continue
+                }
+                -re $prompt {
+                    if {$expects_disconnect} {
+                        set ::fe_disconnect_expected 0
+                    }
+                    set command_completed 1
+                }
+                eof {
+                    if {$expects_disconnect || $index == $total} {
+                        if {$expects_disconnect} {
+                            puts "Connection closed after '$cmd' (expected)."
+                        }
+                        set disconnect_triggered 1
+                        set command_completed 1
+                    } else {
+                        puts stderr "Connection closed unexpectedly while running '$cmd'"
+                        set ::timeout $original_timeout
+                        return 1
+                    }
+                }
+                timeout {
+                    if {$expects_disconnect} {
+                        puts "No prompt returned after '$cmd'; assuming the device is rebooting."
+                        set disconnect_triggered 1
+                        set command_completed 1
+                    } else {
+                        puts stderr "Timed out waiting for prompt after '$cmd'"
+                        set ::timeout $original_timeout
+                        return 1
+                    }
+                }
+            }
+        }
+
+        set ::timeout $original_timeout
+        if {$disconnect_triggered} {
+            break
+        }
+    }
+
+    # Give the session a moment to close cleanly if the final command terminated it.
+    if {[info exists ::timeout]} {
+        set saved_timeout $::timeout
+    } else {
+        set saved_timeout 10
+    }
+    set ::timeout 5
+    if {[catch {
+        expect {
+            eof {}
+            timeout {}
+        }
+    } err]} {
+        if {![string match "spawn id * not open" $err]} {
+            puts stderr $err
+        }
+    }
+    set ::timeout $saved_timeout
+    if {$disconnect_triggered} {
+        catch {close}
+        catch {wait}
+    }
+    set ::fe_disconnect_expected 0
+    return 0
+}

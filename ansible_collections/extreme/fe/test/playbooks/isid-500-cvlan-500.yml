@@ -1,0 +1,18 @@
+---
+- name: Create ISID 500 mapped to CVLAN 500
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Ensure CVLAN 500 exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 500
+        vlan_name: Campus-500
+        vr_name: GlobalRouter
+        state: merged
+
+    - name: Ensure ISID 500 is bound to CVLAN 500
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: 500
+        cvlan: 500
+        name: Campus-500 Service
+        state: merged
