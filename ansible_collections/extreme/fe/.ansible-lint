@@ -1,0 +1,33 @@
+# .ansible-lint configuration for extreme.fe collection
+---
+profile: production
+
+# Exclude paths from linting
+exclude_paths:
+  - test/
+  - tests/
+  - .github/
+  - .cache/
+
+# Skip specific rules if needed
+skip_list:
+  - meta-no-info  # galaxy.yml is at collection root
+  - yaml[line-length]
+
+# Enable optional rules
+enable_list:
+  - no-log-password
+  - no-same-owner
+
+# Warn about rules rather than fail
+warn_list:
+  - experimental
+  - role-name
+
+# Customize for network modules
+kinds:
+  - playbook: "**/playbooks/*.{yml,yaml}"
+  - tasks: "**/tasks/*.{yml,yaml}"
+
+# Offline mode - don't try to download roles/collections
+offline: true

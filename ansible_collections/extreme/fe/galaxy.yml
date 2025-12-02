@@ -1,0 +1,27 @@
+---
+namespace: extreme
+name: fe
+version: 1.0.0
+readme: README.md
+authors:
+  - ExtremeNetworks Networking Automation Team
+description: Ansible Collection for ExtremeNetworks Fabric Engine (VOSS) switches
+license_file: LICENSE
+tags:
+  - networking
+  - extreme
+  - fabric_engine
+  - voss
+  - switch
+dependencies:
+  ansible.netcommon: ">=2.0.0"
+repository: https://github.com/extremenetworks/ansible_collections.extreme.fe
+documentation: https://github.com/extremenetworks/ansible_collections.extreme.fe
+homepage: https://github.com/extremenetworks/ansible_collections.extreme.fe
+issues: https://github.com/extremenetworks/ansible_collections.extreme.fe/issues
+build_ignore:
+  - test/gns3_images
+  - test/docker
+  - test/.coverage
+  - "*.pyc"
+  - __pycache__
