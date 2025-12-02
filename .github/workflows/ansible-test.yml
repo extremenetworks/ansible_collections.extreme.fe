@@ -212,31 +212,18 @@ jobs:
           for module in plugins/modules/*.py; do
             if [ -f "$module" ]; then
               echo "Checking documentation in $module"
-              python -c "
-import ast
-import sys
-
-with open('$module', 'r') as f:
-    content = f.read()
-
-tree = ast.parse(content)
-has_doc = False
-has_examples = False
-
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign):
-        for target in node.targets:
-            if isinstance(target, ast.Name):
-                if target.id == 'DOCUMENTATION':
-                    has_doc = True
-                elif target.id == 'EXAMPLES':
-                    has_examples = True
-
-if not has_doc:
-    print('WARNING: Missing DOCUMENTATION in $module')
-if not has_examples:
-    print('WARNING: Missing EXAMPLES in $module')
-"
+              # Check for DOCUMENTATION string
+              if grep -q "^DOCUMENTATION" "$module"; then
+                echo "  ✓ DOCUMENTATION found"
+              else
+                echo "  WARNING: Missing DOCUMENTATION in $module"
+              fi
+              # Check for EXAMPLES string
+              if grep -q "^EXAMPLES" "$module"; then
+                echo "  ✓ EXAMPLES found"
+              else
+                echo "  WARNING: Missing EXAMPLES in $module"
+              fi
             fi
           done
         working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
