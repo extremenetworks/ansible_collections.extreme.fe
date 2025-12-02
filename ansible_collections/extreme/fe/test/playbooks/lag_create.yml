@@ -1,0 +1,14 @@
+---
+- name: Create LAG 10 with ports 10 and 11
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  tasks:
+    - name: Create LAG 10 with two member ports
+      extreme.fe.extreme_fe_lag:
+        lag_id: 10
+        name: Uplink-LAG-10
+        mode: STATIC
+        lacp_key: "10"
+        member_ports:
+          - "1:10"
+          - "1:11"

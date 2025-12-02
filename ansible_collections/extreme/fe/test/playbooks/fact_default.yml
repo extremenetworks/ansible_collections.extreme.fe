@@ -1,0 +1,14 @@
+---
+- name: Gather default Fabric Engine facts
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Collect default subset
+      extreme.fe.extreme_fe_facts:
+        gather_subset:
+          - default
+      register: fe_default
+
+    - name: Show default facts
+      debug:
+        var: fe_default.ansible_facts.extreme_fe_facts.default

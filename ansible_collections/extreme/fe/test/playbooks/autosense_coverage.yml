@@ -1,0 +1,125 @@
+---
+- name: Exercise Fabric Engine auto-sense module end-to-end
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    autosense_test_port: "1:15"
+  tasks:
+    - name: Ensure CVLAN 500 exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 500
+        vlan_name: Campus-500
+        vr_name: GlobalRouter
+        state: merged
+    - name: 01.00 - Create ISID 200 and bind it to VLAN 500
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: 200
+        cvlan: 500
+        name: Campus-500 Service
+        state: merged
+    - name: Gather existing auto-sense configuration for the test port
+      extreme.fe.extreme_fe_autosense:
+        state: gathered
+        gather_filter:
+          - "{{ autosense_test_port }}"
+        gather_state: true
+      register: autosense_before
+
+    - name: Record baseline auto-sense values
+      set_fact:
+        autosense_original_global: >-
+          {{ autosense_before.global_settings | default({}) }}
+        autosense_original_port: >-
+          {{ (
+               autosense_before.ports_settings
+               | selectattr('name', 'equalto', autosense_test_port)
+               | map(attribute='settings')
+               | list
+               | first
+             )
+             | default({}) }}
+
+    - name: Calculate auto-sense helper values
+      set_fact:
+        autosense_dhcp_original: >-
+          {{ (autosense_original_global.dhcp_detection_enabled | default(true))
+             | bool }}
+        autosense_wait_original: >-
+          {{ (autosense_original_global.wait_interval | default(30)) | int }}
+        autosense_fa_msg_original: >-
+          {{ (autosense_original_global.fabric_attach.msg_auth_enabled
+             | default(true))
+             | bool }}
+        autosense_port_enable_original: >-
+          {{ (autosense_original_port.enable | default(true)) | bool }}
+        autosense_port_wait_original: >-
+          {{ (autosense_original_port.wait_interval | default(35)) | int }}
+        autosense_port_nsi_original: >-
+          {{ (autosense_original_port.nsi | default(0)) | int }}
+
+    - name: Derive auto-sense test payloads
+      set_fact:
+        autosense_global_test:
+          dhcp_detection_enabled: >-
+            {{ (autosense_dhcp_original | ternary(false, true)) | bool }}
+          wait_interval: >-
+            {{ ((autosense_wait_original == 30) | ternary(45, 30)) | int }}
+          fabric_attach:
+            msg_auth_enabled: >-
+              {{ (autosense_fa_msg_original | ternary(false, true)) | bool }}
+        autosense_global_restore:
+          dhcp_detection_enabled: >-
+            {{ autosense_dhcp_original | bool }}
+          wait_interval: >-
+            {{ autosense_wait_original | int }}
+          fabric_attach:
+            msg_auth_enabled: >-
+              {{ autosense_fa_msg_original | bool }}
+        autosense_port_test:
+          enable: >-
+            {{ (autosense_port_enable_original | ternary(false, true)) | bool }}
+          wait_interval: >-
+            {{ ((autosense_port_wait_original == 35) | ternary(28, 35)) | int }}
+          nsi: >-
+            {{ ((autosense_port_nsi_original == 0) | ternary(200, 0)) | int }}
+        autosense_port_restore:
+          enable: >-
+            {{ autosense_port_enable_original | bool }}
+          wait_interval: >-
+            {{ autosense_port_wait_original | int }}
+          nsi: >-
+            {{ autosense_port_nsi_original | int }}
+
+    - name: Apply auto-sense test configuration
+      extreme.fe.extreme_fe_autosense:
+        global_settings: "{{ autosense_global_test }}"
+        ports:
+          - name: "{{ autosense_test_port }}"
+            enable: "{{ autosense_port_test.enable | bool }}"
+            wait_interval: "{{ autosense_port_test.wait_interval | int }}"
+            nsi: "{{ autosense_port_test.nsi | int }}"
+        gather_state: true
+        gather_filter:
+          - "{{ autosense_test_port }}"
+      register: autosense_after
+
+    - name: Restore baseline auto-sense configuration
+      extreme.fe.extreme_fe_autosense:
+        global_settings: "{{ autosense_global_restore }}"
+        ports:
+          - name: "{{ autosense_test_port }}"
+            enable: "{{ autosense_port_restore.enable | bool }}"
+            wait_interval: "{{ autosense_port_restore.wait_interval | int }}"
+            nsi: "{{ autosense_port_restore.nsi | int }}"
+        gather_state: true
+        gather_filter:
+          - "{{ autosense_test_port }}"
+    - name: 01.00 - Unbind ISID 200
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: 200
+        cvlan: 500
+        state: deleted
+    - name: 01.11 - Delete CVLAN 500
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 500
+        state: deleted

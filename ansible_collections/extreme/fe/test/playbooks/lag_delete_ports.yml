@@ -1,0 +1,11 @@
+---
+- name: Remove member ports from Fabric Engine LAG 10
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Remove ports 1:5 and 1:6 from LAG 10
+      extreme.fe.extreme_fe_lag:
+        lag_id: 10
+        remove_member_ports:
+          - "1:5"
+          - "1:6"

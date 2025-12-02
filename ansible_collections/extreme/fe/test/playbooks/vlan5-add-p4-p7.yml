@@ -1,0 +1,57 @@
+---
+- name: Configure VLAN 5 on ports 1:4 and 1:7 (TRUNK)
+  hosts: gns3_network
+  gather_facts: false
+  collections:
+    - local.extreme_fe
+  vars:
+    target_vlans: [5]
+  tasks:
+    - name: Ensure VLAN exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ vlan_id | int }}"
+        vlan_name: "Campus-{{ vlan_id }}"
+        vr_name: GlobalRouter
+        state: merged
+      loop: "{{ target_vlans }}"
+      loop_control:
+        loop_var: vlan_id
+        label: "VLAN {{ vlan_id }}"
+
+    - name: Configure interface 1:7 for VLAN 5 access
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:4
+        port_type: ACCESS
+        untagged_vlan: 5
+        tagged_vlans: []
+        state: replaced
+
+    - name: Configure interface 1:4 for VLAN 5 access
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:7
+        port_type: ACCESS
+        untagged_vlan: 5
+        tagged_vlans: []
+        state: replaced
+
+    - name: Update VLAN 5
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 5
+        vlan_name: Campus-Test
+        vr_name: GlobalRouter
+        state: merged
+
+    - name: Ensure VLAN 6 exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 6
+        vlan_name: C-6
+        vr_name: GlobalRouter
+        state: merged
+
+    - name: Ensure VLAN 6 exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 6
+        vlan_name: CC-6
+        stp_name: tata
+        vr_name: GlobalRouter
+        state: merged

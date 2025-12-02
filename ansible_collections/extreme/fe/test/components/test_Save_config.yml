@@ -1,0 +1,17 @@
+# Save config tests
+- name: Save-config 1.0 - Save config basic
+  Playbooks:
+  - File: save_config.yml
+    ok: 2
+    changed: 1
+- name: Save-config 1.1 - Save config coverage
+  Playbooks:
+  - File: save_config_coverage.yml
+    ok: 13
+    changed: 4
+    failed: "*"
+
+- Name: Save-config 1.2 - Check configuration
+  Script:
+    File: tools/cmp_cfg
+    fatal: true

@@ -1,0 +1,14 @@
+---
+- name: Gather Fabric Engine hardware facts
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Collect hardware subset
+      extreme.fe.extreme_fe_facts:
+        gather_subset:
+          - hardware
+      register: fe_hardware
+
+    - name: Show hardware facts
+      debug:
+        var: fe_hardware.ansible_facts.extreme_fe_facts.hardware

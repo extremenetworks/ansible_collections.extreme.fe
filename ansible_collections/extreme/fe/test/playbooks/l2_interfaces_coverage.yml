@@ -1,0 +1,127 @@
+---
+- name: Exercise Fabric Engine L2 interface module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    l2_interface: "PORT:1:8"
+    l2_interface_type: "PORT"
+    l2_interface_name: "1:8"
+    trunk_vlans_initial:
+      - 3500
+      - 3501
+    l2_extra_vlan: 3502
+    l2_vlan_pool: "{{ trunk_vlans_initial + [l2_extra_vlan] }}"
+  tasks:
+    - name: Ensure L2 coverage VLANs exist
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ item }}"
+        vlan_name: "L2-Coverage-{{ item }}"
+        state: merged
+      loop: "{{ l2_vlan_pool }}"
+      register: l2_vlan_results
+
+    - name: Gather baseline interface membership
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        state: gathered
+      register: l2_gather_before
+      ignore_errors: true
+
+    - name: Preview trunk configuration in check mode
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        port_type: TRUNK
+        tagged_vlans: "{{ trunk_vlans_initial }}"
+        untagged_vlan: 0
+        state: replaced
+      check_mode: true
+      register: l2_preview
+
+    - name: Assert preview payload structure
+      ansible.builtin.assert:
+        that:
+          - l2_preview.changed | bool
+          - l2_preview.interface.portType == 'TRUNK'
+          - >
+            l2_preview.interface.allowedVlans | length ==
+            trunk_vlans_initial | length
+        fail_msg: >-
+          L2 interface preview did not return expected trunk values
+
+    - name: Apply trunk configuration to interface
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        port_type: TRUNK
+        tagged_vlans: "{{ trunk_vlans_initial }}"
+        untagged_vlan: 0
+        state: replaced
+      register: l2_trunk_apply
+      ignore_errors: true
+
+    - name: Add extra VLAN using string payload
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        add_tagged_vlans: "{{ l2_extra_vlan }}"
+        state: merged
+      register: l2_add_vlan
+      ignore_errors: true
+
+    - name: Remove extra VLAN using implicit string
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        remove_tagged_vlans: "{{ l2_extra_vlan }}"
+        state: merged
+      register: l2_remove_vlan
+      ignore_errors: true
+
+    - name: Clear tagged VLANs via absent state
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface_type: "{{ l2_interface_type }}"
+        interface_name: "{{ l2_interface_name }}"
+        state: deleted
+        tagged_vlans: "{{ trunk_vlans_initial }}"
+      register: l2_absent
+      ignore_errors: true
+
+    - name: Gather interface membership after operations
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        state: gathered
+      register: l2_gather_after
+      ignore_errors: true
+
+    - name: Trigger failure with empty interface definition
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: ""
+        state: merged
+      register: l2_empty_interface
+      ignore_errors: true
+
+    - name: Trigger VLAN conversion failure
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ l2_interface }}"
+        tagged_vlans: abc
+        state: merged
+      register: l2_bad_vlan
+      ignore_errors: true
+
+    - name: Remove coverage VLANs
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ item }}"
+        state: deleted
+      loop: "{{ l2_vlan_pool }}"
+      ignore_errors: true
+
+    - name: Summarise L2 coverage results
+      ansible.builtin.debug:
+        msg:
+          - "VLAN prep: {{ l2_vlan_results | default({}) }}"
+          - "Gather before: {{ l2_gather_before | default({}) }}"
+          - "Preview: {{ l2_preview | default({}) }}"
+          - "Apply: {{ l2_trunk_apply | default({}) }}"
+          - "Add VLAN: {{ l2_add_vlan | default({}) }}"
+          - "Remove VLAN: {{ l2_remove_vlan | default({}) }}"
+          - "Absent: {{ l2_absent | default({}) }}"
+          - "Gather after: {{ l2_gather_after | default({}) }}"
+          - "Empty interface error: {{ l2_empty_interface | default({}) }}"
+          - "Bad VLAN error: {{ l2_bad_vlan | default({}) }}"

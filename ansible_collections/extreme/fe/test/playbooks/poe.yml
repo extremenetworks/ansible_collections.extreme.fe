@@ -1,0 +1,48 @@
+---
+- name: Manage PoE settings on Fabric Engine ports
+  hosts: fe_dt_1_hosts
+  gather_facts: false
+  vars:
+    target_port: "1:10"
+  tasks:
+    - name: Gather current PoE information for target port
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+        config:
+          - port: "{{ target_port }}"
+      register: poe_initial
+
+    - name: Ensure PoE features enabled with custom parameters
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ target_port }}"
+            enable: true
+            power_limit: 42000
+            priority: HIGH
+            fast_poe: true
+            perpetual_poe: true
+      register: poe_configured
+
+    - name: Disable PoE on target port
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ target_port }}"
+            enable: false
+      register: poe_disabled
+
+    - name: Re-enable PoE on target port
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ target_port }}"
+            enable: true
+      register: poe_reenabled
+
+    - name: Validate PoE re-enabled state
+      ansible.builtin.assert:
+        that:
+          - poe_reenabled.changed | bool
+          - poe_reenabled.ports[0].current.enable | bool
+        success_msg: "PoE power successfully re-enabled on {{ target_port }}"

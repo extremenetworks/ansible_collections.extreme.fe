@@ -1,0 +1,43 @@
+---
+- name: Configure interface attributes for ports 1:5 and 1:6
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Create VLAN 310, add port 1:5
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 310
+        vlan_name: Port-vlan
+        vr_name: GlobalRouter
+        state: merged
+    - name: Configure interface 1:5 for VLAN 310 access
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:5
+        port_type: ACCESS
+        untagged_vlan: 310
+        tagged_vlans: []
+        state: replaced
+    - name: Apply per-port settings
+      extreme.fe.extreme_fe_interfaces:
+        state: replaced
+        ports:
+          - name: "1:5"
+            description: "Compute host uplink"
+            auto_negotiation: false
+            speed: 100M
+            duplex: FULL_DUPLEX
+            flow_control: ENABLE
+            port_mode: true
+            native_vlan: 310
+            ip_arp_inspection_trusted: true
+          - name: "1:6"
+            description: "Compute host uplink backup"
+            auto_negotiation: true
+            eee: true
+            debounce_timer: 0
+            flow_control: DISABLE
+            port_mode: false
+    - name: Remove VLAN 310
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 310
+        vr_name: GlobalRouter
+        state: deleted
