@@ -16,6 +16,8 @@ on:
 env:
   NAMESPACE: extreme
   COLLECTION_NAME: fe
+  # The collection is nested inside ansible_collections/extreme/fe in the repo
+  COLLECTION_PATH: ansible_collections/extreme/fe
 
 jobs:
   sanity:
@@ -25,23 +27,25 @@ jobs:
       fail-fast: false
       matrix:
         ansible:
-          - stable-2.14
           - stable-2.15
           - stable-2.16
           - stable-2.17
         python:
           - "3.10"
           - "3.11"
-          - "3.12"
         exclude:
-          # Exclude unsupported combinations
-          - ansible: stable-2.14
+          - ansible: stable-2.15
             python: "3.12"
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up proper collection structure
+        run: |
+          # Create the proper Ansible collection directory structure
+          mkdir -p ~/.ansible/collections/ansible_collections/${{ env.NAMESPACE }}
+          # Link the nested collection to the proper location
+          ln -s ${{ github.workspace }}/${{ env.COLLECTION_PATH }} ~/.ansible/collections/ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
@@ -55,12 +59,12 @@ jobs:
 
       - name: Install collection dependencies
         run: |
-          ansible-galaxy collection install ansible.netcommon -p .
+          ansible-galaxy collection install ansible.netcommon
 
       - name: Run sanity tests
         run: |
           ansible-test sanity --local -v --color --python ${{ matrix.python }}
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
   lint:
     name: Ansible Lint
@@ -68,8 +72,6 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -83,13 +85,13 @@ jobs:
 
       - name: Install collection dependencies
         run: |
-          ansible-galaxy collection install ansible.netcommon -p .
+          ansible-galaxy collection install ansible.netcommon
 
       - name: Run ansible-lint
         run: |
           ansible-lint --profile production
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
-        continue-on-error: true  # Allow lint warnings initially
+        working-directory: ${{ env.COLLECTION_PATH }}
+        continue-on-error: true
 
   galaxy-import:
     name: Galaxy Import Check
@@ -97,8 +99,6 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -112,28 +112,28 @@ jobs:
 
       - name: Install collection dependencies
         run: |
-          ansible-galaxy collection install ansible.netcommon -p .
+          ansible-galaxy collection install ansible.netcommon
 
       - name: Build collection
         run: |
           ansible-galaxy collection build --force
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
       - name: Verify collection artifact
         run: |
           ls -la *.tar.gz
           tar -tzf *.tar.gz | head -50
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
       - name: Install built collection
         run: |
           ansible-galaxy collection install *.tar.gz -p ./installed_collections --force
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
       - name: Verify installation
         run: |
           ansible-galaxy collection list -p ./installed_collections
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
   unit-tests:
     name: Unit Tests (Ⓐ${{ matrix.ansible }})
@@ -150,8 +150,11 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up proper collection structure
+        run: |
+          mkdir -p ~/.ansible/collections/ansible_collections/${{ env.NAMESPACE }}
+          ln -s ${{ github.workspace }}/${{ env.COLLECTION_PATH }} ~/.ansible/collections/ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
@@ -166,13 +169,13 @@ jobs:
 
       - name: Install collection dependencies
         run: |
-          ansible-galaxy collection install ansible.netcommon -p .
+          ansible-galaxy collection install ansible.netcommon
 
       - name: Create unit test directory structure
         run: |
           mkdir -p tests/unit/plugins/modules
           mkdir -p tests/unit/plugins/httpapi
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
       - name: Run unit tests
         run: |
@@ -181,7 +184,7 @@ jobs:
           else
             echo "No unit tests found, skipping..."
           fi
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
   docs-check:
     name: Documentation Check
@@ -189,8 +192,6 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -204,7 +205,7 @@ jobs:
 
       - name: Install collection dependencies
         run: |
-          ansible-galaxy collection install ansible.netcommon -p .
+          ansible-galaxy collection install ansible.netcommon
 
       - name: Validate module documentation
         run: |
@@ -212,13 +213,11 @@ jobs:
           for module in plugins/modules/*.py; do
             if [ -f "$module" ]; then
               echo "Checking documentation in $module"
-              # Check for DOCUMENTATION string
               if grep -q "^DOCUMENTATION" "$module"; then
                 echo "  ✓ DOCUMENTATION found"
               else
                 echo "  WARNING: Missing DOCUMENTATION in $module"
               fi
-              # Check for EXAMPLES string
               if grep -q "^EXAMPLES" "$module"; then
                 echo "  ✓ EXAMPLES found"
               else
@@ -226,7 +225,7 @@ jobs:
               fi
             fi
           done
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
   python-syntax:
     name: Python Syntax Check
@@ -234,8 +233,6 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v4
-        with:
-          path: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -249,13 +246,12 @@ jobs:
 
       - name: Run syntax check
         run: |
-          # Basic Python syntax validation
           find plugins -name "*.py" -exec python -m py_compile {} \;
           echo "All Python files have valid syntax"
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
 
       - name: Run flake8 (warnings only)
         run: |
           flake8 plugins --max-line-length=160 --ignore=E501,W503,E203 --statistics || true
-        working-directory: ansible_collections/${{ env.NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        working-directory: ${{ env.COLLECTION_PATH }}
         continue-on-error: true
