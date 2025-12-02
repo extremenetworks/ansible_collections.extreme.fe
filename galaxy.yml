@@ -11,9 +11,6 @@ description: >-
   via REST API. Provides modules for auto-sense, interfaces, VLANs, LAG, MLAG,
   PoE, and other network configuration tasks.
 
-license:
-  - Apache-2.0
-
 license_file: LICENSE
 
 tags:
