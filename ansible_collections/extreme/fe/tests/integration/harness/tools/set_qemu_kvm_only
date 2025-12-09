@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# set_qemu_kvm_only - Set QEMU to use KVM without -cpu host
+#
+# Removes the problematic "-cpu host" flag from nodes in a GNS3 project
+# that causes boot failures in nested virtualization.
+#
+# Usage: ./set_qemu_kvm_only [project_name]
+#        If no project name is provided, uses GNS3_PROJECT_NAME from gns3.cfg
+#
+
+# Load GNS3 configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../cfg/gns3.cfg" 2>/dev/null || {
+    # Fallback defaults if gns3.cfg not found
+    GNS3_SERVER_HOST="${GNS3_SERVER_HOST:-localhost}"
+    GNS3_SERVER_PORT="${GNS3_SERVER_PORT:-3080}"
+    GNS3_PROJECT_NAME="${GNS3_PROJECT_NAME:-Ansible-test1}"
+}
+
+# Use command line argument if provided, otherwise use config
+PROJECT_NAME="${1:-$GNS3_PROJECT_NAME}"
+
+GNS3_API="http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2"
+
+echo "=== Setting QEMU options to KVM only (removing -cpu host) ==="
+echo "GNS3 API: ${GNS3_API}"
+echo "Project: ${PROJECT_NAME}"
+echo ""
+
+# Get project UUID
+PROJECT_ID=$(curl -s "${GNS3_API}/projects" | jq -r ".[] | select(.name == \"${PROJECT_NAME}\") | .project_id")
+
+if [ -z "$PROJECT_ID" ]; then
+    echo "Project '${PROJECT_NAME}' not found!"
+    exit 1
+fi
+
+echo "Project UUID: ${PROJECT_ID}"
+echo ""
+
+# Get all QEMU nodes in the project
+NODES=$(curl -s "${GNS3_API}/projects/${PROJECT_ID}/nodes" | jq -r '.[] | select(.node_type == "qemu") | .node_id')
+
+if [ -z "$NODES" ]; then
+    echo "No QEMU nodes found in project!"
+    exit 1
+fi
+
+# Update each node
+for NODE_ID in $NODES; do
+    NODE_DATA=$(curl -s "${GNS3_API}/projects/${PROJECT_ID}/nodes/${NODE_ID}")
+    NAME=$(echo "$NODE_DATA" | jq -r '.name')
+    CURRENT_OPTIONS=$(echo "$NODE_DATA" | jq -r '.properties.options // ""')
+    
+    echo "Node: ${NAME}"
+    echo "  Current options: ${CURRENT_OPTIONS:-"(none)"}"
+    
+    # Remove -cpu host from options
+    NEW_OPTIONS=$(echo "$CURRENT_OPTIONS" | sed 's/-cpu host//g' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
+    
+    echo "  New options: ${NEW_OPTIONS:-"(none)"}"
+    
+    # Update the node
+    RESULT=$(curl -s -X PUT "${GNS3_API}/projects/${PROJECT_ID}/nodes/${NODE_ID}" \
+        -H "Content-Type: application/json" \
+        -d "{\"properties\": {\"options\": \"${NEW_OPTIONS}\"}}")
+    
+    UPDATED_OPTIONS=$(echo "$RESULT" | jq -r '.properties.options // "(none)"')
+    echo "  Updated to: ${UPDATED_OPTIONS}"
+    echo ""
+done
+
+echo "=== Done! All QEMU nodes updated ==="
+echo ""
+echo "The '-cpu host' flag has been removed."
+echo "This fixes boot issues in nested virtualization environments."
+echo "Restart your GNS3 nodes for changes to take effect."

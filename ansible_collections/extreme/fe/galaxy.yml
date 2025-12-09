@@ -1,0 +1,17 @@
+namespace: extreme
+name: fe
+version: 1.0.0
+readme: README.md
+authors:
+  - Extreme Networks
+description: Ansible Collection for Extreme Networks Fabric Engine
+license:
+  - GPL-3.0-or-later
+tags:
+  - networking
+  - extreme
+  - fabric engine
+repository: https://github.com/extremenetworks/ansible_collections.extreme.fe
+documentation: https://github.com/extremenetworks/ansible_collections.extreme.fe
+homepage: https://github.com/extremenetworks/ansible_collections.extreme.fe
+issues: https://github.com/extremenetworks/ansible_collections.extreme.fe/issues

@@ -1,0 +1,61 @@
+#!/bin/bash
+#
+# show_node_options - Display current QEMU options for all nodes in a project
+#
+# Shows the current QEMU options configured for each node in a GNS3 project.
+#
+# Usage: ./show_node_options [project_name]
+#        If no project name is provided, uses GNS3_PROJECT_NAME from gns3.cfg
+#
+
+# Load GNS3 configuration
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/../cfg/gns3.cfg" 2>/dev/null || {
+    # Fallback defaults if gns3.cfg not found
+    GNS3_SERVER_HOST="${GNS3_SERVER_HOST:-localhost}"
+    GNS3_SERVER_PORT="${GNS3_SERVER_PORT:-3080}"
+    GNS3_PROJECT_NAME="${GNS3_PROJECT_NAME:-Ansible-test1}"
+}
+
+# Use command line argument if provided, otherwise use config
+PROJECT_NAME="${1:-$GNS3_PROJECT_NAME}"
+
+GNS3_API="http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2"
+
+echo "=== Node QEMU Options for Project: ${PROJECT_NAME} ==="
+echo "GNS3 API: ${GNS3_API}"
+echo ""
+
+# Get project UUID
+PROJECT_ID=$(curl -s "${GNS3_API}/projects" | jq -r ".[] | select(.name == \"${PROJECT_NAME}\") | .project_id")
+
+if [ -z "$PROJECT_ID" ]; then
+    echo "Project '${PROJECT_NAME}' not found!"
+    exit 1
+fi
+
+echo "Project UUID: ${PROJECT_ID}"
+echo ""
+
+# Get all nodes in the project
+NODES=$(curl -s "${GNS3_API}/projects/${PROJECT_ID}/nodes" | jq -r '.[] | select(.node_type == "qemu") | .node_id')
+
+if [ -z "$NODES" ]; then
+    echo "No QEMU nodes found in project!"
+    exit 1
+fi
+
+printf "%-40s | %-15s | %-50s\n" "Node Name" "Status" "Options"
+printf "%s\n" "$(printf '%0.s-' {1..110})"
+
+for NODE_ID in $NODES; do
+    NODE_DATA=$(curl -s "${GNS3_API}/projects/${PROJECT_ID}/nodes/${NODE_ID}")
+    NAME=$(echo "$NODE_DATA" | jq -r '.name')
+    STATUS=$(echo "$NODE_DATA" | jq -r '.status')
+    OPTIONS=$(echo "$NODE_DATA" | jq -r '.properties.options // "(none)"')
+    
+    printf "%-40s | %-15s | %-50s\n" "$NAME" "$STATUS" "$OPTIONS"
+done
+
+echo ""
+echo "=== Done ==="
