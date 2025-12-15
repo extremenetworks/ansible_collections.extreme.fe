@@ -1,0 +1,31 @@
+[flake8]
+# Extreme FE Ansible Collection - Flake8 Configuration
+
+max-line-length = 120
+max-complexity = 20
+
+# Ignore some rules that conflict with black formatter
+extend-ignore = 
+    E203,  # whitespace before ':' (conflicts with black)
+    E501,  # line too long (handled by max-line-length)
+    W503,  # line break before binary operator (conflicts with black)
+
+# Exclude directories
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    *.egg-info,
+    .tox,
+    .venv,
+    venv,
+    .eggs,
+    tests/output,
+
+# Per-file ignores
+per-file-ignores =
+    # Allow module docstrings to be long
+    plugins/modules/*.py: E501
+    # Test files can have more flexibility
+    tests/*.py: E501

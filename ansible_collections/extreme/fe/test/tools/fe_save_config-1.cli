@@ -1,4 +1,0 @@
-enable
-remove /intflash/config-1.cfg -y
-save config file /intflash/config-1.cfg
-exit

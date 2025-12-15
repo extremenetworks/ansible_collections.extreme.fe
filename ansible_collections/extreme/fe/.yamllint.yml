@@ -1,0 +1,72 @@
+# Extreme FE Ansible Collection - yamllint Configuration
+
+extends: default
+
+rules:
+  # Line length - allow longer lines for Ansible
+  line-length:
+    max: 160
+    level: warning
+    allow-non-breakable-inline-mappings: true
+  
+  # Truthy values
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+  
+  # Indentation
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+  
+  # Braces
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  
+  # Brackets
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+  
+  # Colons
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+  
+  # Commas
+  commas:
+    max-spaces-before: 0
+    min-spaces-after: 1
+    max-spaces-after: 1
+  
+  # Comments
+  comments:
+    require-starting-space: true
+    ignore-shebangs: true
+    min-spaces-from-content: 1
+  
+  # Document markers
+  document-start: disable
+  document-end: disable
+  
+  # Empty lines
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+  
+  # New line at end of file
+  new-line-at-end-of-file: enable
+  
+  # Trailing spaces
+  trailing-spaces: enable
+
+ignore: |
+  .git/
+  .tox/
+  .venv/
+  venv/
+  tests/output/
+  changelogs/

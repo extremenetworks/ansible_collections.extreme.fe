@@ -1,0 +1,43 @@
+# Extreme FE Ansible Collection - ansible-lint Configuration
+
+profile: production
+
+# Exclude paths from linting
+exclude_paths:
+  - .git/
+  - .tox/
+  - .venv/
+  - venv/
+  - tests/output/
+  - changelogs/
+
+# Enable offline mode (no network access)
+offline: true
+
+# Skip specific rules
+skip_list:
+  - yaml[line-length]  # Allow long lines in YAML
+  - name[template]     # Allow templated task names
+  - meta-no-info       # Allow missing info in meta
+
+# Warn only for these rules
+warn_list:
+  - experimental
+  - role-name
+
+# Enable rules
+enable_list:
+  - fqcn-builtins
+  - no-log-password
+
+# Use default rules
+use_default_rules: true
+
+# Parseable output
+parseable: true
+
+# Quiet mode
+quiet: false
+
+# Verbosity
+verbosity: 1

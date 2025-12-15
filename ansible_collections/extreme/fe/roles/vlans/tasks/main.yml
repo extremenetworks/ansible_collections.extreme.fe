@@ -1,0 +1,6 @@
+---
+# tasks file for vlans
+- name: Configure VLANs
+  extreme.fe.extreme_fe_vlans:
+    config: "{{ vlans_config }}"
+    state: "{{ vlans_state | default('merged') }}"
