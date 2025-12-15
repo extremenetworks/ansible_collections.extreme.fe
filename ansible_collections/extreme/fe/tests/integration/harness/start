@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# Set the directory paths
+cpath=`pwd`
+export ANSIBLE="${cpath%/tests/integration/harness}"
+
+# Source the GNS3 configuration
+source cfg/gns3.cfg
+
+#-------------------------------------------------------------
+# Sanity checks:
+#-------------------------------------------------------------
+#   Make sure expect is installed
+if ! command -v expect &> /dev/null
+then
+    echo "expect could not be found, please install it."
+    exit
+fi
+
+#   Make sure docker is installed
+if ! command -v docker &> /dev/null
+then
+  echo "docker could not be found, please install it."
+  exit 1
+fi
+
+#   Ensure required docker images are present
+REQUIRED_DOCKER_IMAGES=(pc ubserver)
+missing_images=()
+for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "Building missing image: $image"
+    cd docker/$image
+    ./create_image
+    cd ../..
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      missing_images+=("$image")
+    fi
+  fi
+done
+if [ ${#missing_images[@]} -ne 0 ]; then
+  echo "Missing docker images: ${missing_images[*]}"
+  echo "Please build or pull them before running this script."
+  exit 1
+fi
+
+# Make sure gns3server is installed
+if ! command -v gns3server &> /dev/null
+then
+  echo "gns3server could not be found, please install it."
+  exit
+fi
+
+# Check if the QEMU images are present
+# First see if the directory exists
+if [ ! -d "$GNS3_SERVER_DT_IMAGE_PATH" ] ; then
+  echo "QEMU image directory not found: $GNS3_SERVER_DT_IMAGE_PATH"
+   exit 1
+fi
+
+# Next see if the required images are present
+REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
+for img in $REQ_IMAGES ; do
+  if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
+    echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
+    echo "Please download it and place it there before running this script."
+  fi
+done
+
+# Make sure python3 is installed
+if ! command -v python3 &> /dev/null
+then
+    echo "python3 could not be found, please install it."
+  exit 1
+fi
+
+# Verify required Python packages for the dashboard server
+REQUIRED_PYTHON_PACKAGES=(fastapi pydantic uvicorn)
+missing_packages=()
+
+for pkg in "${REQUIRED_PYTHON_PACKAGES[@]}"; do
+  if ! python3 - "$pkg" <<'PY' >/dev/null 2>&1
+import importlib.util
+import sys
+
+pkg = sys.argv[1]
+if importlib.util.find_spec(pkg) is None:
+  sys.exit(1)
+PY
+  then
+    missing_packages+=("$pkg")
+  fi
+done
+
+if [ ${#missing_packages[@]} -ne 0 ]; then
+  echo "Missing Python packages: ${missing_packages[*]}"
+  echo "Please install them, e.g. 'pip install ${missing_packages[*]}'"
+  exit 1
+fi
+
+# ------------------------------------------------------------------------------
+# Start the servers ...
+# ------------------------------------------------------------------------------
+
+# Check if the gns3server is running if, not start it
+P=`ps -ef |grep gns3server | grep -v "grep" | grep python3 | awk '{ print $2 }'`
+if [ -z "$P" ]; then
+  echo "Starting GNS3 server..."
+  gns3server --host 0.0.0.0 --port 3080 --local -A -q --daemon
+  sleep 2
+else
+  echo "GNS3 server is already running."
+fi
+
+# Start the dashboard server, always restart it
+P=`ps -ef |grep dashboard_server.py | grep -v "grep" | grep python3 | awk '{ print $2 }'`
+if [ -n "$P" ]; then
+  kill -9 $P
+fi
+
+python3 ./dashboard_server.py 1>&2 2>/tmp/dashboard.log &
+
+echo "Dashboard server started."
+echo "You can access the dashboard at http://localhost:4000"

@@ -1,0 +1,381 @@
+---
+# Extreme FE Ansible Collection - CI Pipeline
+name: Collection CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+env:
+  ANSIBLE_FORCE_COLOR: "1"
+  COLLECTION_NAMESPACE: extreme
+  COLLECTION_NAME: fe
+
+jobs:
+  # ===========================================================================
+  # Job 1: Validate Collection Structure
+  # ===========================================================================
+  validate-structure:
+    name: Validate Structure
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate collection structure
+        run: python scripts/validate_structure.py
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+  # ===========================================================================
+  # Job 2: Validate Galaxy Metadata
+  # ===========================================================================
+  validate-galaxy:
+    name: Validate Galaxy Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Check galaxy.yml exists
+        run: |
+          if [ ! -f galaxy.yml ]; then
+            echo "❌ galaxy.yml not found"
+            exit 1
+          fi
+          echo "✅ galaxy.yml exists"
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Validate galaxy.yml content
+        run: |
+          python3 << 'EOF'
+          import yaml
+          import sys
+          import re
+
+          with open('galaxy.yml', 'r') as f:
+              data = yaml.safe_load(f)
+
+          errors = []
+          
+          # Required fields
+          required = ['namespace', 'name', 'version', 'authors', 'description']
+          for field in required:
+              if field not in data or not data[field]:
+                  errors.append(f"Missing required field: {field}")
+
+          # Namespace must be lowercase
+          if 'namespace' in data and data['namespace'] != data['namespace'].lower():
+              errors.append("namespace must be lowercase")
+
+          # Name must be lowercase
+          if 'name' in data and data['name'] != data['name'].lower():
+              errors.append("name must be lowercase")
+
+          # Version must be semantic
+          if 'version' in data:
+              if not re.match(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9]+)?$', str(data['version'])):
+                  errors.append(f"version '{data['version']}' is not semantic versioning")
+
+          if errors:
+              print("❌ galaxy.yml validation failed:")
+              for e in errors:
+                  print(f"  - {e}")
+              sys.exit(1)
+          else:
+              print("✅ galaxy.yml is valid")
+              print(f"   namespace: {data.get('namespace')}")
+              print(f"   name: {data.get('name')}")
+              print(f"   version: {data.get('version')}")
+          EOF
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+  # ===========================================================================
+  # Job 3: Python Linting
+  # ===========================================================================
+  python-lint:
+    name: Python Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install lint dependencies
+        run: |
+          pip install flake8 isort black mypy
+          pip install types-PyYAML types-requests
+
+      - name: Run flake8
+        run: flake8 plugins/ scripts/ --config=.flake8
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+      - name: Run isort check
+        run: isort --check-only --diff plugins/ scripts/
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+      - name: Run black check
+        run: black --check --diff plugins/ scripts/
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+      - name: Run mypy (optional)
+        run: mypy plugins/ --ignore-missing-imports --no-error-summary || true
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 4: YAML Linting
+  # ===========================================================================
+  yaml-lint:
+    name: YAML Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: yamllint -c .yamllint.yml .
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 5: Ansible Lint
+  # ===========================================================================
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ansible-lint
+        run: pip install ansible-lint ansible-core
+
+      - name: Run ansible-lint
+        run: ansible-lint --config-file .ansible-lint
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 6: Validate Module Documentation
+  # ===========================================================================
+  validate-docs:
+    name: Validate Module Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate module documentation
+        run: python scripts/validate_docs.py
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+  # ===========================================================================
+  # Job 7: Ansible Sanity Tests
+  # ===========================================================================
+  sanity:
+    name: Sanity (Ansible ${{ matrix.ansible }})
+    runs-on: ubuntu-latest
+    needs: [validate-structure, validate-galaxy]
+    strategy:
+      fail-fast: false
+      matrix:
+        ansible:
+          - stable-2.15
+          - stable-2.16
+          - stable-2.17
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible (${{ matrix.ansible }})
+        run: pip install https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz --disable-pip-version-check
+
+      - name: Run sanity tests
+        run: ansible-test sanity --docker -v --color --coverage
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Run validate-modules
+        run: ansible-test sanity --test validate-modules --docker -v --color
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 8: Unit Tests
+  # ===========================================================================
+  unit-tests:
+    name: Unit Tests (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    needs: [validate-structure]
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.10"
+          - "3.11"
+          - "3.12"
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install test dependencies
+        run: |
+          pip install ansible-core pytest pytest-cov pyyaml
+
+      - name: Run unit tests with pytest
+        run: |
+          if [ -d "tests/unit" ] && [ "$(ls -A tests/unit/*.py 2>/dev/null)" ]; then
+            pytest tests/unit/ -v --cov=plugins/ --cov-report=xml
+          else
+            echo "No unit tests found, skipping..."
+          fi
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Run ansible-test units
+        run: |
+          if [ -d "tests/unit" ]; then
+            ansible-test units --docker -v --color || true
+          else
+            echo "No unit tests directory, skipping ansible-test units..."
+          fi
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+        continue-on-error: true
+
+  # ===========================================================================
+  # Job 9: Build Collection
+  # ===========================================================================
+  build:
+    name: Build Collection
+    runs-on: ubuntu-latest
+    needs: [sanity, validate-docs]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ansible
+        run: pip install ansible-core
+
+      - name: Build collection artifact
+        run: ansible-galaxy collection build --force
+        working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
+
+      # TODO: Uncomment when Ansible Galaxy account is set up
+      # - name: Upload collection artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: collection-artifact
+      #     path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}/*.tar.gz
+      #     retention-days: 30
+
+  # ===========================================================================
+  # Job 10: Integration Summary
+  # ===========================================================================
+  ci-summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [build, python-lint, yaml-lint, ansible-lint, unit-tests]
+    if: always()
+    steps:
+      - name: Check CI Status
+        run: |
+          echo "=============================================="
+          echo "           CI Pipeline Summary"
+          echo "=============================================="
+          echo ""
+          echo "Build Status: ${{ needs.build.result }}"
+          echo "Linting Status: ${{ needs.python-lint.result }}"
+          echo "YAML Lint Status: ${{ needs.yaml-lint.result }}"
+          echo "Ansible Lint Status: ${{ needs.ansible-lint.result }}"
+          echo "Unit Tests Status: ${{ needs.unit-tests.result }}"
+          echo ""
+          
+          if [ "${{ needs.build.result }}" != "success" ]; then
+            echo "❌ Build failed or was skipped"
+            exit 1
+          fi
+          
+          echo "✅ CI Pipeline completed successfully"

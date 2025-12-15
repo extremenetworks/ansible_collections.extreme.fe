@@ -1,0 +1,74 @@
+#!/usr/bin/expect -f
+
+# expect script that executes a list of commands on a fabric switch
+#
+# Usage: fe_exec_cli_cmds.exp <input-filename> <ipv4 address of fabric switch> <login> <password>
+#        The script will exit with code 0 on success, otherwise 1
+#        The script will display the output from the device to stdout
+#        The input-finename should be a file with one CLI command per line.
+
+set timeout 60
+
+set script_dir [file dirname [info script]]
+set repo_root [file normalize [file join $script_dir ".." ".." ".." ".."]]
+set exp_helper ""
+foreach candidate [list \
+        [file join $script_dir "exp_func.exp"] \
+        [file join $repo_root "tests" "integration" "harness" "tools" "exp_func.exp"]
+    ] {
+    if {[file exists $candidate]} {
+        set exp_helper $candidate
+        break
+    }
+}
+if {$exp_helper eq ""} {
+    puts stderr "Helper script exp_func.exp not found near $script_dir"
+    exit 1
+}
+source $exp_helper
+
+if {$argc != 4} {
+    puts "Usage: fe_exec_cli_cmds.exp <command_file> <ip> <username> <password>"
+    exit 1
+}
+
+set command_file [lindex $argv 0]
+set ip [lindex $argv 1]
+set user [lindex $argv 2]
+set pass [lindex $argv 3]
+
+if {![file exists $command_file]} {
+    puts stderr "Command file '$command_file' not found."
+    exit 1
+}
+
+if {![file readable $command_file]} {
+    puts stderr "Command file '$command_file' is not readable."
+    exit 1
+}
+
+set known_hosts [get_known_hosts_path]
+set prompt_pattern {\r\n.*[#>$] *$}
+
+set ::fe_disconnect_expected_ip $ip
+set ::fe_disconnect_expected 0
+
+set session_id [connect_ssh $ip $user $pass $known_hosts $prompt_pattern]
+
+if {$session_id eq ""} {
+    exit 1
+}
+
+set spawn_id $session_id
+
+set fh [open $command_file r]
+set contents [read $fh]
+close $fh
+
+set commands [split $contents "\n"]
+
+if {[run_cli_commands $commands $prompt_pattern] != 0} {
+    exit 1
+}
+
+exit 0
