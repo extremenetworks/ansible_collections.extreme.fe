@@ -116,7 +116,9 @@ start_all_nodes () {
 
     # Get all the nodes
     RESULT=$(curl  --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
-    echo "RESULT:$RESULT"
+    if [ -n "$GNS3_DEBUG" ]; then
+        echo "RESULT:$RESULT"
+    fi
 
     # Re-iterate through all nodes and if they have not been started, start them
     for NODE_ID in $RESULT; do
