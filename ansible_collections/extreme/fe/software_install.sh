@@ -99,3 +99,4 @@ gns3server --version
 
 
 sudo python3 -m pip install fastapi pydantic uvicorn
+sudo python3 -m pip install coverage
