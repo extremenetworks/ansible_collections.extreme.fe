@@ -1,6 +1,9 @@
 #!/bin/bash
 
 # Note: $HOME = /home/$USER
+# ANSIBLE=/home/rwa/work/ansible_collections.extreme.fe/ansible_collections/extreme/fe
+
+echo $ANSIBLE
 
 if [ "$ANSIBLE" = "" ] ; then
     echo "Please set the ANSIBLE environment variable to point to your Ansible directory"

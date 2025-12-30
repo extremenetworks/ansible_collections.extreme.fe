@@ -2994,8 +2994,17 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
 
     # Run gns3_topology check before any other prechecks
     # gns3_cmd = ["/home/bjorn/ansible/test/cfg/gns3_topology", "check"]
-    gns3_cmd = ["/home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
+    # gns3_cmd = ["/home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
     # /home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg
+    gns3_cmd = ["/home/rwa/work/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
+
+    ansible_dev_root = os.environ["ANSIBLE_DEV_ROOT"]
+
+    gns3_topology = Path(ansible_dev_root) / \
+        "ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology"
+
+    gns3_cmd = [str(gns3_topology), "check"]
+
     if dashboard is not None:
         dashboard.mark_precheck_running("gns3_topology check")
     try:

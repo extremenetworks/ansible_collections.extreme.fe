@@ -115,13 +115,15 @@ start_all_nodes () {
     fi
 
     # Get all the nodes
-    RESULT=$(curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
-    #echo "RESULT:$RESULT"
+    RESULT=$(curl  --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
+    if [ -n "$GNS3_DEBUG" ]; then
+        echo "RESULT:$RESULT"
+    fi
 
     # Re-iterate through all nodes and if they have not been started, start them
     for NODE_ID in $RESULT; do
         # Get the status of the node
-        NODE_STATUS=$(curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${NODE_ID}" | jq -r '.status')
+        NODE_STATUS=$(curl  --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${NODE_ID}" | jq -r '.status')
         #echo "NODE_ID:$NODE_ID STATUS:$NODE_STATUS"
         if [ "$NODE_STATUS" != "started" ] ; then
             echo "Starting node UUID:$NODE_ID (status:$NODE_STATUS)"
@@ -546,12 +548,12 @@ create_LAN_node () {
     CLOUD_NAME="LAN"
     COMPUTE_ID="local"
 
-    RESULT=$(curl --fail --silent --show-error --location --request POST \
+    RESULT=$(curl  --fail --show-error --location --request POST \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/${CLOUD_TEMPLATE}" --data \
         "{\"name\": \"LAN\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
-
+    echo $RESULT
     UUID_UNET=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl --fail --silent --show-error --location --request PUT \
+    curl  --fail --show-error --location --request PUT \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_UNET}" --data "{
         \"name\": \"${CLOUD_NAME}\", \"symbol\": \":/symbols/affinity/square/gray/cloud.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
@@ -600,7 +602,7 @@ create_subNetRouter_node () {
         if [ "$R" = "0" ] ; then
             # Need to install the route
             echo "Installing route to $SUBNET_ROUTER_NETWORK through gateway $SUBNET_ROUTER_GATEWAY"
-            ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
+            sudo ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
         fi
     fi
 
@@ -611,13 +613,15 @@ create_subNetRouter_node () {
 
     # Create the ubserverR router
     template_ID="$snt_t_id" 
-
-    RESULT=$(curl --fail --silent --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
+    echo "||||||||||||||||"
+    RESULT=$(curl  --fail  --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
         --data "{\"name\": \"Subnet Router\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
+    echo $RESULT
+    echo "--------------------------------"
     UUID_SROUTER=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail  --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"name\": \"Subnet Router\"}" > /dev/null
-    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail  --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"symbol\": \":/symbols/classic/router.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
 
