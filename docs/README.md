@@ -6,7 +6,7 @@ This directory contains documentation for the `extreme.fe` Ansible collection.
 
 | Module | Description |
 |--------|-------------|
-| `extreme_fe_autosense` | Manage auto-sense settings and port behavior |
+| `extreme_fe_autosense` | Manage auto-sense settings and port behaviour |
 | `extreme_fe_command` | Execute CLI commands on Fabric Engine switches |
 | `extreme_fe_fabric_l2` | Manage Layer 2 fabric settings |
 | `extreme_fe_facts` | Gather facts from Fabric Engine switches |
