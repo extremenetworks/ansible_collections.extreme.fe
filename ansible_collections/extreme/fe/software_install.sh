@@ -85,8 +85,6 @@ docker --version
 # -------------------------------
 echo "Installing GNS3 server 2.2.54 + Web UI only..."
 
-sudo python3 -m pip install --upgrade pip
-
 # Install GNS3 server + Web UI system-wide
 sudo python3 -m pip install gns3-server==2.2.54
 
