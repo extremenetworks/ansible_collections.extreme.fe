@@ -35,8 +35,12 @@ python3 -m pip install --user --upgrade pip
 # Install Ansible system-wide using sudo
 echo "Installing ansible-core 2.17.14 system-wide..."
 sudo python3 -m pip install ansible-core==2.17.14
-echo "Ansible installation complete:"
-ansible --version || true
+echo "Ansible installation complete. Verifying installation..."
+if ! command -v ansible >/dev/null 2>&1; then
+    echo "Error: 'ansible' command not found after installation. Please check the pip installation and your PATH." >&2
+    exit 1
+fi
+ansible --version
 
 # -------------------------------
 # Docker installation
