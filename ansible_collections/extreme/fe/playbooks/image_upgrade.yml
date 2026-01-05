@@ -1,0 +1,83 @@
+---
+- name: Upload and activate a Fabric Engine image
+  hosts: gns3_network
+  gather_facts: false
+  tasks:
+    - name: Validate required image variables
+      ansible.builtin.assert:
+        that:
+          - fe_image_src is defined
+          - (fe_image_src | default('')) | length > 0
+        fail_msg: "Set fe_image_src to the local path of the VOSS image (e.g. /tmp/VOSS.voss)"
+
+    - name: Normalize image metadata
+      ansible.builtin.set_fact:
+        fe_image_filename: "{{ fe_image_name | default(fe_image_src | basename) }}"
+        fe_image_remote_dir: "{{ (fe_image_remote_dir | default('/intflash')) | regex_replace('/+$', '') }}"
+        fe_image_transfer_user: "{{ fe_image_user | default(ansible_user | default('rwa')) }}"
+        fe_image_activate_raw: "{{ fe_image_activate_name | default(fe_image_name | default(fe_image_src | basename)) }}"
+
+    - name: Derive activation label
+      ansible.builtin.set_fact:
+        fe_image_activate_label: >-
+          {% set lower_raw = fe_image_activate_raw | lower %}
+          {% if lower_raw.endswith('.voss') %}
+          {{ fe_image_activate_raw[:-5] }}
+          {% else %}
+          {{ fe_image_activate_raw }}
+          {% endif %}
+
+    - name: Ensure local image exists
+      ansible.builtin.stat:
+        path: "{{ fe_image_src }}"
+      delegate_to: localhost
+      run_once: true
+      register: fe_image_src_stat
+
+    - name: Abort when local image is missing
+      ansible.builtin.assert:
+        that:
+          - fe_image_src_stat.stat.exists
+          - fe_image_src_stat.stat.isreg
+        fail_msg: "Local image file {{ fe_image_src }} is not accessible from the control host"
+      run_once: true
+
+    - name: Copy image to switch via SCP
+      ansible.builtin.command:
+        cmd: >-
+          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+          "{{ fe_image_src }}"
+          "{{ fe_image_transfer_user }}@{{ target_host }}:{{ fe_image_remote_dir }}/{{ fe_image_filename }}"
+      vars:
+        target_host: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+      delegate_to: localhost
+      register: fe_image_scp
+      changed_when: fe_image_scp.rc == 0
+      failed_when: >-
+        fe_image_scp.rc != 0 and
+        ('lost connection' not in (fe_image_scp.stderr | default('')))
+
+    - name: Add and acivate new image
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - conf t
+          - appl 
+          - "software add {{ fe_image_filename }}"
+          - "software activate {{ fe_image_activate_label }}"
+      register: fe_sw_add
+
+    - name: Show software summary
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - show software
+      register: fe_sw_show
+
+    - name: Show image upgrade responses
+      ansible.builtin.debug:
+        msg:
+          add_responses: "{{ fe_sw_add.responses }}"
+          activate_responses: "{{ fe_sw_activate.responses }}"
+          show_software: "{{ fe_sw_show.responses }}"
+          activation_label: "{{ fe_image_activate_label }}"
