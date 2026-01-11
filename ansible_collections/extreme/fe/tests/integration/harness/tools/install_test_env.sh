@@ -168,23 +168,18 @@ if [ "$INSTALL_GNS3" = true ] ; then
   # 5. Install the Docker Engine
   sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-  # 5. Add your user to docker group (to run without sudo)
-  sudo usermod -aG docker $USER
-
   echo "*** Installing gns3 ***"
   sudo add-apt-repository -y ppa:gns3/ppa
 
   sudo apt install -y python3 python3-pip python3-venv \
     qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients \
-    bridge-utils virt-manager docker.io
+    bridge-utils virt-manager docker.io dynamips vpcs ubridge
 
   sudo systemctl enable --now libvirtd
   sudo systemctl enable --now docker
 
   python3 -m venv ~/gns3-venv
   source ~/gns3-venv/bin/activate
-
-  sudo apt install -y ubridge
 
   pip install --upgrade pip
 
@@ -194,8 +189,8 @@ if [ "$INSTALL_GNS3" = true ] ; then
 
   sudo ufw allow 3080/tcp
 
-  # Update privilege level
-  sudo usermod -aG kvm,libvirt,ubridge $(whoami)
+  # Update privilege level for kvm, libvirt, ubridge, docker
+  sudo usermod -aG kvm,libvirt,ubridge,docker $(whoami)
 
   echo "Determining network changes"
   NETPLAN_FILE="/etc/netplan/00-installer-config.yaml"
@@ -257,12 +252,10 @@ EOF
 
   # Update privilege level
   #sudo usermod -aG kvm,libvirt,ubridge $(whoami)
-
-
+ 
   
-  
-  echo
-  echo " You must logout and log back in for the updates to take effect"
-  echo
+  echo " =================================================="
+  echo " You must reboot for all the changes to take effect"
+  echo " =================================================="
 
 fi

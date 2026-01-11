@@ -305,7 +305,7 @@ create_switch () {
     LABEL_XPOS=$5
     LABEL_YPOS=$6
 
-    #echo "Create switch: $NAME (switch:$SW_NR)"
+    echo "Create switch: $NAME (switch:$SW_NR)"
     COMPUTE_ID="local"
 
     # See if the switch is already there, if it is delete it
