@@ -547,17 +547,31 @@ create_LAN_node () {
     CLOUD_NAME="LAN"
     COMPUTE_ID="local"
 
+    # Check if the template exists
+    #R=`curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates" | grep "$CLOUD_TEMPLATE" | wc -l`
+    #if [ "$R" = "0" ] ; then
+    #    echo "  Cloud LAN template not installed, adding new Cloud LAN template"
+    #    R=`curl --fail --silent --show-error --location -X POST http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates \
+    #        -H "Content-Type: application/json" \
+    #        -d '{ \
+    #        "name": "Cloud LAN", \
+    #        "template_type": "cloud", \
+    #        "compute_id": "local", \
+    #        "adapters": 1 \
+    #        }'`
+    #fi
+
+    echo "Creating \"Cloud\" LAN connection: $CLOUD_NAME with adapter: $GNS3_LAN_ADAPTER port: $GNS3_LAN_PORT and template: $CLOUD_TEMPLATE"
     RESULT=$(curl --fail --silent --show-error --location --request POST \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/${CLOUD_TEMPLATE}" --data \
         "{\"name\": \"LAN\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
 
     UUID_UNET=$(jq --raw-output ".node_id" <<< "${RESULT}")
+    echo "  Created LAN Cloud node: UUID:$UUID_UNET, setting name and symbol"
     curl --fail --silent --show-error --location --request PUT \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_UNET}" --data "{
         \"name\": \"${CLOUD_NAME}\", \"symbol\": \":/symbols/affinity/square/gray/cloud.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
-    
-    echo "Created \"Cloud\" LAN connection: UUID:$UUID_UNET"
 }
 
 #

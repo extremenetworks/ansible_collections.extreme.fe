@@ -21,14 +21,16 @@ UUID_PROJ=$(check_project_UUID)
 check_gns3_server exit_on_error true
 
 # Check if project already exists, if it doesn't, create it
-if [ "$1" = "check" ] ; then
-    if [ "$UUID_PROJ" != "" ] ; then
-        echo "Project $GNS3_PROJECT_NAME already exist: UUID: $UUID_PROJ"
-        # Also check if all the nodes are started, they may not in some cases
-        start_all_nodes
-        exit 0
-    fi
-fi
+#if [ "$1" = "check" ] ; then
+#    if [ "$UUID_PROJ" != "" ] ; then
+#        echo "Project $GNS3_PROJECT_NAME already exist: UUID: $UUID_PROJ"
+#        # Check if all 4 DT's exist and are running, we can do this by
+#        # issuing and Rest API call to see if the node resonds
+#
+#        
+#        exit 0
+#    fi
+#fi
 
 if [ "$1" = "stop" ] ; then
     remove_gns3_project 

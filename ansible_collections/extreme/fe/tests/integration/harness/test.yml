@@ -5,6 +5,7 @@ test_coverage: false
 trace_http: false
 file_prefix: vscode://vscode-remote/ssh-remote+amd
 browser_prefix: file://wsl.localhost/Ubuntu-24.04/
+gns3_server: true
 Tests:
 
 - Name: Pre-start 1 - Clean configuration

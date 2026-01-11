@@ -396,6 +396,61 @@ INDEX_HTML = """<!DOCTYPE html>
             border-radius: 50%;
             background: #38bdf8;
         }
+        .single-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.4rem 0.95rem 0.4rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.45);
+            cursor: pointer;
+            user-select: none;
+            min-width: 140px;
+        }
+        .single-toggle input {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .single-toggle-visual {
+            width: 36px;
+            height: 20px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.6);
+            background: rgba(148, 163, 184, 0.35);
+            display: inline-flex;
+            align-items: center;
+            padding: 0 3px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .single-toggle-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #94a3b8;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+        .single-toggle input:checked + .single-toggle-visual {
+            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+        }
+        .single-toggle input:checked + .single-toggle-visual .single-toggle-dot {
+            transform: translateX(14px);
+            background: #38bdf8;
+        }
+        .single-toggle-text {
+            font-size: 0.9rem;
+            letter-spacing: 0.03em;
+            color: #cbd5f5;
+            transition: color 0.2s ease;
+        }
+        .single-toggle input:not(:checked) + .single-toggle-visual + .single-toggle-text {
+            color: #94a3b8;
+        }
         .config-verbose {
             display: flex;
             gap: 0.5rem;
@@ -647,8 +702,10 @@ INDEX_HTML = """<!DOCTYPE html>
             traceHttp: false,
             verboseLevel: 0,
             diff: false,
+            gns3Server: true,
             inventory: ''
         };
+        updateTopologyButtonVisibility(configSettings.gns3Server);
         let configUpdateTimer = null;
         let configUpdateInProgress = false;
         let configUpdateQueued = false;
@@ -769,6 +826,16 @@ INDEX_HTML = """<!DOCTYPE html>
                 coverageButton.disabled = true;
                 coverageButton.title = 'Code coverage report not available';
             }
+        }
+
+        function updateTopologyButtonVisibility(enabled) {
+            if (!topologyButton) {
+                return;
+            }
+            const shouldShow = Boolean(enabled);
+            topologyButton.hidden = !shouldShow;
+            topologyButton.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+            topologyButton.disabled = !shouldShow;
         }
 
         function resolveCoverageTarget(rawUrl) {
@@ -1012,12 +1079,35 @@ INDEX_HTML = """<!DOCTYPE html>
             renderHostStatuses();
         }
 
+        function updateSingleToggleLabel(input) {
+            if (!input) {
+                return;
+            }
+            const label = input.closest('.single-toggle');
+            if (!label) {
+                return;
+            }
+            const textSpan = label.querySelector('.single-toggle-text');
+            if (textSpan) {
+                textSpan.textContent = input.checked ? 'On' : 'Off';
+            }
+        }
+
+        function syncSingleToggleLabels() {
+            if (!configPanel) {
+                return;
+            }
+            const toggles = configPanel.querySelectorAll('.single-toggle input');
+            toggles.forEach((input) => updateSingleToggleLabel(input));
+        }
+
         function normalizeSettings(data) {
             const defaults = {
                 testCoverage: false,
                 traceHttp: false,
                 verboseLevel: 0,
                 diff: false,
+                gns3Server: true,
                 inventory: ''
             };
             if (!data || typeof data !== 'object') {
@@ -1028,6 +1118,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 10
             );
             const rawInventory = data.inventory ?? data.inventory_selection ?? defaults.inventory;
+            const rawGns3 = data.gns3_server ?? data.gns3Server ?? defaults.gns3Server;
             return {
                 testCoverage: Boolean(data.test_coverage ?? data.testCoverage ?? defaults.testCoverage),
                 traceHttp: Boolean(data.trace_http ?? data.traceHttp ?? defaults.traceHttp),
@@ -1035,6 +1126,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     ? defaults.verboseLevel
                     : Math.min(5, Math.max(0, rawLevel)),
                 diff: Boolean(data.diff ?? defaults.diff),
+                gns3Server: Boolean(rawGns3),
                 inventory: typeof rawInventory === 'string' ? rawInventory : defaults.inventory
             };
         }
@@ -1045,6 +1137,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             const settings = normalizeSettings(configSettings);
             configSettings = settings;
+            updateTopologyButtonVisibility(settings.gns3Server);
             const selection = typeof settings.inventory === 'string' ? settings.inventory : '';
             const availableInventories = Array.isArray(inventoryOptions)
                 ? inventoryOptions.slice()
@@ -1079,29 +1172,33 @@ INDEX_HTML = """<!DOCTYPE html>
             const markup = `
                 <div class="config-option">
                     <span class="config-option-title">Test coverage</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Test coverage">
-                        <label class="toggle-option">
-                            <input type="radio" name="coverage" value="false" ${settings.testCoverage ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="coverage" value="true" ${settings.testCoverage ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="coverage">
+                        <input type="checkbox" name="coverage" value="true" ${settings.testCoverage ? 'checked' : ''} aria-label="Test coverage">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.testCoverage ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Trace HTTP</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Trace HTTP">
-                        <label class="toggle-option">
-                            <input type="radio" name="trace" value="false" ${settings.traceHttp ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="trace" value="true" ${settings.traceHttp ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="trace">
+                        <input type="checkbox" name="trace" value="true" ${settings.traceHttp ? 'checked' : ''} aria-label="Trace HTTP">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.traceHttp ? 'On' : 'Off'}</span>
+                    </label>
+                </div>
+                <div class="config-option">
+                    <span class="config-option-title">GNS3 server</span>
+                    <label class="single-toggle" data-toggle-name="gns3-server">
+                        <input type="checkbox" name="gns3-server" value="true" ${settings.gns3Server ? 'checked' : ''} aria-label="GNS3 server">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.gns3Server ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Verbose level</span>
@@ -1111,16 +1208,13 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Diff output</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Diff output">
-                        <label class="toggle-option">
-                            <input type="radio" name="diff" value="false" ${settings.diff ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="diff" value="true" ${settings.diff ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="diff">
+                        <input type="checkbox" name="diff" value="true" ${settings.diff ? 'checked' : ''} aria-label="Diff output">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.diff ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Inventory</span>
@@ -1130,6 +1224,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
             `;
             configSettingsContainer.innerHTML = markup;
+            syncSingleToggleLabels();
         }
 
         function updateBulkActionButtons() {
@@ -1247,6 +1342,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         trace_http: selectionState.traceHttp,
                         verbose_level: selectionState.verboseLevel,
                         diff: selectionState.diff,
+                        gns3_server: selectionState.gns3Server,
                         inventory: selectionState.inventory
                     })
                 });
@@ -1286,6 +1382,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 } else {
                     configSettings = { ...selectionState };
                 }
+                updateTopologyButtonVisibility(configSettings.gns3Server);
                 if (!configUpdateQueued) {
                     renderConfigOptions();
                 } else {
@@ -1331,9 +1428,10 @@ INDEX_HTML = """<!DOCTYPE html>
 
         function collectConfigSelections() {
             const base = normalizeSettings(configSettings);
-            const coverageRadio = configPanel.querySelector('input[name="coverage"]:checked');
-            const traceRadio = configPanel.querySelector('input[name="trace"]:checked');
-            const diffRadio = configPanel.querySelector('input[name="diff"]:checked');
+            const coverageInput = configPanel.querySelector('input[name="coverage"]');
+            const traceInput = configPanel.querySelector('input[name="trace"]');
+            const gns3Input = configPanel.querySelector('input[name="gns3-server"]');
+            const diffInput = configPanel.querySelector('input[name="diff"]');
             const verboseRadio = configPanel.querySelector('input[name="verbose-level"]:checked');
             const verboseValue = verboseRadio ? Number.parseInt(verboseRadio.value, 10) : base.verboseLevel;
             const inventorySelect = configPanel.querySelector('select[name="inventory"]');
@@ -1346,9 +1444,10 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             const sanitizedInventory = typeof inventoryValue === 'string' ? inventoryValue.trim() : base.inventory;
             return {
-                testCoverage: coverageRadio ? coverageRadio.value === 'true' : base.testCoverage,
-                traceHttp: traceRadio ? traceRadio.value === 'true' : base.traceHttp,
-                diff: diffRadio ? diffRadio.value === 'true' : base.diff,
+                testCoverage: coverageInput ? coverageInput.checked : base.testCoverage,
+                traceHttp: traceInput ? traceInput.checked : base.traceHttp,
+                gns3Server: gns3Input ? gns3Input.checked : base.gns3Server,
+                diff: diffInput ? diffInput.checked : base.diff,
                 verboseLevel: Number.isNaN(verboseValue)
                     ? base.verboseLevel
                     : Math.min(5, Math.max(0, verboseValue)),
@@ -1370,6 +1469,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             const selectionState = collectConfigSelections();
             configSettings = { ...selectionState };
+            updateTopologyButtonVisibility(selectionState.gns3Server);
         }
 
         async function openConfigFile(filename) {
@@ -1779,6 +1879,9 @@ INDEX_HTML = """<!DOCTYPE html>
             const target = event.target;
             if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
                 return;
+            }
+            if (target instanceof HTMLInputElement && target.closest('.single-toggle')) {
+                updateSingleToggleLabel(target);
             }
             populateConfigFromUI();
             scheduleConfigUpdate();
@@ -2341,6 +2444,7 @@ def read_run_options() -> dict[str, object]:
         "verbose_level": 0,
         "diff": False,
         "inventory": "",
+        "gns3_server": True,
     }
     if not DEFAULT_SUMMARY_PATH.exists():
         return dict(defaults)
@@ -2349,6 +2453,7 @@ def read_run_options() -> dict[str, object]:
     verbose_level = defaults["verbose_level"]
     diff_enabled = defaults["diff"]
     inventory_value = defaults["inventory"]
+    gns3_enabled = defaults["gns3_server"]
     for raw_line in DEFAULT_SUMMARY_PATH.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -2368,12 +2473,16 @@ def read_run_options() -> dict[str, object]:
             value = bare.split(":", 1)[1].strip()
             if value:
                 inventory_value = _normalize_inventory_setting_for_ui(value)
+        elif lowered.startswith("gns3_server:"):
+            value = bare.split(":", 1)[1].strip().lower()
+            gns3_enabled = value not in {"false", "0", "no", "off"}
     return {
         "test_coverage": test_coverage,
         "trace_http": trace_http,
         "verbose_level": verbose_level,
         "diff": diff_enabled,
         "inventory": inventory_value,
+        "gns3_server": gns3_enabled,
     }
 
 
@@ -2480,6 +2589,7 @@ def update_test_configuration(
     trace_http: bool,
     verbose_level: int,
     diff: bool,
+    gns3_server: bool,
     inventory: Optional[str],
 ) -> None:
     summary_path = DEFAULT_SUMMARY_PATH
@@ -2514,6 +2624,7 @@ def update_test_configuration(
     trace_written = False
     args_written = False
     inventory_written = False
+    gns3_written = False
     for line in original_lines:
         stripped = line.strip()
         bare = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
@@ -2546,6 +2657,10 @@ def update_test_configuration(
                 updated_lines.extend(new_include_lines)
                 includes_written = True
             continue
+        if lowered.startswith("gns3_server:"):
+            updated_lines.append(f"{indent}gns3_server: {'true' if gns3_server else 'false'}")
+            gns3_written = True
+            continue
         updated_lines.append(line)
     pending_lines: list[str] = []
     if inventory_action == "set" and not inventory_written and inventory_entry_value is not None:
@@ -2554,6 +2669,8 @@ def update_test_configuration(
         pending_lines.append(f"test_coverage: {'true' if test_coverage else 'false'}")
     if not trace_written:
         pending_lines.append(f"trace_http: {'true' if trace_http else 'false'}")
+    if not gns3_written:
+        pending_lines.append(f"gns3_server: {'true' if gns3_server else 'false'}")
     if not args_written:
         suffix = f" {new_args_value}" if new_args_value else ""
         pending_lines.append(f"playbook_args:{suffix}")
@@ -2585,6 +2702,7 @@ class ConfigUpdateRequest(BaseModel):
     trace_http: bool = False
     verbose_level: int = Field(default=0, ge=0, le=5)
     diff: bool = False
+    gns3_server: bool = True
     inventory: Optional[str] = None
 
 
@@ -3446,6 +3564,7 @@ async def update_config(payload: ConfigUpdateRequest) -> JSONResponse:
             trace_http=payload.trace_http,
             verbose_level=payload.verbose_level,
             diff=payload.diff,
+            gns3_server=payload.gns3_server,
             inventory=payload.inventory,
         )
     except FileNotFoundError as exc:

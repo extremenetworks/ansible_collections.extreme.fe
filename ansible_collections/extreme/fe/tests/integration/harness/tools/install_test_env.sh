@@ -3,6 +3,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 GNS3_CFG_PATH="$HARNESS_DIR/cfg/gns3.cfg"
+TOOLS_DIR="$HARNESS_DIR/tools"
 
 prompt_install_gns3() {
   local prompt="Do you want to install the GNS3 environment? [Y/n]: "
@@ -122,7 +123,8 @@ sudo apt install -y git python3 python3-pip python3-venv expect
 echo "*** Installing sshd ***"
 sudo apt-get install openssh-server
 
-# Create a virtual python environment
+# Create a virtual python environment. We need this in a specific directory!
+cd $TOOLS_DIR/..
 echo "*** Creating python virtual environment ***"
 python3 -m venv venv
 source venv/bin/activate
@@ -170,7 +172,7 @@ if [ "$INSTALL_GNS3" = true ] ; then
   sudo usermod -aG docker $USER
 
   echo "*** Installing gns3 ***"
-
+  sudo add-apt-repository -y ppa:gns3/ppa
 
   sudo apt install -y python3 python3-pip python3-venv \
     qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients \
@@ -182,6 +184,8 @@ if [ "$INSTALL_GNS3" = true ] ; then
   python3 -m venv ~/gns3-venv
   source ~/gns3-venv/bin/activate
 
+  sudo apt install -y ubridge
+
   pip install --upgrade pip
 
   pip install gns3-server==2.2.54 gns3-gui==2.2.54
@@ -189,6 +193,9 @@ if [ "$INSTALL_GNS3" = true ] ; then
   sudo ln -s ~/gns3-venv/bin/gns3server /usr/local/bin/gns3server
 
   sudo ufw allow 3080/tcp
+
+  # Update privilege level
+  sudo usermod -aG kvm,libvirt,ubridge $(whoami)
 
   echo "Determining network changes"
   NETPLAN_FILE="/etc/netplan/00-installer-config.yaml"
