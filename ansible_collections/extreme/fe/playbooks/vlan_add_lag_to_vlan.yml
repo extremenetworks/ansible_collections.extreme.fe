@@ -3,7 +3,7 @@
   hosts: fe_dt_lower_hosts
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   tasks:
     - name: Ensure LAG 10 is a tagged member of VLAN 200
       extreme.fe.extreme_fe_vlans:

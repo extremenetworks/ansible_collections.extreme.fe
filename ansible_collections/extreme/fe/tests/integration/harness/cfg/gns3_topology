@@ -7,6 +7,7 @@ if [ "$ANSIBLE" = "" ] ; then
     exit 1
 fi
 
+ANSIBLE=$(eval echo "$ANSIBLE")
 echo ${ANSIBLE}
 
 source ${ANSIBLE}/tests/integration/harness/cfg/gns3.cfg
@@ -113,6 +114,7 @@ start_all_nodes
 # Link the PC's through the DT's
 #
 
+echo "Linking nodes ...."
 # 1: TPC-1:1 to DT-1:4
 connect_nodes ${UUID_TPC[1]} 1 0 "eth1" ${UUID_VOSS_DT[1]} 4 0 "1/4"
 # 1: TPC-1:2 to DT-4:8

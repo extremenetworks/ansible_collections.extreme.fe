@@ -11,9 +11,9 @@
 
 # Static config for eth0
 iface eth0 inet static
-	address 192.168.229.252
+	address 192.168.1.252
 	netmask 255.255.255.0
-	gateway 192.168.229.2
+	gateway 192.168.1.1
 #auto eth0
 #iface eth0 inet dhcp
 #iface eth0 inet static

@@ -1,11 +1,28 @@
 #!/bin/bash
 
+# Set the python environment
+source venv/bin/activate
+
 # Set the directory paths
 cpath=`pwd`
+echo "cpath set to: -- ${cpath%} --"
 export ANSIBLE="${cpath%/tests/integration/harness}"
+#export ANSIBLE="${cpath%/../../..}"
+echo "ANSIBLE set to: -- ${ANSIBLE} --"
+
+#export ANSIBLE_CONFIG=/home/bjorn/ansible/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/ansible.cfg
+export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
+echo "ANSIBLE_CONFIG set to: -- ${ANSIBLE_CONFIG} --"
+
+#export ANSIBLE=/home/rwa/work/ansible_collections.extreme.fe/ansible_collections/extreme/fe && echo "ANSIBLE set to: $ANSIBLE"
 
 # Source the GNS3 configuration
 source cfg/gns3.cfg
+
+read_cfg_value() {
+  local key="$1"
+  sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "${cpath}/cfg/gns3.cfg" | head -n1
+}
 
 #-------------------------------------------------------------
 # Sanity checks:
@@ -101,15 +118,29 @@ fi
 # ------------------------------------------------------------------------------
 # Start the servers ...
 # ------------------------------------------------------------------------------
+if [ -f /usr/local/bin/gns3server ] ; then
 
-# Check if the gns3server is running if, not start it
-P=`ps -ef |grep gns3server | grep -v "grep" | grep python3 | awk '{ print $2 }'`
-if [ -z "$P" ]; then
-  echo "Starting GNS3 server..."
-  gns3server --host 0.0.0.0 --port 3080 --local -A -q --daemon
-  sleep 2
+  # Check if the gns3server is running if, not start it
+  P=`ps -ef |grep gns3server | grep -v "grep" | grep python3 | awk '{ print $2 }'`
+  if [ -z "$P" ]; then
+    echo "Starting GNS3 server..."
+    gns3server --host 0.0.0.0 --port 3080 --local -A -q --daemon
+    sleep 2
+  else
+    echo "GNS3 server is already running."
+  fi
+
+  gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
+  network=$(read_cfg_value "SUBNET_ROUTER_NETWORK")
+  if [ -n "$gateway" ] && [ -n "$network" ]; then
+    existing=$(ip route | grep -F "$gateway" | wc -l)
+    if [ "$existing" = "0" ]; then
+      echo "Installing route to $network through gateway $gateway"
+      sudo ip route add "$network" via "$gateway"
+    fi
+  fi
 else
-  echo "GNS3 server is already running."
+  echo "gns3server not found in /usr/local/bin/gns3server, Assuming real network"
 fi
 
 # Start the dashboard server, always restart it
@@ -121,4 +152,5 @@ fi
 python3 ./dashboard_server.py 1>&2 2>/tmp/dashboard.log &
 
 echo "Dashboard server started."
-echo "You can access the dashboard at http://localhost:4000"
+my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
+echo "You can access the dashboard at http://$my_ip:4000"

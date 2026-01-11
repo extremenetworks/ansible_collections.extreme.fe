@@ -3,7 +3,7 @@
   hosts: fe_dt_lower_hosts
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   tasks:
     - name: Remove LAG 10 from VLAN 12
       extreme.fe.extreme_fe_vlans:

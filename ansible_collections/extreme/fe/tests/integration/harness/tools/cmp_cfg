@@ -17,6 +17,8 @@ FE_EXEC_CLI_CMD="$ANSIBLE_ROOT/tests/integration/harness/tools/fe_exec_cli_cmds.
 CLI_COMMAND_FILE="tests/integration/harness/tools/fe_save_config-1.cli"
 RESET_SCRIPT="$ANSIBLE_ROOT/tests/integration/harness/tools/reset_cfg"
 SELF_SCRIPT="$SCRIPT_DIR/cmp_cfg"
+SCP_EXPECT="$ANSIBLE_ROOT/tests/integration/harness/tools/scp_expect.sh"
+CFG_DIR="$ANSIBLE_ROOT/tests/integration/harness/cfg"
 
 if [ ! -x "$FE_EXEC_CLI_CMD" ]; then
     echo "Required script not executable: $FE_EXEC_CLI_CMD" >&2
@@ -75,19 +77,21 @@ rm -rf /tmp/cmp_cfg.tmp
 for i in $COUNT; do
     #echo "Transferring files from switch: DT-$((i + 1)) : ${IPBASE}.${IP[$i]}"
     #scp_expect.sh $USER ${IPBASE}.${IP[i]} /intflash/start_test.cfg /tmp/cmp_cfg/start_test-DT-$((i +1)).cfg $PASS
-    scp_expect.sh ${USER}@${IPBASE}.${IP[i]}:/intflash/config-1.cfg /tmp/cmp_cfg/running-DT-$((i +1)).cfg $PASS &
+    $SCP_EXPECT ${USER}@${IPBASE}.${IP[i]}:/intflash/config-1.cfg /tmp/cmp_cfg/running-DT-$((i +1)).cfg $PASS &
 done
 
 wait
 
+echo "Comparing configuration files ...."
+
 R=PASS
 
 for i in $COUNT; do
-    if ! [ -f ~/ans-test/start_test-DT-$((i +1)).cfg ] || ! [ -f /tmp/cmp_cfg/running-DT-$((i +1)).cfg ] ; then
-    	echo "FAIL"
-	exit 1
+    if ! [ -f $CFG_DIR/start_test-DT-$((i +1)).cfg ] || ! [ -f /tmp/cmp_cfg/running-DT-$((i +1)).cfg ] ; then
+    	echo "FAIL: Missing configuration file(s) for DT-$((i + 1))"
+	    exit 1
     fi
-    cat ~/ans-test/start_test-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" > /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg
+    cat $CFG_DIR/start_test-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" > /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg
     cat /tmp/cmp_cfg/running-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" > /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg
     diff /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg > /tmp/cmp_cfg/diff-DT-$((i +1)).txt
     if [ $? -eq 0 ]; then

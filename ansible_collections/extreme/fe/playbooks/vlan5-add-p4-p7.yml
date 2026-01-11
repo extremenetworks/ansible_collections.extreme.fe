@@ -3,7 +3,7 @@
   hosts: gns3_network
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   vars:
     target_vlans: [5]
   tasks:

@@ -232,6 +232,7 @@ create_dt () {
 
     # Need to ADD check for EXOS -- ** --
     UUID_VOSS_DT[$DEVICE_NUM]=${UUID_NODE}
+    echo "  Created DT: ${NODE_NAME} UUID:${UUID_NODE}"
 
     # Connect the DT to the mgmt network
     connect_nodes "${UUID_NODE}" "$ADAPTER" "0" "$MGMT_PORT" "${UUID_SW[$SW_NR]}" "0" "${SW_PORT}" "${SW_PORT}"

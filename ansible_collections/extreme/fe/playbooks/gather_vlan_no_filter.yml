@@ -3,7 +3,7 @@
   hosts: fe_dt_1_hosts
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   tasks:
     - name: Gather VLAN snapshot prior to deletion
       extreme.fe.extreme_fe_vlans:

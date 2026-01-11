@@ -1878,8 +1878,8 @@ _redirect_output_to_log()
 
 DOCS_ROOT = BASE_DIR / "docs"
 DOC_PREFIX = "extreme_fe_"
-TOPOLOGY_CONFIG_PATH = BASE_DIR / "test" / "cfg" / "gns3.cfg"
-PROJECT_UUID_SCRIPT = BASE_DIR / "test" / "tools" / "project_uuid"
+TOPOLOGY_CONFIG_PATH = BASE_DIR / "tests" / "integration" / "harness" / "cfg" / "gns3.cfg"
+PROJECT_UUID_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "project_uuid"
 HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
 TERMINAL_CANDIDATES = ("xterm",)
 

@@ -1,6 +1,6 @@
 ---
 - name: Configure VLAN 20 on ports 1:4 and 1:7 (TRUNK)
-  hosts: gns3_network
+  hosts: fe_dt_upper_hosts
   gather_facts: false
 
   tasks:

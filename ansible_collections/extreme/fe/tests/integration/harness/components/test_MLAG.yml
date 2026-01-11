@@ -2,10 +2,10 @@
 - name: MLAG 1.0 - Create Configuration
   Playbooks:
   - File: create_mlag.yml
-    ok: 12
+    ok: 13
     changed: 9
     ignored: 0
-    skipped: 6
+    skipped: 5
 - name: MLAG 1.1 - Delete Configuration
   Playbooks:
   - File: delete_mlag.yml
@@ -16,10 +16,10 @@
 - name: MLAG 1.2 - Coverage Testing
   Playbooks:
   - File: mlag_coverage.yml
-    ok: 73
-    changed: 19
-    ignored: 35
-    skipped: 1
+    ok: 35
+    changed: 9
+    ignored: 9
+    skipped: 0
     failed: 0
 - Name: MLAG 1.3 - Cleanup configuration
   Playbooks:

@@ -2300,6 +2300,12 @@ def validate_playbooks_syntax(tests: Sequence[TestConfig]) -> Tuple[bool, List[s
     ansible_env = dict(os.environ)
     ansible_env["ANSIBLE_CONFIG"] = str(ANSIBLE_CONFIG_PATH)
 
+    workdir = _prepare_collection_workdir()
+    workspace_collections = workdir.parent.parent
+    collections_paths = f"{workspace_collections}:{DEFAULT_COLLECTIONS_PATHS}"
+    ansible_env.setdefault("ANSIBLE_COLLECTIONS_PATHS", collections_paths)
+    ansible_env.setdefault("ANSIBLE_COLLECTIONS_PATH", collections_paths)
+
     for pb_path in playbook_paths:
         if not pb_path.is_file():
             return _fail(f"Playbook not found: {pb_path}")
@@ -2993,9 +2999,7 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             dashboard.set_browser_prefix(browser_prefix)
 
     # Run gns3_topology check before any other prechecks
-    # gns3_cmd = ["/home/bjorn/ansible/test/cfg/gns3_topology", "check"]
-    gns3_cmd = ["/home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
-    # /home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg
+    gns3_cmd = [str(TEST_DIR / "cfg" / "gns3_topology"), "check"]
     if dashboard is not None:
         dashboard.mark_precheck_running("gns3_topology check")
     try:
