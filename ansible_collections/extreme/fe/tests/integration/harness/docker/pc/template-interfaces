@@ -7,9 +7,9 @@
 
 # Static config for eth0
 iface eth0 inet static
-	address 192.168.5.NEWIP
+	address 192.168.SUBNET.NEWIP
 	netmask 255.255.255.0
-	gateway 192.168.5.1
+	gateway 192.168.SUBNET.1
 #auto eth0
 #iface eth0 inet dhcp
 #iface eth0 inet static
@@ -27,9 +27,9 @@ iface eth0 inet static
 #auto eth1
 
 iface eth1 inet static
-	address 192.168.5.60
+	address 192.168.SUBNET.60
 	netmask 255.255.255.0
-	gateway 192.168.5.1
+	gateway 192.168.SUBNET.1
 
 	#gateway 192.168.1.1
 #	up echo nameserver 192.168.1.1 > /etc/resolv.conf

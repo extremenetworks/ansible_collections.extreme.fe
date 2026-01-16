@@ -19,6 +19,18 @@ RESET_SCRIPT="$ANSIBLE_ROOT/tests/integration/harness/tools/reset_cfg"
 SELF_SCRIPT="$SCRIPT_DIR/cmp_cfg"
 SCP_EXPECT="$ANSIBLE_ROOT/tests/integration/harness/tools/scp_expect.sh"
 CFG_DIR="$ANSIBLE_ROOT/tests/integration/harness/cfg"
+GNS3_CFG="$CFG_DIR/gns3.cfg"
+
+if [ ! -f "$GNS3_CFG" ]; then
+    echo "Required configuration not found: $GNS3_CFG" >&2
+    exit 1
+fi
+
+SUBNET_ROUTER_NETWORK=$(grep -E '^SUBNET_ROUTER_NETWORK=' "$GNS3_CFG" | tail -n 1 | cut -d '=' -f2)
+if [ -z "$SUBNET_ROUTER_NETWORK" ]; then
+    echo "Unable to determine SUBNET_ROUTER_NETWORK from $GNS3_CFG" >&2
+    exit 1
+fi
 
 if [ ! -x "$FE_EXEC_CLI_CMD" ]; then
     echo "Required script not executable: $FE_EXEC_CLI_CMD" >&2
@@ -44,7 +56,7 @@ COUNT="0 1 3 4"
 #COUNT="0"
 
 # Last digit of IP of each device
-IPBASE="192.168.5"
+IPBASE="192.168.$SUBNET_ROUTER_NETWORK"
 IP=("101" "102" "103" "104" "105")
 
 # Login credentials

@@ -20,4 +20,4 @@ Tests:
     File: tools/cmp_cfg
     fatal: true
 
-- include test_MLAG.yml
+- include test_Save_config.yml

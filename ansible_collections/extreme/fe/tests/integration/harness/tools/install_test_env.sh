@@ -15,6 +15,8 @@ prompt_install_gns3() {
     [Nn]*) return 1 ;;
     *) return 0 ;;
   esac
+
+  
 }
 
 read_cfg_value() {
@@ -25,28 +27,6 @@ read_cfg_value() {
     return
   fi
   sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "$cfg" | head -n1
-}
-
-update_subnet_router_gateway() {
-  local cfg="$GNS3_CFG_PATH"
-  if [ ! -f "$cfg" ]; then
-    echo " Unable to update SUBNET_ROUTER_GATEWAY: $cfg not found"
-    return
-  fi
-  local current_gateway
-  current_gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
-  local display_gateway="${current_gateway:-unset}"
-  echo -n " Enter subnet router gateway IP [$display_gateway]: "
-  read -r gateway_input
-  if [ -z "$gateway_input" ]; then
-    gateway_input="$current_gateway"
-  fi
-  if [ -z "$gateway_input" ]; then
-    echo " No gateway provided; keeping existing value"
-    return
-  fi
-  sed -i -E "s|^SUBNET_ROUTER_GATEWAY=.*|SUBNET_ROUTER_GATEWAY=\"$gateway_input\"|" "$cfg"
-  echo " Updated SUBNET_ROUTER_GATEWAY to $gateway_input in $cfg"
 }
 
 install_subnet_route() {
@@ -63,28 +43,118 @@ install_subnet_route() {
   fi
 }
 
-modify_gns3_server_ip() {
-  # retrieve my own IP from command "ip addr"
-  local my_ip
-  my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
-  if [ -z "$my_ip" ] ; then
-    echo " Unable to determine my own IP address"
-    return
-  fi
-  echo " Modifying GNS3 server IP to $my_ip in cfg/gns3.cfg"
-  local cfg="$GNS3_CFG_PATH"
-  if [ ! -f "$cfg" ]; then
-    echo " Unable to update GNS3_SERVER_HOST: $cfg not found"
-    return
-  fi
-  sed -i -E "s|^GNS3_SERVER_HOST=.*|GNS3_SERVER_HOST=$my_ip|" "$cfg"  
-}
 if prompt_install_gns3 ; then
   INSTALL_GNS3=true
   echo " Installing with GNS3 environment"
-  update_subnet_router_gateway
+  
   #install_subnet_route
-  modify_gns3_server_ip
+  
+  # Ask the user for the project name, default is Ansible   
+  project_prompt=" Enter the GNS3 project name [Ansible]: "
+  read -r -p "$project_prompt" project_response
+  project_response=${project_response:-Ansible} 
+
+  # Ask the user for the subnet of the GNS3 Network  
+  subnet_prompt=" Enter subnet n for the GNS3 internal network (e.g., 192.168.n.0) [5]: "
+  read -r -p "$subnet_prompt" subnet_response
+  subnet_response=${subnet_response:-5}
+  
+  # Ask if the Subnet router public IP should use a DHCP client or static IP
+  dhcp_prompt=" Should the Subnet Router use DHCP for its public IP? [Y/n]: "
+  read -r -p "$dhcp_prompt" dhcp_response
+  dhcp_response=${dhcp_response:-Y}
+  case "$dhcp_response" in
+    [Yy]*)
+      UB_SERVER_ETH0_DHCP="true"
+      UB_SERVER_ETH0_IP=""
+      ;;
+    [Nn]*)
+      UB_SERVER_ETH0_DHCP="false"
+      static_ip_prompt=" Enter the static IP for the Subnet Router public interface (e.g., 192.168.1.252, or 10.10.10.15) [192.168.1.252]: "
+      read -r -p "$static_ip_prompt" static_ip_response
+      UB_SERVER_ETH0_IP=${static_ip_response:-192.168.1.252}
+
+      # Ask for the netmask and gateway if static IP is chosen
+      netmask_prompt=" Enter the netmask for the Subnet Router public interface (e.g., 255.255.255.0) [255.255.255.0]: "
+      read -r -p "$netmask_prompt" netmask_response
+      netmask_response=${netmask_response:-255.255.255.0}
+      gateway_prompt=" Enter the gateway for the Subnet Router public interface (e.g., 192.168.1.1) [192.168.1.1]: "
+      read -r -p "$gateway_prompt" gateway_response
+      gateway_response=${gateway_response:-192.168.1.1}
+      ;;
+    *)
+      UB_SERVER_ETH0_DHCP="true"
+      UB_SERVER_ETH0_IP=""
+      ;;
+  esac
+
+  # Determine our own IP, so we can set it for the GNS3_SERVER_HOST
+  my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
+  if [ -z "$my_ip" ] ; then
+    echo " Unable to determine my own IP address"
+    # Ask formy own IP
+    ip_prompt=" Enter the IP address of this host (GNS3 server) []: "
+    read -r -p "$ip_prompt" my_ip
+  fi
+  if [ -z "$my_ip" ] ; then
+    echo " No IP address provided, cannot continue"
+    exit 1
+  fi
+
+  # Create the gns3.cfg file from scratch
+  echo " Creating GNS3 configuration file $GNS3_CFG_PATH"
+  echo "GNS3_PROJECT_NAME=$project_response" > "$GNS3_CFG_PATH"
+  echo "GNS3_SERVER_HOST=$my_ip" >> "$GNS3_CFG_PATH"
+  echo "GNS3_SERVER_PORT=3080" >> "$GNS3_CFG_PATH"
+  echo "GNS3_SERVER_NETWORK_ADAPTER=1" >> "$GNS3_CFG_PATH"
+  echo "GNS3_LAN_PORT=\"br0\"" >> "$GNS3_CFG_PATH"
+  echo "GNS3_LAN_PORT_NR=\"0\"" >> "$GNS3_CFG_PATH"
+  echo "GNS3_LAN_ADAPTER=\"0\"" >> "$GNS3_CFG_PATH"
+  echo "GNS3_SERVER_DT_IMAGE_PATH=\$ANSIBLE/tests/integration/harness/gns3_images" >> "$GNS3_CFG_PATH"
+  echo "SUBNET_ROUTER_GATEWAY=$UB_SERVER_ETH0_IP" >> "$GNS3_CFG_PATH"
+  echo "SUBNET_ROUTER_NETWORK=$subnet_response" >> "$GNS3_CFG_PATH"
+  echo "source \${ANSIBLE}/tests/integration/harness/tools/gns3_func" >> "$GNS3_CFG_PATH"
+  echo "DT_IMAGE_PATH=\$GNS3_SERVER_DT_IMAGE_PATH" >> "$GNS3_CFG_PATH"
+
+  # Update the subnet router docker interface file
+  IFile="$HARNESS_DIR/docker/ubserver/interfaces"
+  echo " Updating subnet router interface file $IFile"
+
+  # eth0 can be DHCP or static
+  if [ "$UB_SERVER_ETH0_DHCP" = "false" ] ; then
+    echo "iface eth0 inet static" > "$IFile"
+    echo "	address $UB_SERVER_ETH0_IP" >> "$IFile"
+    echo "	netmask $netmask_response" >> "$IFile"
+    echo "	gateway $gateway_response" >> "$IFile"
+  else
+    echo "auto eth0" > "$IFile"
+    echo "iface eth0 inet dhcp" >> "$IFile"
+    echo "	hostname br0_vm-1" >> "$IFile"
+  fi
+
+  # eth1 is always static, only the subnet n can be chosen, within the 192.168.x.0/24 range
+  echo "iface eth1 inet static" >> "$IFile"
+  echo "	address 192.168.$subnet_response.1" >> "$IFile"
+  echo "	netmask 255.255.255.0" >> "$IFile"
+
+  # Create the ansible inventory file
+  INV_FILE="$HARNESS_DIR/cfg/inventory.ini"
+  echo " Creating Ansible inventory file $INV_FILE"
+
+  # Copy the template-inventory.ini to inventory.ini, replacing SUBNET with the chosen subnet n 
+  sed -E "s/SUBNET/$subnet_response/g" "$HARNESS_DIR/cfg/template-inventory.ini" > "$INV_FILE"
+    
+  # Create the DHCPd.conf file from the template, make sure to replace $SUBNET with the chosen subnet n
+  DHCPD_TEMPLATE="$HARNESS_DIR/docker/ubserver/template-dhcpd.conf"
+  DHCPD_CONF="$HARNESS_DIR/docker/ubserver/dhcpd.conf"
+  echo " Creating DHCPd configuration file $DHCPD_CONF from template $DHCPD_TEMPLATE"
+  sed -E "s/SUBNET/$subnet_response/g" "$DHCPD_TEMPLATE" > "$DHCPD_CONF"
+
+  # Create a new interfaces file in the pc directory, based upon the teomplate-interfaces file, be sure to substitute $SUBNET
+  PC_TEMPLATE="$HARNESS_DIR/docker/pc/template-interfaces"
+  PC_INTERFACES="$HARNESS_DIR/docker/pc/interfaces"
+  echo " Creating PC interfaces file $PC_INTERFACES from template $PC_TEMPLATE"
+  sed -E "s/SUBNET/$subnet_response/g" "$PC_TEMPLATE" > "$PC_INTERFACES"
 else
   INSTALL_GNS3=false
 fi
@@ -205,7 +275,7 @@ if [ "$INSTALL_GNS3" = true ] ; then
         gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
         network=$(read_cfg_value "SUBNET_ROUTER_NETWORK")
         gateway=${gateway:-192.168.1.252}
-        network=${network:-192.168.5.0/24}
+        network=${network:-5}
         backup_path="${NETPLAN_FILE}.$(date +%Y%m%d%H%M%S).bak"
         sudo cp "$NETPLAN_FILE" "$backup_path"
         sudo tee "$NETPLAN_FILE" > /dev/null <<EOF
@@ -228,7 +298,7 @@ network:
         stp: false
         forward-delay: 0
       routes:
-        - to: $network
+        - to: 192.168.$network.0/24
           via: $gateway
 EOF
         sudo netplan apply

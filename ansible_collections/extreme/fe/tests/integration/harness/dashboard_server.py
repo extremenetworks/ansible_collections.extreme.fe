@@ -498,6 +498,20 @@ INDEX_HTML = """<!DOCTYPE html>
             color: #94a3b8;
             font-style: italic;
         }
+        .config-ip-input {
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.65);
+            color: #e2e8f0;
+            font-size: 0.9rem;
+            min-width: 140px;
+        }
+        .config-ip-input:focus {
+            outline: none;
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+        }
         .config-bulk-actions {
             margin-top: 1rem;
             display: flex;
@@ -703,6 +717,7 @@ INDEX_HTML = """<!DOCTYPE html>
             verboseLevel: 0,
             diff: false,
             gns3Server: true,
+            gns3ServerIp: '',
             inventory: ''
         };
         updateTopologyButtonVisibility(configSettings.gns3Server);
@@ -1108,6 +1123,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 verboseLevel: 0,
                 diff: false,
                 gns3Server: true,
+                gns3ServerIp: '',
                 inventory: ''
             };
             if (!data || typeof data !== 'object') {
@@ -1119,6 +1135,7 @@ INDEX_HTML = """<!DOCTYPE html>
             );
             const rawInventory = data.inventory ?? data.inventory_selection ?? defaults.inventory;
             const rawGns3 = data.gns3_server ?? data.gns3Server ?? defaults.gns3Server;
+            const rawGns3Ip = data.gns3_server_ip ?? data.gns3ServerIp ?? defaults.gns3ServerIp;
             return {
                 testCoverage: Boolean(data.test_coverage ?? data.testCoverage ?? defaults.testCoverage),
                 traceHttp: Boolean(data.trace_http ?? data.traceHttp ?? defaults.traceHttp),
@@ -1127,6 +1144,7 @@ INDEX_HTML = """<!DOCTYPE html>
                     : Math.min(5, Math.max(0, rawLevel)),
                 diff: Boolean(data.diff ?? defaults.diff),
                 gns3Server: Boolean(rawGns3),
+                gns3ServerIp: typeof rawGns3Ip === 'string' ? rawGns3Ip : defaults.gns3ServerIp,
                 inventory: typeof rawInventory === 'string' ? rawInventory : defaults.inventory
             };
         }
@@ -1199,6 +1217,10 @@ INDEX_HTML = """<!DOCTYPE html>
                         </span>
                         <span class="single-toggle-text">${settings.gns3Server ? 'On' : 'Off'}</span>
                     </label>
+                </div>
+                <div class="config-option gns3-server-ip-option" style="${settings.gns3Server ? '' : 'display: none;'}">
+                    <span class="config-option-title">GNS3 Server IP</span>
+                    <input type="text" name="gns3-server-ip" value="${escapeHtml(settings.gns3ServerIp)}" placeholder="127.0.0.1" aria-label="GNS3 Server IP" class="config-ip-input">
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Verbose level</span>
@@ -1343,6 +1365,7 @@ INDEX_HTML = """<!DOCTYPE html>
                         verbose_level: selectionState.verboseLevel,
                         diff: selectionState.diff,
                         gns3_server: selectionState.gns3Server,
+                        gns3_server_ip: selectionState.gns3ServerIp,
                         inventory: selectionState.inventory
                     })
                 });
@@ -1431,6 +1454,7 @@ INDEX_HTML = """<!DOCTYPE html>
             const coverageInput = configPanel.querySelector('input[name="coverage"]');
             const traceInput = configPanel.querySelector('input[name="trace"]');
             const gns3Input = configPanel.querySelector('input[name="gns3-server"]');
+            const gns3IpInput = configPanel.querySelector('input[name="gns3-server-ip"]');
             const diffInput = configPanel.querySelector('input[name="diff"]');
             const verboseRadio = configPanel.querySelector('input[name="verbose-level"]:checked');
             const verboseValue = verboseRadio ? Number.parseInt(verboseRadio.value, 10) : base.verboseLevel;
@@ -1443,10 +1467,12 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
             }
             const sanitizedInventory = typeof inventoryValue === 'string' ? inventoryValue.trim() : base.inventory;
+            const gns3IpValue = gns3IpInput ? gns3IpInput.value.trim() : base.gns3ServerIp;
             return {
                 testCoverage: coverageInput ? coverageInput.checked : base.testCoverage,
                 traceHttp: traceInput ? traceInput.checked : base.traceHttp,
                 gns3Server: gns3Input ? gns3Input.checked : base.gns3Server,
+                gns3ServerIp: gns3IpValue,
                 diff: diffInput ? diffInput.checked : base.diff,
                 verboseLevel: Number.isNaN(verboseValue)
                     ? base.verboseLevel
@@ -1883,6 +1909,13 @@ INDEX_HTML = """<!DOCTYPE html>
             if (target instanceof HTMLInputElement && target.closest('.single-toggle')) {
                 updateSingleToggleLabel(target);
             }
+            // Toggle GNS3 Server IP field visibility when GNS3 server toggle changes
+            if (target instanceof HTMLInputElement && target.name === 'gns3-server') {
+                const gns3IpOption = configPanel.querySelector('.gns3-server-ip-option');
+                if (gns3IpOption) {
+                    gns3IpOption.style.display = target.checked ? '' : 'none';
+                }
+            }
             populateConfigFromUI();
             scheduleConfigUpdate();
         });
@@ -2268,6 +2301,54 @@ def _read_gns_server_settings() -> tuple[str, str]:
     return host, port
 
 
+def _read_gns3_server_host() -> str:
+    """Read only the GNS3_SERVER_HOST from the gns3.cfg file."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return "127.0.0.1"
+    for raw_line in TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"\'')
+        if key == "GNS3_SERVER_HOST" and value:
+            return value
+    return "127.0.0.1"
+
+
+def _update_gns3_server_host(new_host: str) -> None:
+    """Update the GNS3_SERVER_HOST value in the gns3.cfg file."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return
+    lines = TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    host_found = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _ = line.split("=", 1)
+            if key.strip() == "GNS3_SERVER_HOST":
+                updated_lines.append(f"GNS3_SERVER_HOST={new_host}")
+                host_found = True
+                continue
+        updated_lines.append(raw_line)
+    if not host_found:
+        # Insert after GNS3_SERVER_PORT if present, otherwise at the beginning
+        insert_idx = 0
+        for idx, raw_line in enumerate(updated_lines):
+            line = raw_line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _ = line.split("=", 1)
+                if key.strip() == "GNS3_SERVER_PORT":
+                    insert_idx = idx + 1
+                    break
+        updated_lines.insert(insert_idx, f"GNS3_SERVER_HOST={new_host}")
+    TOPOLOGY_CONFIG_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+
 def _fetch_project_uuid() -> str:
     if not PROJECT_UUID_SCRIPT.is_file():
         raise FileNotFoundError(f"Project UUID script not found: {PROJECT_UUID_SCRIPT}")
@@ -2445,6 +2526,7 @@ def read_run_options() -> dict[str, object]:
         "diff": False,
         "inventory": "",
         "gns3_server": True,
+        "gns3_server_ip": _read_gns3_server_host(),
     }
     if not DEFAULT_SUMMARY_PATH.exists():
         return dict(defaults)
@@ -2454,6 +2536,7 @@ def read_run_options() -> dict[str, object]:
     diff_enabled = defaults["diff"]
     inventory_value = defaults["inventory"]
     gns3_enabled = defaults["gns3_server"]
+    gns3_server_ip = defaults["gns3_server_ip"]
     for raw_line in DEFAULT_SUMMARY_PATH.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -2483,6 +2566,7 @@ def read_run_options() -> dict[str, object]:
         "diff": diff_enabled,
         "inventory": inventory_value,
         "gns3_server": gns3_enabled,
+        "gns3_server_ip": gns3_server_ip,
     }
 
 
@@ -2590,6 +2674,7 @@ def update_test_configuration(
     verbose_level: int,
     diff: bool,
     gns3_server: bool,
+    gns3_server_ip: Optional[str],
     inventory: Optional[str],
 ) -> None:
     summary_path = DEFAULT_SUMMARY_PATH
@@ -2685,6 +2770,11 @@ def update_test_configuration(
             updated_lines.append("")
         updated_lines.extend(new_include_lines)
     summary_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    # Update GNS3 server IP in gns3.cfg if a new value was provided
+    if gns3_server_ip is not None:
+        trimmed_ip = gns3_server_ip.strip()
+        if trimmed_ip:
+            _update_gns3_server_host(trimmed_ip)
 
 
 class DashboardUpdate(BaseModel):
@@ -2703,6 +2793,7 @@ class ConfigUpdateRequest(BaseModel):
     verbose_level: int = Field(default=0, ge=0, le=5)
     diff: bool = False
     gns3_server: bool = True
+    gns3_server_ip: Optional[str] = None
     inventory: Optional[str] = None
 
 
@@ -3565,6 +3656,7 @@ async def update_config(payload: ConfigUpdateRequest) -> JSONResponse:
             verbose_level=payload.verbose_level,
             diff=payload.diff,
             gns3_server=payload.gns3_server,
+            gns3_server_ip=payload.gns3_server_ip,
             inventory=payload.inventory,
         )
     except FileNotFoundError as exc:
