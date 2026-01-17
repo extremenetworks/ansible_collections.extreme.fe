@@ -1,0 +1,16 @@
+#!/bin/bash
+
+# script that adds a route to the ubserver container
+# Must be run under sudo or root
+
+subnet=$1
+ubserver_ip=$2
+
+if [ "$subnet" = "" ] || [ "$ubserver_ip" = "" ] ; then
+    echo "Usage: $0 <subnet> <ubserver_ip>"
+    echo "  e.g. 5 192.168.1.252"
+    exit 1
+fi
+
+ip route del 192.168.$subnet.0/24 2>/dev/null || true
+ip route add 192.168.$subnet.0/24 via $ubserver_ip

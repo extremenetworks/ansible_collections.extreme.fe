@@ -48,7 +48,11 @@ if prompt_install_gns3 ; then
   echo " Installing with GNS3 environment"
   
   #install_subnet_route
-  
+
+  # add "add-ub-route" to the sudoers file if not already present
+  echo "bjorn ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route 
+  sudo chmod 440 /etc/sudoers.d/add-ub-route
+
   # Ask the user for the project name, default is Ansible   
   project_prompt=" Enter the GNS3 project name [Ansible]: "
   read -r -p "$project_prompt" project_response
@@ -137,6 +141,11 @@ if prompt_install_gns3 ; then
   echo "	address 192.168.$subnet_response.1" >> "$IFile"
   echo "	netmask 255.255.255.0" >> "$IFile"
 
+  # Write the host IP to the dashboard-server-ip file
+  DASHBOARD_IP_FILE="$HARNESS_DIR/docker/ubserver/dashboard-server-ip"
+  echo " Writing dashboard server IP to $DASHBOARD_IP_FILE"
+  echo "$my_ip" > "$DASHBOARD_IP_FILE"
+
   # Create the ansible inventory file
   INV_FILE="$HARNESS_DIR/cfg/inventory.ini"
   echo " Creating Ansible inventory file $INV_FILE"
@@ -185,7 +194,7 @@ echo "*** Installing packages ***"
 echo "Installing Vmware tools"
 sudo apt install -y open-vm-tools
 
-sudo apt install -y git python3 python3-pip python3-venv expect
+sudo apt install -y git python3 python3-pip python3-venv expect fping 
 
 #################################
 # Install ssh

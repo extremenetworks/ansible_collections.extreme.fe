@@ -20,18 +20,6 @@ UUID_PROJ=$(check_project_UUID)
 # Make sure a GNS3 server is running
 check_gns3_server exit_on_error true
 
-# Check if project already exists, if it doesn't, create it
-#if [ "$1" = "check" ] ; then
-#    if [ "$UUID_PROJ" != "" ] ; then
-#        echo "Project $GNS3_PROJECT_NAME already exist: UUID: $UUID_PROJ"
-#        # Check if all 4 DT's exist and are running, we can do this by
-#        # issuing and Rest API call to see if the node resonds
-#
-#        
-#        exit 0
-#    fi
-#fi
-
 if [ "$1" = "stop" ] ; then
     remove_gns3_project 
     exit 0
@@ -55,11 +43,7 @@ create_switch "Mgmt_SW" 0 0 143 -83 20
 
 # Create the 6 l2 switches
 create_switch "L2_SW1" 1   508 -220 0 -35 
-#create_switch "L2_SW2" 2 -300    0 
-#create_switch "L2_SW3" 3 -300  200 
 create_switch "L2_SW4" 4  -508 -220 0 -35
-#create_switch "L2_SW5" 5  300   0  
-#create_switch "L2_SW6" 6  300  200 
 
 # Link the tpc's mgmt interface to L2_SW4 for management
 # create_link <node_id> <adapter> <port> <node_id> <adapter> <port> 
@@ -90,28 +74,6 @@ echo "Starting nodes ...."
 # Now start all the nodes, this will loop through all nodes in the project and start them
 start_all_nodes
 
-#start_node ${UUID_SROUTER} &
-
-#start_node ${UUID_TPC[1]} &
-#start_node ${UUID_TPC[2]} &
-
-#start_node ${UUID_VOSS_DT[1]} &
-#start_node ${UUID_VOSS_DT[2]} &
-##start_node ${UUID_VOSS_DT[3]} &
-#start_node ${UUID_VOSS_DT[4]} &
-#start_node ${UUID_VOSS_DT[5]} &
-##start_node ${UUID_VOSS_DT[6]} &
-##start_node ${UUID_VOSS_DT[7]} &
-##start_node ${UUID_VOSS_DT[8]} &
-##start_node ${UUID_VOSS_DT[9]} &
-##start_node ${UUID_VOSS_DT[10]} &
- #start_node ${UUID_VOSS_DT[11]} & Doesn't  run
-##start_node ${UUID_VOSS_DT[12]} &
-##start_node ${UUID_VOSS_DT[13]}  Doesn't  run&
-##start_node ${UUID_VOSS_DT[14]}  Doesn't  run&
-##start_node ${UUID_VOSS_DT[15]} &
-##start_node ${UUID_VOSS_DT[16]} &
-##start_node ${UUID_VOSS_DT[17]}  Doesn't  run&
 #
 # Link the PC's through the DT's
 #
@@ -122,12 +84,10 @@ connect_nodes ${UUID_TPC[1]} 1 0 "eth1" ${UUID_VOSS_DT[1]} 4 0 "1/4"
 # 1: TPC-1:2 to DT-4:8
 connect_nodes ${UUID_TPC[1]} 2 0 "eth2" ${UUID_VOSS_DT[4]} 8 0 "1/8"
 
-
 # 2: TPC-2:1 to DT-2:4
 connect_nodes ${UUID_TPC[2]} 1 0 "eth1" ${UUID_VOSS_DT[2]} 4 0 "1/4"
 # 2: TPC-2:2 to DT-5:8
 connect_nodes ${UUID_TPC[2]} 2 0 "eth2" ${UUID_VOSS_DT[5]} 8 0 "1/8"
-
 
 # 3: Link DT-1:7 to DT-2:7 ( connect DT1 and DT2)
 connect_nodes ${UUID_VOSS_DT[1]} 7 0 "1/7" ${UUID_VOSS_DT[2]} 7 0 "1/7"
@@ -137,7 +97,6 @@ connect_nodes ${UUID_VOSS_DT[1]} 7 0 "1/7" ${UUID_VOSS_DT[2]} 7 0 "1/7"
 connect_nodes ${UUID_VOSS_DT[4]} 10 0 "1/10" ${UUID_VOSS_DT[5]} 10 0 "1/10"
 # 4: Link DT-2:12 to DT-4:12 ( connect DT2 and DT4) (LAG)
 connect_nodes ${UUID_VOSS_DT[4]} 11 0 "1/11" ${UUID_VOSS_DT[5]} 11 0 "1/11"
-
 
 # Cross connect DT's on ports 12
 # 5: Link DT-1:12 to DT-5:12 ( connect DT1 and DT5)
@@ -153,20 +112,3 @@ connect_nodes ${UUID_VOSS_DT[2]} 15 0 "1/15" ${UUID_VOSS_DT[5]} 15 0 "1/15"
 
 wait
 echo "GNS3 configured and running"
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

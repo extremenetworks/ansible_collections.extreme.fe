@@ -181,6 +181,12 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: flex-end;
             gap: 0.75rem;
         }
+        .host-buttons-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: flex-end;
+        }
         .host-status-list {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, max-content));
@@ -215,6 +221,17 @@ INDEX_HTML = """<!DOCTYPE html>
             border-color: rgba(248, 113, 113, 0.45);
             background: rgba(248, 113, 113, 0.18);
             color: #f87171;
+        }
+        .host-status-unconfigured {
+            border-color: rgba(96, 165, 250, 0.55);
+            background: rgba(96, 165, 250, 0.18);
+            color: #60a5fa;
+        }
+        .infra-status-list {
+            display: flex;
+            gap: 0.45rem;
+            justify-content: flex-end;
+            align-items: center;
         }
         main {
             flex: 1;
@@ -649,7 +666,10 @@ INDEX_HTML = """<!DOCTYPE html>
         </div>
         <div class="header-right">
             <div id="connection-status" class="connection-status connection-waiting">Connecting…</div>
-            <div id="host-status-list" class="host-status-list" hidden></div>
+            <div class="host-buttons-row">
+                <div id="infra-status-list" class="infra-status-list" hidden></div>
+                <div id="host-status-list" class="host-status-list" hidden></div>
+            </div>
         </div>
     </header>
     <main>
@@ -697,6 +717,7 @@ INDEX_HTML = """<!DOCTYPE html>
         const topologyButton = document.getElementById('topology-button');
         const coverageButton = document.getElementById('coverage-button');
         const hostStatusList = document.getElementById('host-status-list');
+        const infraStatusList = document.getElementById('infra-status-list');
         const configPanel = document.getElementById('config-panel');
         const configList = document.getElementById('config-list');
         const configSettingsContainer = document.getElementById('config-settings');
@@ -711,6 +732,8 @@ INDEX_HTML = """<!DOCTYPE html>
         let reconnectTimer = null;
         let configEntries = [];
         let inventoryOptions = [];
+        let hostStatuses = [];
+        let infraStatuses = [];
         let configSettings = {
             testCoverage: false,
             traceHttp: false,
@@ -725,7 +748,6 @@ INDEX_HTML = """<!DOCTYPE html>
         let configUpdateInProgress = false;
         let configUpdateQueued = false;
         let coverageUrl = null;
-        let hostStatuses = [];
         let runState = {
             running: false,
             summary: defaultSummary,
@@ -851,6 +873,8 @@ INDEX_HTML = """<!DOCTYPE html>
             topologyButton.hidden = !shouldShow;
             topologyButton.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
             topologyButton.disabled = !shouldShow;
+            // Also update infrastructure status visibility
+            renderInfraStatuses();
         }
 
         function resolveCoverageTarget(rawUrl) {
@@ -1092,6 +1116,46 @@ INDEX_HTML = """<!DOCTYPE html>
         function applyHostStatusUpdate(entries) {
             hostStatuses = Array.isArray(entries) ? entries : [];
             renderHostStatuses();
+        }
+
+        function renderInfraStatuses() {
+            if (!infraStatusList) {
+                return;
+            }
+            // Only show if GNS3 server is enabled
+            if (!configSettings.gns3Server) {
+                infraStatusList.innerHTML = '';
+                infraStatusList.hidden = true;
+                return;
+            }
+            if (!Array.isArray(infraStatuses) || infraStatuses.length === 0) {
+                infraStatusList.innerHTML = '';
+                infraStatusList.hidden = true;
+                return;
+            }
+            infraStatusList.hidden = false;
+            infraStatusList.innerHTML = '';
+            for (const entry of infraStatuses) {
+                const badge = document.createElement('div');
+                let statusClass = 'host-status-down';
+                if (entry.unconfigured) {
+                    statusClass = 'host-status-unconfigured';
+                } else if (entry.reachable) {
+                    statusClass = 'host-status-up';
+                }
+                badge.className = 'host-status-badge ' + statusClass;
+                badge.textContent = entry.name;
+                if (entry.target) {
+                    badge.title = entry.target;
+                }
+                badge.dataset.name = entry.name;
+                infraStatusList.appendChild(badge);
+            }
+        }
+
+        function applyInfraStatusUpdate(entries) {
+            infraStatuses = Array.isArray(entries) ? entries : [];
+            renderInfraStatuses();
         }
 
         function updateSingleToggleLabel(input) {
@@ -1761,6 +1825,8 @@ INDEX_HTML = """<!DOCTYPE html>
                         updateStatusIndicator();
                     } else if (payload.type === 'host-status') {
                         applyHostStatusUpdate(normalizeHostStatuses(payload.hosts));
+                    } else if (payload.type === 'infra-status') {
+                        applyInfraStatusUpdate(payload.hosts || []);
                     } else if (payload.type === 'coverage-link') {
                         updateCoverageButtonState(payload.url ?? null);
                     }
@@ -2017,6 +2083,7 @@ DOC_PREFIX = "extreme_fe_"
 TOPOLOGY_CONFIG_PATH = BASE_DIR / "tests" / "integration" / "harness" / "cfg" / "gns3.cfg"
 PROJECT_UUID_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "project_uuid"
 HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
+ADD_UB_ROUTE_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "add-ub-route"
 TERMINAL_CANDIDATES = ("xterm",)
 
 
@@ -2346,6 +2413,59 @@ def _update_gns3_server_host(new_host: str) -> None:
                     insert_idx = idx + 1
                     break
         updated_lines.insert(insert_idx, f"GNS3_SERVER_HOST={new_host}")
+    TOPOLOGY_CONFIG_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+
+def _read_gns3_infra_config() -> dict[str, Optional[str]]:
+    """Read SUBNET_ROUTER_GATEWAY and SUBNET_ROUTER_NETWORK from gns3.cfg."""
+    result: dict[str, Optional[str]] = {
+        "gateway": None,
+        "subnet": None,
+    }
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return result
+    for raw_line in TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"\'')
+        if key == "SUBNET_ROUTER_GATEWAY" and value:
+            result["gateway"] = value
+        elif key == "SUBNET_ROUTER_NETWORK" and value:
+            result["subnet"] = value
+    return result
+
+
+def _update_subnet_router_gateway(new_gateway: str) -> None:
+    """Update SUBNET_ROUTER_GATEWAY in gns3.cfg."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        raise FileNotFoundError(f"Topology config file not found: {TOPOLOGY_CONFIG_PATH}")
+    lines = TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    gateway_found = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _ = line.split("=", 1)
+            if key.strip() == "SUBNET_ROUTER_GATEWAY":
+                updated_lines.append(f"SUBNET_ROUTER_GATEWAY={new_gateway}")
+                gateway_found = True
+                continue
+        updated_lines.append(raw_line)
+    if not gateway_found:
+        insert_idx = 0
+        for idx, raw_line in enumerate(updated_lines):
+            line = raw_line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _ = line.split("=", 1)
+                if key.strip() == "SUBNET_ROUTER_NETWORK":
+                    insert_idx = idx + 1
+                    break
+        updated_lines.insert(insert_idx, f"SUBNET_ROUTER_GATEWAY={new_gateway}")
     TOPOLOGY_CONFIG_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
 
 
@@ -2805,6 +2925,10 @@ class HostShellRequest(BaseModel):
     host: str
 
 
+class GatewayUpdateRequest(BaseModel):
+    gateway_ip: str
+
+
 class ConnectionManager:
     """Track connected WebSocket clients and broadcast dashboard and run updates."""
 
@@ -3022,6 +3146,9 @@ class ConnectionManager:
         self._host_status[normalized] = reachable_flag
         await self.broadcast_host_statuses()
 
+    async def broadcast_infra_status(self, statuses: list[dict[str, object]]) -> None:
+        await self._broadcast_message({"type": "infra-status", "hosts": statuses})
+
     def get_host_connection_info(self, host: str) -> Optional[dict[str, Optional[str]]]:
         normalized = host.strip() if isinstance(host, str) else ""
         if not normalized:
@@ -3141,7 +3268,7 @@ def _determine_ping_timeouts() -> list[int]:
 
 
 class HostReachabilityMonitor:
-    """Continuously monitor reachability of inventory hosts via ping."""
+    """Continuously monitor reachability of inventory hosts via fping."""
 
     def __init__(self, manager: ConnectionManager, interval: float = 1.0) -> None:
         self._manager = manager
@@ -3149,7 +3276,7 @@ class HostReachabilityMonitor:
         self._lock = asyncio.Lock()
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._inventory: Optional[Path] = None
-        self._ping_path: Optional[str] = shutil.which("ping")
+        self._fping_path: Optional[str] = shutil.which("fping")
         self._stopped = False
         self._host_targets: dict[str, str] = {}
         self._ping_timeouts = _determine_ping_timeouts()
@@ -3255,25 +3382,166 @@ class HostReachabilityMonitor:
             return
 
     async def _ping_host(self, target: str) -> bool:
-        ping_cmd = self._ping_path or shutil.which("ping")
-        if not ping_cmd:
-            self._ping_path = None
+        fping_cmd = self._fping_path or shutil.which("fping")
+        if not fping_cmd:
+            self._fping_path = None
             return False
-        self._ping_path = ping_cmd
+        self._fping_path = fping_cmd
         for timeout in self._ping_timeouts:
             try:
+                # fping uses -t for timeout in milliseconds
                 process = await asyncio.create_subprocess_exec(
-                    ping_cmd,
+                    fping_cmd,
                     "-c",
                     "1",
-                    "-W",
-                    str(timeout),
+                    "-t",
+                    str(timeout * 1000),
                     target,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
             except (FileNotFoundError, OSError):
-                self._ping_path = None
+                self._fping_path = None
+                return False
+            except Exception:
+                return False
+            try:
+                returncode = await process.wait()
+            except Exception:
+                return False
+            if returncode == 0:
+                return True
+        return False
+
+
+class InfrastructureMonitor:
+    """Monitor infrastructure hosts (Srouter, TPC1, TPC2) via fping."""
+
+    INFRA_HOSTS = [
+        {"name": "Srouter", "config_key": "gateway"},
+        {"name": "TPC1", "suffix": "50"},
+        {"name": "TPC2", "suffix": "70"},
+    ]
+
+    def __init__(self, manager: ConnectionManager, interval: float = 1.0) -> None:
+        self._manager = manager
+        self._interval = max(0.5, float(interval))
+        self._fping_path: Optional[str] = shutil.which("fping")
+        self._task: Optional[asyncio.Task[None]] = None
+        self._stopped = False
+        self._lock = asyncio.Lock()
+        self._enabled = False
+        self._last_config: dict[str, Optional[str]] = {}
+        self._ping_timeouts = _determine_ping_timeouts()
+
+    async def set_enabled(self, enabled: bool) -> None:
+        async with self._lock:
+            if self._stopped:
+                return
+            self._enabled = enabled
+            if enabled and self._task is None:
+                self._task = asyncio.create_task(self._monitor_loop())
+            elif not enabled and self._task is not None:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                self._task = None
+                await self._manager.broadcast_infra_status([])
+
+    async def close(self) -> None:
+        async with self._lock:
+            self._stopped = True
+            if self._task is not None:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                self._task = None
+
+    def _build_host_targets(self, config: dict[str, Optional[str]]) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        gateway = config.get("gateway")
+        subnet = config.get("subnet")
+        for host_info in self.INFRA_HOSTS:
+            name = host_info["name"]
+            target: Optional[str] = None
+            unconfigured = False
+            if "config_key" in host_info:
+                # Srouter uses the gateway IP directly
+                target = gateway if gateway else None
+                if not target:
+                    unconfigured = True
+            elif "suffix" in host_info and subnet:
+                # TPC1/TPC2 use 192.168.SUBNET.suffix
+                target = f"192.168.{subnet}.{host_info['suffix']}"
+            else:
+                unconfigured = True
+            result.append({
+                "name": name,
+                "target": target,
+                "unconfigured": unconfigured,
+            })
+        return result
+
+    async def _monitor_loop(self) -> None:
+        try:
+            while True:
+                try:
+                    config = await asyncio.to_thread(_read_gns3_infra_config)
+                    self._last_config = config
+                    host_targets = self._build_host_targets(config)
+                    statuses: list[dict[str, object]] = []
+                    for entry in host_targets:
+                        name = entry["name"]
+                        target = entry["target"]
+                        unconfigured = entry["unconfigured"]
+                        if unconfigured or not target:
+                            statuses.append({
+                                "name": name,
+                                "target": None,
+                                "reachable": False,
+                                "unconfigured": True,
+                            })
+                        else:
+                            reachable = await self._ping_host(target)
+                            statuses.append({
+                                "name": name,
+                                "target": target,
+                                "reachable": reachable,
+                                "unconfigured": False,
+                            })
+                    await self._manager.broadcast_infra_status(statuses)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+                await asyncio.sleep(self._interval)
+        except asyncio.CancelledError:
+            return
+
+    async def _ping_host(self, target: str) -> bool:
+        fping_cmd = self._fping_path or shutil.which("fping")
+        if not fping_cmd:
+            self._fping_path = None
+            return False
+        self._fping_path = fping_cmd
+        for timeout in self._ping_timeouts:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    fping_cmd,
+                    "-c",
+                    "1",
+                    "-t",
+                    str(timeout * 1000),
+                    target,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except (FileNotFoundError, OSError):
+                self._fping_path = None
                 return False
             except Exception:
                 return False
@@ -3289,6 +3557,7 @@ class HostReachabilityMonitor:
 manager = ConnectionManager()
 app = FastAPI(title="Extreme FE Dashboard", version="1.0.0")
 host_monitor = HostReachabilityMonitor(manager)
+infra_monitor = InfrastructureMonitor(manager)
 
 
 async def _launch_host_shell(host: str) -> None:
@@ -3349,6 +3618,13 @@ async def _refresh_host_monitor_from_settings(settings: Optional[dict[str, objec
             selection = str(value)
     inventory_path = resolve_inventory_selection(selection) if selection else None
     await host_monitor.set_inventory(inventory_path)
+    # Enable/disable infrastructure monitor based on gns3_server setting
+    gns3_enabled = True
+    if isinstance(settings, dict):
+        gns3_value = settings.get("gns3_server")
+        if gns3_value is not None:
+            gns3_enabled = bool(gns3_value)
+    await infra_monitor.set_enabled(gns3_enabled)
 
 
 @app.on_event("startup")
@@ -3360,6 +3636,7 @@ async def _dashboard_startup() -> None:
 @app.on_event("shutdown")
 async def _dashboard_shutdown() -> None:
     await host_monitor.close()
+    await infra_monitor.close()
 
 
 def _coverage_response(resource: Optional[str]) -> FileResponse:
@@ -3683,6 +3960,39 @@ async def open_config_file(payload: ConfigOpenRequest) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to open file: {exc}") from exc
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/infra/gateway")
+async def update_gateway(payload: GatewayUpdateRequest) -> JSONResponse:
+    gateway_ip = payload.gateway_ip.strip() if isinstance(payload.gateway_ip, str) else ""
+    if not gateway_ip:
+        raise HTTPException(status_code=400, detail="gateway_ip is required")
+    try:
+        await asyncio.to_thread(_update_subnet_router_gateway, gateway_ip)
+        infra_config = await asyncio.to_thread(_read_gns3_infra_config)
+        subnet_value = (infra_config.get("subnet") or "").strip()
+        if not subnet_value:
+            raise HTTPException(status_code=400, detail="SUBNET_ROUTER_NETWORK is missing")
+        await asyncio.to_thread(
+            subprocess.run,
+            [
+                "sudo",
+                str(ADD_UB_ROUTE_SCRIPT),
+                subnet_value,
+                gateway_ip,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise HTTPException(status_code=500, detail=detail or "add-ub-route failed") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update gateway: {exc}") from exc
     return JSONResponse({"status": "ok"})
 
 

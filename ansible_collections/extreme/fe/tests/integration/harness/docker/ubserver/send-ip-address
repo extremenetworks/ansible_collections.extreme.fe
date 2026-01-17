@@ -1,0 +1,46 @@
+#!/bin/bash
+
+DASHBOARD_IP_FILE="/home/ubuntu/dashboard-server-ip"
+
+read_dashboard_ip() {
+    if [ ! -f "$DASHBOARD_IP_FILE" ]; then
+        echo ""
+        return
+    fi
+    local ip
+    ip=$(tr -d ' \t\r\n' < "$DASHBOARD_IP_FILE")
+    echo "$ip"
+}
+
+get_eth0_ip() {
+    ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1
+}
+
+# Wait for eth0 IPv4
+while true; do
+    ETH0_IP=$(get_eth0_ip)
+    if [ -n "$ETH0_IP" ]; then
+        break
+    fi
+    sleep 1
+
+done
+
+# Wait for dashboard server IP
+while true; do
+    DASHBOARD_IP=$(read_dashboard_ip)
+    if [ -n "$DASHBOARD_IP" ]; then
+        break
+    fi
+    sleep 1
+
+done
+
+# Post to dashboard server until it succeeds
+while true; do
+    curl -sS -X POST "http://${DASHBOARD_IP}:4000/infra/gateway" \
+        -H "Content-Type: application/json" \
+        -d "{\"gateway_ip\": \"${ETH0_IP}\"}" >/dev/null && exit 0
+    sleep 1
+
+done
