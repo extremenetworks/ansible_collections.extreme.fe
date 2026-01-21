@@ -3438,9 +3438,12 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             script_path = Path(script.file)
             if not script_path.is_absolute():
                 summary_candidate = (summary_dir / script_path).resolve()
+                test_candidate = (TEST_DIR / script_path).resolve()
                 repo_candidate = (REPO_ROOT / script_path).resolve()
                 if summary_candidate.exists():
                     script_path = summary_candidate
+                elif test_candidate.exists():
+                    script_path = test_candidate
                 elif repo_candidate.exists():
                     script_path = repo_candidate
                 else:
