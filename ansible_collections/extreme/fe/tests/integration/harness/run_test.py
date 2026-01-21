@@ -3937,9 +3937,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.summary_file.is_file():
-        print(f"Summary file not found: {args.summary_file}")
+    summary_path = args.summary_file
+    if not summary_path.is_file() and not summary_path.is_absolute():
+        candidate = INVENTORY_ROOT / summary_path
+        if candidate.is_file():
+            summary_path = candidate
+    if not summary_path.is_file():
+        print(f"Summary file not found: {summary_path}")
         return 1
+    args.summary_file = summary_path
 
     dashboard = Dashboard(DASHBOARD_PATH, args.summary_file)
     # Render an initial placeholder so the browser can load immediately.

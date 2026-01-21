@@ -2020,7 +2020,7 @@ def _resolve_ansible_root() -> Path:
 
 
 BASE_DIR = _resolve_ansible_root()
-SUMMARY_ROOT = BASE_DIR / "tests" / "integration" / "harness"
+SUMMARY_ROOT = BASE_DIR / "tests" / "integration" / "harness" / "cfg"
 SUMMARY_PATTERN = "test*.yml"
 DEFAULT_SUMMARY = "test.yml"
 CONFIG_ROOT = BASE_DIR / "tests" / "integration" / "harness" / "components"
