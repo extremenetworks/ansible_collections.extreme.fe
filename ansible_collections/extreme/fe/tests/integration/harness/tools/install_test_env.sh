@@ -184,6 +184,16 @@ else
   echo " Timezone is already set to $current_tz; no changes made"
 fi
 
+# Copy the templete-test.yml to test.yml if it does not already exist
+TEST_YML_TEMPLATE="$HARNESS_DIR/cfg/templete-test.yml"
+TEST_YML_FILE="$HARNESS_DIR/cfg/test.yml"
+if [ ! -f "$TEST_YML_FILE" ] ; then
+  echo " Creating test.yml from template"
+  cp "$TEST_YML_TEMPLATE" "$TEST_YML_FILE"
+else
+  echo " test.yml already exists, not overwriting"
+fi
+
 # Update packages and install build dependencies
 sudo apt update 
 sudo apt upgrade -y
