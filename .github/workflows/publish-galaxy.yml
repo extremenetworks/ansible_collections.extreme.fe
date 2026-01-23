@@ -1,0 +1,50 @@
+name: Publish Ansible Galaxy Collection
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GALAXY_API_KEY: ${{ secrets.GALAXY_API_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install ansible-core ansible-lint
+
+      - name: Lint collection (optional)
+        working-directory: ansible_collections/extreme/fe
+        run: |
+          ansible-lint -v || true
+
+      - name: Build collection
+        working-directory: ansible_collections/extreme/fe
+        env:
+          ANSIBLE_LOCAL_TEMP: ${{ github.workspace }}/.ansible_tmp
+        run: |
+          mkdir -p dist
+          ansible-galaxy collection build --output-path dist
+          ls -la dist
+
+      - name: Publish to Galaxy
+        if: env.GALAXY_API_KEY != ''
+        working-directory: ansible_collections/extreme/fe
+        run: |
+          set -e
+          TAR=$(ls -1 dist/*.tar.gz | head -n 1)
+          echo "Publishing $TAR"
+          ansible-galaxy collection publish "$TAR" --token "$GALAXY_API_KEY"
