@@ -41,6 +41,8 @@ COPY --chown=root:root isc-dhcp-server /etc/default/isc-dhcp-server
 COPY --chown=root:root startup /home/ubuntu/startup
 COPY --chown=root:root check_interfaces /home/ubuntu/check_interfaces
 COPY --chown=root:root nftables.conf /etc/nftables.conf
+COPY --chown=root:root dashboard-server-ip /home/ubuntu/dashboard-server-ip
+COPY --chown=root:root send-ip-address /home/ubuntu/send-ip-address
 
 # RUN /usr/sbin/dhcpd -4 --no-pid eth1
 

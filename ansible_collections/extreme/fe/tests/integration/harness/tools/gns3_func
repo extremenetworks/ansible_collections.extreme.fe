@@ -115,7 +115,7 @@ start_all_nodes () {
     fi
 
     # Get all the nodes
-    RESULT=$(curl  --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
+    RESULT=$(curl --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
     if [ -n "$GNS3_DEBUG" ]; then
         echo "RESULT:$RESULT"
     fi
@@ -234,6 +234,7 @@ create_dt () {
 
     # Need to ADD check for EXOS -- ** --
     UUID_VOSS_DT[$DEVICE_NUM]=${UUID_NODE}
+    echo "  Created DT: ${NODE_NAME} UUID:${UUID_NODE}"
 
     # Connect the DT to the mgmt network
     connect_nodes "${UUID_NODE}" "$ADAPTER" "0" "$MGMT_PORT" "${UUID_SW[$SW_NR]}" "0" "${SW_PORT}" "${SW_PORT}"
@@ -306,7 +307,7 @@ create_switch () {
     LABEL_XPOS=$5
     LABEL_YPOS=$6
 
-    #echo "Create switch: $NAME (switch:$SW_NR)"
+    echo "Create switch: $NAME (switch:$SW_NR)"
     COMPUTE_ID="local"
 
     # See if the switch is already there, if it is delete it
@@ -548,17 +549,31 @@ create_LAN_node () {
     CLOUD_NAME="LAN"
     COMPUTE_ID="local"
 
-    RESULT=$(curl  --fail --show-error --location --request POST \
+    # Check if the template exists
+    #R=`curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates" | grep "$CLOUD_TEMPLATE" | wc -l`
+    #if [ "$R" = "0" ] ; then
+    #    echo "  Cloud LAN template not installed, adding new Cloud LAN template"
+    #    R=`curl --fail --silent --show-error --location -X POST http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates \
+    #        -H "Content-Type: application/json" \
+    #        -d '{ \
+    #        "name": "Cloud LAN", \
+    #        "template_type": "cloud", \
+    #        "compute_id": "local", \
+    #        "adapters": 1 \
+    #        }'`
+    #fi
+
+    echo "Creating \"Cloud\" LAN connection: $CLOUD_NAME with adapter: $GNS3_LAN_ADAPTER port: $GNS3_LAN_PORT and template: $CLOUD_TEMPLATE"
+    RESULT=$(curl --fail --silent --show-error --location --request POST \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/${CLOUD_TEMPLATE}" --data \
         "{\"name\": \"LAN\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
-    echo $RESULT
+
     UUID_UNET=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl  --fail --show-error --location --request PUT \
+    echo "  Created LAN Cloud node: UUID:$UUID_UNET, setting name and symbol"
+    curl --fail --silent --show-error --location --request PUT \
         "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_UNET}" --data "{
         \"name\": \"${CLOUD_NAME}\", \"symbol\": \":/symbols/affinity/square/gray/cloud.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
-    
-    echo "Created \"Cloud\" LAN connection: UUID:$UUID_UNET"
 }
 
 #
@@ -602,7 +617,7 @@ create_subNetRouter_node () {
         if [ "$R" = "0" ] ; then
             # Need to install the route
             echo "Installing route to $SUBNET_ROUTER_NETWORK through gateway $SUBNET_ROUTER_GATEWAY"
-            sudo ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
+            ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
         fi
     fi
 
@@ -613,15 +628,12 @@ create_subNetRouter_node () {
 
     # Create the ubserverR router
     template_ID="$snt_t_id" 
-    echo "||||||||||||||||"
     RESULT=$(curl  --fail  --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
         --data "{\"name\": \"Subnet Router\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
-    echo $RESULT
-    echo "--------------------------------"
     UUID_SROUTER=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl --fail  --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"name\": \"Subnet Router\"}" > /dev/null
-    curl --fail  --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"symbol\": \":/symbols/classic/router.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
 

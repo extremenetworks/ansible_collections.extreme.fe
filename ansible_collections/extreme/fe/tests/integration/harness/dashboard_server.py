@@ -181,6 +181,12 @@ INDEX_HTML = """<!DOCTYPE html>
             align-items: flex-end;
             gap: 0.75rem;
         }
+        .host-buttons-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            justify-content: flex-end;
+        }
         .host-status-list {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, max-content));
@@ -215,6 +221,17 @@ INDEX_HTML = """<!DOCTYPE html>
             border-color: rgba(248, 113, 113, 0.45);
             background: rgba(248, 113, 113, 0.18);
             color: #f87171;
+        }
+        .host-status-unconfigured {
+            border-color: rgba(96, 165, 250, 0.55);
+            background: rgba(96, 165, 250, 0.18);
+            color: #60a5fa;
+        }
+        .infra-status-list {
+            display: flex;
+            gap: 0.45rem;
+            justify-content: flex-end;
+            align-items: center;
         }
         main {
             flex: 1;
@@ -396,6 +413,61 @@ INDEX_HTML = """<!DOCTYPE html>
             border-radius: 50%;
             background: #38bdf8;
         }
+        .single-toggle {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.4rem 0.95rem 0.4rem 0.75rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.45);
+            cursor: pointer;
+            user-select: none;
+            min-width: 140px;
+        }
+        .single-toggle input {
+            position: absolute;
+            inset: 0;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+        .single-toggle-visual {
+            width: 36px;
+            height: 20px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.6);
+            background: rgba(148, 163, 184, 0.35);
+            display: inline-flex;
+            align-items: center;
+            padding: 0 3px;
+            transition: background 0.2s ease, border-color 0.2s ease;
+        }
+        .single-toggle-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #94a3b8;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+        .single-toggle input:checked + .single-toggle-visual {
+            background: rgba(56, 189, 248, 0.25);
+            border-color: #38bdf8;
+        }
+        .single-toggle input:checked + .single-toggle-visual .single-toggle-dot {
+            transform: translateX(14px);
+            background: #38bdf8;
+        }
+        .single-toggle-text {
+            font-size: 0.9rem;
+            letter-spacing: 0.03em;
+            color: #cbd5f5;
+            transition: color 0.2s ease;
+        }
+        .single-toggle input:not(:checked) + .single-toggle-visual + .single-toggle-text {
+            color: #94a3b8;
+        }
         .config-verbose {
             display: flex;
             gap: 0.5rem;
@@ -442,6 +514,20 @@ INDEX_HTML = """<!DOCTYPE html>
         .config-empty {
             color: #94a3b8;
             font-style: italic;
+        }
+        .config-ip-input {
+            padding: 0.45rem 0.85rem;
+            border-radius: 8px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.65);
+            color: #e2e8f0;
+            font-size: 0.9rem;
+            min-width: 140px;
+        }
+        .config-ip-input:focus {
+            outline: none;
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
         }
         .config-bulk-actions {
             margin-top: 1rem;
@@ -580,7 +666,10 @@ INDEX_HTML = """<!DOCTYPE html>
         </div>
         <div class="header-right">
             <div id="connection-status" class="connection-status connection-waiting">Connecting…</div>
-            <div id="host-status-list" class="host-status-list" hidden></div>
+            <div class="host-buttons-row">
+                <div id="infra-status-list" class="infra-status-list" hidden></div>
+                <div id="host-status-list" class="host-status-list" hidden></div>
+            </div>
         </div>
     </header>
     <main>
@@ -628,6 +717,7 @@ INDEX_HTML = """<!DOCTYPE html>
         const topologyButton = document.getElementById('topology-button');
         const coverageButton = document.getElementById('coverage-button');
         const hostStatusList = document.getElementById('host-status-list');
+        const infraStatusList = document.getElementById('infra-status-list');
         const configPanel = document.getElementById('config-panel');
         const configList = document.getElementById('config-list');
         const configSettingsContainer = document.getElementById('config-settings');
@@ -642,18 +732,22 @@ INDEX_HTML = """<!DOCTYPE html>
         let reconnectTimer = null;
         let configEntries = [];
         let inventoryOptions = [];
+        let hostStatuses = [];
+        let infraStatuses = [];
         let configSettings = {
             testCoverage: false,
             traceHttp: false,
             verboseLevel: 0,
             diff: false,
+            gns3Server: true,
+            gns3ServerIp: '',
             inventory: ''
         };
+        updateTopologyButtonVisibility(configSettings.gns3Server);
         let configUpdateTimer = null;
         let configUpdateInProgress = false;
         let configUpdateQueued = false;
         let coverageUrl = null;
-        let hostStatuses = [];
         let runState = {
             running: false,
             summary: defaultSummary,
@@ -769,6 +863,18 @@ INDEX_HTML = """<!DOCTYPE html>
                 coverageButton.disabled = true;
                 coverageButton.title = 'Code coverage report not available';
             }
+        }
+
+        function updateTopologyButtonVisibility(enabled) {
+            if (!topologyButton) {
+                return;
+            }
+            const shouldShow = Boolean(enabled);
+            topologyButton.hidden = !shouldShow;
+            topologyButton.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+            topologyButton.disabled = !shouldShow;
+            // Also update infrastructure status visibility
+            renderInfraStatuses();
         }
 
         function resolveCoverageTarget(rawUrl) {
@@ -1012,12 +1118,76 @@ INDEX_HTML = """<!DOCTYPE html>
             renderHostStatuses();
         }
 
+        function renderInfraStatuses() {
+            if (!infraStatusList) {
+                return;
+            }
+            // Only show if GNS3 server is enabled
+            if (!configSettings.gns3Server) {
+                infraStatusList.innerHTML = '';
+                infraStatusList.hidden = true;
+                return;
+            }
+            if (!Array.isArray(infraStatuses) || infraStatuses.length === 0) {
+                infraStatusList.innerHTML = '';
+                infraStatusList.hidden = true;
+                return;
+            }
+            infraStatusList.hidden = false;
+            infraStatusList.innerHTML = '';
+            for (const entry of infraStatuses) {
+                const badge = document.createElement('div');
+                let statusClass = 'host-status-down';
+                if (entry.unconfigured) {
+                    statusClass = 'host-status-unconfigured';
+                } else if (entry.reachable) {
+                    statusClass = 'host-status-up';
+                }
+                badge.className = 'host-status-badge ' + statusClass;
+                badge.textContent = entry.name;
+                if (entry.target) {
+                    badge.title = entry.target;
+                }
+                badge.dataset.name = entry.name;
+                infraStatusList.appendChild(badge);
+            }
+        }
+
+        function applyInfraStatusUpdate(entries) {
+            infraStatuses = Array.isArray(entries) ? entries : [];
+            renderInfraStatuses();
+        }
+
+        function updateSingleToggleLabel(input) {
+            if (!input) {
+                return;
+            }
+            const label = input.closest('.single-toggle');
+            if (!label) {
+                return;
+            }
+            const textSpan = label.querySelector('.single-toggle-text');
+            if (textSpan) {
+                textSpan.textContent = input.checked ? 'On' : 'Off';
+            }
+        }
+
+        function syncSingleToggleLabels() {
+            if (!configPanel) {
+                return;
+            }
+            const toggles = configPanel.querySelectorAll('.single-toggle input');
+            toggles.forEach((input) => updateSingleToggleLabel(input));
+        }
+
         function normalizeSettings(data) {
             const defaults = {
                 testCoverage: false,
                 traceHttp: false,
                 verboseLevel: 0,
                 diff: false,
+                gns3Server: true,
+                gns3ServerIp: '',
                 inventory: ''
             };
             if (!data || typeof data !== 'object') {
@@ -1028,6 +1198,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 10
             );
             const rawInventory = data.inventory ?? data.inventory_selection ?? defaults.inventory;
+            const rawGns3 = data.gns3_server ?? data.gns3Server ?? defaults.gns3Server;
+            const rawGns3Ip = data.gns3_server_ip ?? data.gns3ServerIp ?? defaults.gns3ServerIp;
             return {
                 testCoverage: Boolean(data.test_coverage ?? data.testCoverage ?? defaults.testCoverage),
                 traceHttp: Boolean(data.trace_http ?? data.traceHttp ?? defaults.traceHttp),
@@ -1035,6 +1207,8 @@ INDEX_HTML = """<!DOCTYPE html>
                     ? defaults.verboseLevel
                     : Math.min(5, Math.max(0, rawLevel)),
                 diff: Boolean(data.diff ?? defaults.diff),
+                gns3Server: Boolean(rawGns3),
+                gns3ServerIp: typeof rawGns3Ip === 'string' ? rawGns3Ip : defaults.gns3ServerIp,
                 inventory: typeof rawInventory === 'string' ? rawInventory : defaults.inventory
             };
         }
@@ -1045,6 +1219,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             const settings = normalizeSettings(configSettings);
             configSettings = settings;
+            updateTopologyButtonVisibility(settings.gns3Server);
             const selection = typeof settings.inventory === 'string' ? settings.inventory : '';
             const availableInventories = Array.isArray(inventoryOptions)
                 ? inventoryOptions.slice()
@@ -1079,29 +1254,37 @@ INDEX_HTML = """<!DOCTYPE html>
             const markup = `
                 <div class="config-option">
                     <span class="config-option-title">Test coverage</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Test coverage">
-                        <label class="toggle-option">
-                            <input type="radio" name="coverage" value="false" ${settings.testCoverage ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="coverage" value="true" ${settings.testCoverage ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="coverage">
+                        <input type="checkbox" name="coverage" value="true" ${settings.testCoverage ? 'checked' : ''} aria-label="Test coverage">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.testCoverage ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Trace HTTP</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Trace HTTP">
-                        <label class="toggle-option">
-                            <input type="radio" name="trace" value="false" ${settings.traceHttp ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="trace" value="true" ${settings.traceHttp ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="trace">
+                        <input type="checkbox" name="trace" value="true" ${settings.traceHttp ? 'checked' : ''} aria-label="Trace HTTP">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.traceHttp ? 'On' : 'Off'}</span>
+                    </label>
+                </div>
+                <div class="config-option">
+                    <span class="config-option-title">GNS3 server</span>
+                    <label class="single-toggle" data-toggle-name="gns3-server">
+                        <input type="checkbox" name="gns3-server" value="true" ${settings.gns3Server ? 'checked' : ''} aria-label="GNS3 server">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.gns3Server ? 'On' : 'Off'}</span>
+                    </label>
+                </div>
+                <div class="config-option gns3-server-ip-option" style="${settings.gns3Server ? '' : 'display: none;'}">
+                    <span class="config-option-title">GNS3 Server IP</span>
+                    <input type="text" name="gns3-server-ip" value="${escapeHtml(settings.gns3ServerIp)}" placeholder="127.0.0.1" aria-label="GNS3 Server IP" class="config-ip-input">
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Verbose level</span>
@@ -1111,16 +1294,13 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Diff output</span>
-                    <div class="toggle-group" role="radiogroup" aria-label="Diff output">
-                        <label class="toggle-option">
-                            <input type="radio" name="diff" value="false" ${settings.diff ? '' : 'checked'}>
-                            Off
-                        </label>
-                        <label class="toggle-option">
-                            <input type="radio" name="diff" value="true" ${settings.diff ? 'checked' : ''}>
-                            On
-                        </label>
-                    </div>
+                    <label class="single-toggle" data-toggle-name="diff">
+                        <input type="checkbox" name="diff" value="true" ${settings.diff ? 'checked' : ''} aria-label="Diff output">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.diff ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
                 <div class="config-option">
                     <span class="config-option-title">Inventory</span>
@@ -1130,6 +1310,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 </div>
             `;
             configSettingsContainer.innerHTML = markup;
+            syncSingleToggleLabels();
         }
 
         function updateBulkActionButtons() {
@@ -1247,6 +1428,8 @@ INDEX_HTML = """<!DOCTYPE html>
                         trace_http: selectionState.traceHttp,
                         verbose_level: selectionState.verboseLevel,
                         diff: selectionState.diff,
+                        gns3_server: selectionState.gns3Server,
+                        gns3_server_ip: selectionState.gns3ServerIp,
                         inventory: selectionState.inventory
                     })
                 });
@@ -1286,6 +1469,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 } else {
                     configSettings = { ...selectionState };
                 }
+                updateTopologyButtonVisibility(configSettings.gns3Server);
                 if (!configUpdateQueued) {
                     renderConfigOptions();
                 } else {
@@ -1331,9 +1515,11 @@ INDEX_HTML = """<!DOCTYPE html>
 
         function collectConfigSelections() {
             const base = normalizeSettings(configSettings);
-            const coverageRadio = configPanel.querySelector('input[name="coverage"]:checked');
-            const traceRadio = configPanel.querySelector('input[name="trace"]:checked');
-            const diffRadio = configPanel.querySelector('input[name="diff"]:checked');
+            const coverageInput = configPanel.querySelector('input[name="coverage"]');
+            const traceInput = configPanel.querySelector('input[name="trace"]');
+            const gns3Input = configPanel.querySelector('input[name="gns3-server"]');
+            const gns3IpInput = configPanel.querySelector('input[name="gns3-server-ip"]');
+            const diffInput = configPanel.querySelector('input[name="diff"]');
             const verboseRadio = configPanel.querySelector('input[name="verbose-level"]:checked');
             const verboseValue = verboseRadio ? Number.parseInt(verboseRadio.value, 10) : base.verboseLevel;
             const inventorySelect = configPanel.querySelector('select[name="inventory"]');
@@ -1345,10 +1531,13 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
             }
             const sanitizedInventory = typeof inventoryValue === 'string' ? inventoryValue.trim() : base.inventory;
+            const gns3IpValue = gns3IpInput ? gns3IpInput.value.trim() : base.gns3ServerIp;
             return {
-                testCoverage: coverageRadio ? coverageRadio.value === 'true' : base.testCoverage,
-                traceHttp: traceRadio ? traceRadio.value === 'true' : base.traceHttp,
-                diff: diffRadio ? diffRadio.value === 'true' : base.diff,
+                testCoverage: coverageInput ? coverageInput.checked : base.testCoverage,
+                traceHttp: traceInput ? traceInput.checked : base.traceHttp,
+                gns3Server: gns3Input ? gns3Input.checked : base.gns3Server,
+                gns3ServerIp: gns3IpValue,
+                diff: diffInput ? diffInput.checked : base.diff,
                 verboseLevel: Number.isNaN(verboseValue)
                     ? base.verboseLevel
                     : Math.min(5, Math.max(0, verboseValue)),
@@ -1370,6 +1559,7 @@ INDEX_HTML = """<!DOCTYPE html>
             }
             const selectionState = collectConfigSelections();
             configSettings = { ...selectionState };
+            updateTopologyButtonVisibility(selectionState.gns3Server);
         }
 
         async function openConfigFile(filename) {
@@ -1635,6 +1825,8 @@ INDEX_HTML = """<!DOCTYPE html>
                         updateStatusIndicator();
                     } else if (payload.type === 'host-status') {
                         applyHostStatusUpdate(normalizeHostStatuses(payload.hosts));
+                    } else if (payload.type === 'infra-status') {
+                        applyInfraStatusUpdate(payload.hosts || []);
                     } else if (payload.type === 'coverage-link') {
                         updateCoverageButtonState(payload.url ?? null);
                     }
@@ -1780,6 +1972,16 @@ INDEX_HTML = """<!DOCTYPE html>
             if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
                 return;
             }
+            if (target instanceof HTMLInputElement && target.closest('.single-toggle')) {
+                updateSingleToggleLabel(target);
+            }
+            // Toggle GNS3 Server IP field visibility when GNS3 server toggle changes
+            if (target instanceof HTMLInputElement && target.name === 'gns3-server') {
+                const gns3IpOption = configPanel.querySelector('.gns3-server-ip-option');
+                if (gns3IpOption) {
+                    gns3IpOption.style.display = target.checked ? '' : 'none';
+                }
+            }
             populateConfigFromUI();
             scheduleConfigUpdate();
         });
@@ -1818,7 +2020,7 @@ def _resolve_ansible_root() -> Path:
 
 
 BASE_DIR = _resolve_ansible_root()
-SUMMARY_ROOT = BASE_DIR / "tests" / "integration" / "harness"
+SUMMARY_ROOT = BASE_DIR / "tests" / "integration" / "harness" / "cfg"
 SUMMARY_PATTERN = "test*.yml"
 DEFAULT_SUMMARY = "test.yml"
 CONFIG_ROOT = BASE_DIR / "tests" / "integration" / "harness" / "components"
@@ -1878,9 +2080,10 @@ _redirect_output_to_log()
 
 DOCS_ROOT = BASE_DIR / "docs"
 DOC_PREFIX = "extreme_fe_"
-TOPOLOGY_CONFIG_PATH = BASE_DIR / "test" / "cfg" / "gns3.cfg"
-PROJECT_UUID_SCRIPT = BASE_DIR / "test" / "tools" / "project_uuid"
+TOPOLOGY_CONFIG_PATH = BASE_DIR / "tests" / "integration" / "harness" / "cfg" / "gns3.cfg"
+PROJECT_UUID_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "project_uuid"
 HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
+ADD_UB_ROUTE_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "add-ub-route"
 TERMINAL_CANDIDATES = ("xterm",)
 
 
@@ -2165,6 +2368,107 @@ def _read_gns_server_settings() -> tuple[str, str]:
     return host, port
 
 
+def _read_gns3_server_host() -> str:
+    """Read only the GNS3_SERVER_HOST from the gns3.cfg file."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return "127.0.0.1"
+    for raw_line in TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"\'')
+        if key == "GNS3_SERVER_HOST" and value:
+            return value
+    return "127.0.0.1"
+
+
+def _update_gns3_server_host(new_host: str) -> None:
+    """Update the GNS3_SERVER_HOST value in the gns3.cfg file."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return
+    lines = TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    host_found = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _ = line.split("=", 1)
+            if key.strip() == "GNS3_SERVER_HOST":
+                updated_lines.append(f"GNS3_SERVER_HOST={new_host}")
+                host_found = True
+                continue
+        updated_lines.append(raw_line)
+    if not host_found:
+        # Insert after GNS3_SERVER_PORT if present, otherwise at the beginning
+        insert_idx = 0
+        for idx, raw_line in enumerate(updated_lines):
+            line = raw_line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _ = line.split("=", 1)
+                if key.strip() == "GNS3_SERVER_PORT":
+                    insert_idx = idx + 1
+                    break
+        updated_lines.insert(insert_idx, f"GNS3_SERVER_HOST={new_host}")
+    TOPOLOGY_CONFIG_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+
+def _read_gns3_infra_config() -> dict[str, Optional[str]]:
+    """Read SUBNET_ROUTER_GATEWAY and SUBNET_ROUTER_NETWORK from gns3.cfg."""
+    result: dict[str, Optional[str]] = {
+        "gateway": None,
+        "subnet": None,
+    }
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        return result
+    for raw_line in TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"\'')
+        if key == "SUBNET_ROUTER_GATEWAY" and value:
+            result["gateway"] = value
+        elif key == "SUBNET_ROUTER_NETWORK" and value:
+            result["subnet"] = value
+    return result
+
+
+def _update_subnet_router_gateway(new_gateway: str) -> None:
+    """Update SUBNET_ROUTER_GATEWAY in gns3.cfg."""
+    if not TOPOLOGY_CONFIG_PATH.is_file():
+        raise FileNotFoundError(f"Topology config file not found: {TOPOLOGY_CONFIG_PATH}")
+    lines = TOPOLOGY_CONFIG_PATH.read_text(encoding="utf-8").splitlines()
+    updated_lines: list[str] = []
+    gateway_found = False
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _ = line.split("=", 1)
+            if key.strip() == "SUBNET_ROUTER_GATEWAY":
+                updated_lines.append(f"SUBNET_ROUTER_GATEWAY={new_gateway}")
+                gateway_found = True
+                continue
+        updated_lines.append(raw_line)
+    if not gateway_found:
+        insert_idx = 0
+        for idx, raw_line in enumerate(updated_lines):
+            line = raw_line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, _ = line.split("=", 1)
+                if key.strip() == "SUBNET_ROUTER_NETWORK":
+                    insert_idx = idx + 1
+                    break
+        updated_lines.insert(insert_idx, f"SUBNET_ROUTER_GATEWAY={new_gateway}")
+    TOPOLOGY_CONFIG_PATH.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+
+
 def _fetch_project_uuid() -> str:
     if not PROJECT_UUID_SCRIPT.is_file():
         raise FileNotFoundError(f"Project UUID script not found: {PROJECT_UUID_SCRIPT}")
@@ -2341,6 +2645,8 @@ def read_run_options() -> dict[str, object]:
         "verbose_level": 0,
         "diff": False,
         "inventory": "",
+        "gns3_server": True,
+        "gns3_server_ip": _read_gns3_server_host(),
     }
     if not DEFAULT_SUMMARY_PATH.exists():
         return dict(defaults)
@@ -2349,6 +2655,8 @@ def read_run_options() -> dict[str, object]:
     verbose_level = defaults["verbose_level"]
     diff_enabled = defaults["diff"]
     inventory_value = defaults["inventory"]
+    gns3_enabled = defaults["gns3_server"]
+    gns3_server_ip = defaults["gns3_server_ip"]
     for raw_line in DEFAULT_SUMMARY_PATH.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -2368,12 +2676,17 @@ def read_run_options() -> dict[str, object]:
             value = bare.split(":", 1)[1].strip()
             if value:
                 inventory_value = _normalize_inventory_setting_for_ui(value)
+        elif lowered.startswith("gns3_server:"):
+            value = bare.split(":", 1)[1].strip().lower()
+            gns3_enabled = value not in {"false", "0", "no", "off"}
     return {
         "test_coverage": test_coverage,
         "trace_http": trace_http,
         "verbose_level": verbose_level,
         "diff": diff_enabled,
         "inventory": inventory_value,
+        "gns3_server": gns3_enabled,
+        "gns3_server_ip": gns3_server_ip,
     }
 
 
@@ -2480,6 +2793,8 @@ def update_test_configuration(
     trace_http: bool,
     verbose_level: int,
     diff: bool,
+    gns3_server: bool,
+    gns3_server_ip: Optional[str],
     inventory: Optional[str],
 ) -> None:
     summary_path = DEFAULT_SUMMARY_PATH
@@ -2514,6 +2829,7 @@ def update_test_configuration(
     trace_written = False
     args_written = False
     inventory_written = False
+    gns3_written = False
     for line in original_lines:
         stripped = line.strip()
         bare = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
@@ -2546,6 +2862,10 @@ def update_test_configuration(
                 updated_lines.extend(new_include_lines)
                 includes_written = True
             continue
+        if lowered.startswith("gns3_server:"):
+            updated_lines.append(f"{indent}gns3_server: {'true' if gns3_server else 'false'}")
+            gns3_written = True
+            continue
         updated_lines.append(line)
     pending_lines: list[str] = []
     if inventory_action == "set" and not inventory_written and inventory_entry_value is not None:
@@ -2554,6 +2874,8 @@ def update_test_configuration(
         pending_lines.append(f"test_coverage: {'true' if test_coverage else 'false'}")
     if not trace_written:
         pending_lines.append(f"trace_http: {'true' if trace_http else 'false'}")
+    if not gns3_written:
+        pending_lines.append(f"gns3_server: {'true' if gns3_server else 'false'}")
     if not args_written:
         suffix = f" {new_args_value}" if new_args_value else ""
         pending_lines.append(f"playbook_args:{suffix}")
@@ -2568,6 +2890,11 @@ def update_test_configuration(
             updated_lines.append("")
         updated_lines.extend(new_include_lines)
     summary_path.write_text("\n".join(updated_lines) + "\n", encoding="utf-8")
+    # Update GNS3 server IP in gns3.cfg if a new value was provided
+    if gns3_server_ip is not None:
+        trimmed_ip = gns3_server_ip.strip()
+        if trimmed_ip:
+            _update_gns3_server_host(trimmed_ip)
 
 
 class DashboardUpdate(BaseModel):
@@ -2585,6 +2912,8 @@ class ConfigUpdateRequest(BaseModel):
     trace_http: bool = False
     verbose_level: int = Field(default=0, ge=0, le=5)
     diff: bool = False
+    gns3_server: bool = True
+    gns3_server_ip: Optional[str] = None
     inventory: Optional[str] = None
 
 
@@ -2594,6 +2923,10 @@ class ConfigOpenRequest(BaseModel):
 
 class HostShellRequest(BaseModel):
     host: str
+
+
+class GatewayUpdateRequest(BaseModel):
+    gateway_ip: str
 
 
 class ConnectionManager:
@@ -2813,6 +3146,9 @@ class ConnectionManager:
         self._host_status[normalized] = reachable_flag
         await self.broadcast_host_statuses()
 
+    async def broadcast_infra_status(self, statuses: list[dict[str, object]]) -> None:
+        await self._broadcast_message({"type": "infra-status", "hosts": statuses})
+
     def get_host_connection_info(self, host: str) -> Optional[dict[str, Optional[str]]]:
         normalized = host.strip() if isinstance(host, str) else ""
         if not normalized:
@@ -2932,7 +3268,7 @@ def _determine_ping_timeouts() -> list[int]:
 
 
 class HostReachabilityMonitor:
-    """Continuously monitor reachability of inventory hosts via ping."""
+    """Continuously monitor reachability of inventory hosts via fping."""
 
     def __init__(self, manager: ConnectionManager, interval: float = 1.0) -> None:
         self._manager = manager
@@ -2940,7 +3276,7 @@ class HostReachabilityMonitor:
         self._lock = asyncio.Lock()
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._inventory: Optional[Path] = None
-        self._ping_path: Optional[str] = shutil.which("ping")
+        self._fping_path: Optional[str] = shutil.which("fping")
         self._stopped = False
         self._host_targets: dict[str, str] = {}
         self._ping_timeouts = _determine_ping_timeouts()
@@ -3046,25 +3382,166 @@ class HostReachabilityMonitor:
             return
 
     async def _ping_host(self, target: str) -> bool:
-        ping_cmd = self._ping_path or shutil.which("ping")
-        if not ping_cmd:
-            self._ping_path = None
+        fping_cmd = self._fping_path or shutil.which("fping")
+        if not fping_cmd:
+            self._fping_path = None
             return False
-        self._ping_path = ping_cmd
+        self._fping_path = fping_cmd
         for timeout in self._ping_timeouts:
             try:
+                # fping uses -t for timeout in milliseconds
                 process = await asyncio.create_subprocess_exec(
-                    ping_cmd,
+                    fping_cmd,
                     "-c",
                     "1",
-                    "-W",
-                    str(timeout),
+                    "-t",
+                    str(timeout * 1000),
                     target,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
                 )
             except (FileNotFoundError, OSError):
-                self._ping_path = None
+                self._fping_path = None
+                return False
+            except Exception:
+                return False
+            try:
+                returncode = await process.wait()
+            except Exception:
+                return False
+            if returncode == 0:
+                return True
+        return False
+
+
+class InfrastructureMonitor:
+    """Monitor infrastructure hosts (Srouter, TPC1, TPC2) via fping."""
+
+    INFRA_HOSTS = [
+        {"name": "Srouter", "config_key": "gateway"},
+        {"name": "TPC1", "suffix": "50"},
+        {"name": "TPC2", "suffix": "70"},
+    ]
+
+    def __init__(self, manager: ConnectionManager, interval: float = 1.0) -> None:
+        self._manager = manager
+        self._interval = max(0.5, float(interval))
+        self._fping_path: Optional[str] = shutil.which("fping")
+        self._task: Optional[asyncio.Task[None]] = None
+        self._stopped = False
+        self._lock = asyncio.Lock()
+        self._enabled = False
+        self._last_config: dict[str, Optional[str]] = {}
+        self._ping_timeouts = _determine_ping_timeouts()
+
+    async def set_enabled(self, enabled: bool) -> None:
+        async with self._lock:
+            if self._stopped:
+                return
+            self._enabled = enabled
+            if enabled and self._task is None:
+                self._task = asyncio.create_task(self._monitor_loop())
+            elif not enabled and self._task is not None:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                self._task = None
+                await self._manager.broadcast_infra_status([])
+
+    async def close(self) -> None:
+        async with self._lock:
+            self._stopped = True
+            if self._task is not None:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                self._task = None
+
+    def _build_host_targets(self, config: dict[str, Optional[str]]) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        gateway = config.get("gateway")
+        subnet = config.get("subnet")
+        for host_info in self.INFRA_HOSTS:
+            name = host_info["name"]
+            target: Optional[str] = None
+            unconfigured = False
+            if "config_key" in host_info:
+                # Srouter uses the gateway IP directly
+                target = gateway if gateway else None
+                if not target:
+                    unconfigured = True
+            elif "suffix" in host_info and subnet:
+                # TPC1/TPC2 use 192.168.SUBNET.suffix
+                target = f"192.168.{subnet}.{host_info['suffix']}"
+            else:
+                unconfigured = True
+            result.append({
+                "name": name,
+                "target": target,
+                "unconfigured": unconfigured,
+            })
+        return result
+
+    async def _monitor_loop(self) -> None:
+        try:
+            while True:
+                try:
+                    config = await asyncio.to_thread(_read_gns3_infra_config)
+                    self._last_config = config
+                    host_targets = self._build_host_targets(config)
+                    statuses: list[dict[str, object]] = []
+                    for entry in host_targets:
+                        name = entry["name"]
+                        target = entry["target"]
+                        unconfigured = entry["unconfigured"]
+                        if unconfigured or not target:
+                            statuses.append({
+                                "name": name,
+                                "target": None,
+                                "reachable": False,
+                                "unconfigured": True,
+                            })
+                        else:
+                            reachable = await self._ping_host(target)
+                            statuses.append({
+                                "name": name,
+                                "target": target,
+                                "reachable": reachable,
+                                "unconfigured": False,
+                            })
+                    await self._manager.broadcast_infra_status(statuses)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    pass
+                await asyncio.sleep(self._interval)
+        except asyncio.CancelledError:
+            return
+
+    async def _ping_host(self, target: str) -> bool:
+        fping_cmd = self._fping_path or shutil.which("fping")
+        if not fping_cmd:
+            self._fping_path = None
+            return False
+        self._fping_path = fping_cmd
+        for timeout in self._ping_timeouts:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    fping_cmd,
+                    "-c",
+                    "1",
+                    "-t",
+                    str(timeout * 1000),
+                    target,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+            except (FileNotFoundError, OSError):
+                self._fping_path = None
                 return False
             except Exception:
                 return False
@@ -3080,6 +3557,7 @@ class HostReachabilityMonitor:
 manager = ConnectionManager()
 app = FastAPI(title="Extreme FE Dashboard", version="1.0.0")
 host_monitor = HostReachabilityMonitor(manager)
+infra_monitor = InfrastructureMonitor(manager)
 
 
 async def _launch_host_shell(host: str) -> None:
@@ -3140,6 +3618,13 @@ async def _refresh_host_monitor_from_settings(settings: Optional[dict[str, objec
             selection = str(value)
     inventory_path = resolve_inventory_selection(selection) if selection else None
     await host_monitor.set_inventory(inventory_path)
+    # Enable/disable infrastructure monitor based on gns3_server setting
+    gns3_enabled = True
+    if isinstance(settings, dict):
+        gns3_value = settings.get("gns3_server")
+        if gns3_value is not None:
+            gns3_enabled = bool(gns3_value)
+    await infra_monitor.set_enabled(gns3_enabled)
 
 
 @app.on_event("startup")
@@ -3151,6 +3636,7 @@ async def _dashboard_startup() -> None:
 @app.on_event("shutdown")
 async def _dashboard_shutdown() -> None:
     await host_monitor.close()
+    await infra_monitor.close()
 
 
 def _coverage_response(resource: Optional[str]) -> FileResponse:
@@ -3446,6 +3932,8 @@ async def update_config(payload: ConfigUpdateRequest) -> JSONResponse:
             trace_http=payload.trace_http,
             verbose_level=payload.verbose_level,
             diff=payload.diff,
+            gns3_server=payload.gns3_server,
+            gns3_server_ip=payload.gns3_server_ip,
             inventory=payload.inventory,
         )
     except FileNotFoundError as exc:
@@ -3472,6 +3960,39 @@ async def open_config_file(payload: ConfigOpenRequest) -> JSONResponse:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to open file: {exc}") from exc
+    return JSONResponse({"status": "ok"})
+
+
+@app.post("/infra/gateway")
+async def update_gateway(payload: GatewayUpdateRequest) -> JSONResponse:
+    gateway_ip = payload.gateway_ip.strip() if isinstance(payload.gateway_ip, str) else ""
+    if not gateway_ip:
+        raise HTTPException(status_code=400, detail="gateway_ip is required")
+    try:
+        await asyncio.to_thread(_update_subnet_router_gateway, gateway_ip)
+        infra_config = await asyncio.to_thread(_read_gns3_infra_config)
+        subnet_value = (infra_config.get("subnet") or "").strip()
+        if not subnet_value:
+            raise HTTPException(status_code=400, detail="SUBNET_ROUTER_NETWORK is missing")
+        await asyncio.to_thread(
+            subprocess.run,
+            [
+                "sudo",
+                str(ADD_UB_ROUTE_SCRIPT),
+                subnet_value,
+                gateway_ip,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise HTTPException(status_code=500, detail=detail or "add-ub-route failed") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to update gateway: {exc}") from exc
     return JSONResponse({"status": "ok"})
 
 

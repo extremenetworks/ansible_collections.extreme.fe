@@ -3,7 +3,7 @@
   hosts: gns3_network
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   vars:
     coverage_vlan_id: 123
     coverage_missing_vlan_id: 1123
@@ -149,8 +149,8 @@
       ansible.builtin.command:
         argv:
           - "{{ ansible_playbook_python }}"
-          - "{{ playbook_dir }}/../tools/cover_extreme_fe_vlans.py"
-        chdir: "{{ playbook_dir }}/.."
+          - "{{ playbook_dir | dirname }}/tests/integration/harness/tools/cover_extreme_fe_vlans.py"
+        chdir: "{{ playbook_dir | dirname }}"
       delegate_to: localhost
       run_once: true
       changed_when: false

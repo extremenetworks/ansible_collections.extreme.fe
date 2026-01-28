@@ -1,11 +1,38 @@
 #!/bin/bash
 
+# Set the python environment
+source venv/bin/activate
+
 # Set the directory paths
 cpath=`pwd`
+echo "cpath set to: -- ${cpath%} --"
 export ANSIBLE="${cpath%/tests/integration/harness}"
+#export ANSIBLE="${cpath%/../../..}"
+echo "ANSIBLE set to: -- ${ANSIBLE} --"
+
+#export ANSIBLE_CONFIG=/home/bjorn/ansible/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/ansible.cfg
+export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
+echo "ANSIBLE_CONFIG set to: -- ${ANSIBLE_CONFIG} --"
+
+#export ANSIBLE=/home/rwa/work/ansible_collections.extreme.fe/ansible_collections/extreme/fe && echo "ANSIBLE set to: $ANSIBLE"
 
 # Source the GNS3 configuration
 source cfg/gns3.cfg
+
+# Determine if we are running in a GNS3 environment or not
+P=`which gns3server | wc -l`
+if [ "$P" -eq "0" ] ; then
+  echo "gns3server not found, assuming real network environment"
+  export GNS3_ENVIRONMENT="false"
+else
+  echo "gns3server found, assuming GNS3 environment"
+  export GNS3_ENVIRONMENT="true"
+fi
+
+read_cfg_value() {
+  local key="$1"
+  sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "${cpath}/cfg/gns3.cfg" | head -n1
+}
 
 #-------------------------------------------------------------
 # Sanity checks:
@@ -17,55 +44,65 @@ then
     exit
 fi
 
-#   Make sure docker is installed
-if ! command -v docker &> /dev/null
-then
-  echo "docker could not be found, please install it."
-  exit 1
-fi
+if "$GNS3_ENVIRONMENT" = "true" ; then
+  #   Make sure qemu is installed
+  if ! command -v qemu-system-x86_64 &> /dev/null
+  then
+      echo "qemu-system-x86_64 could not be found, please install it."
+    exit 1
+  fi
 
-#   Ensure required docker images are present
-REQUIRED_DOCKER_IMAGES=(pc ubserver)
-missing_images=()
-for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    echo "Building missing image: $image"
-    cd docker/$image
-    ./create_image
-    cd ../..
+  #   Make sure docker is installed
+  if ! command -v docker &> /dev/null
+  then
+    echo "docker could not be found, please install it."
+    exit 1
+  fi
+
+  #   Ensure required docker images are present
+  REQUIRED_DOCKER_IMAGES=(pc ubserver)
+  missing_images=()
+  for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
     if ! docker image inspect "$image" >/dev/null 2>&1; then
-      missing_images+=("$image")
+      echo "Building missing image: $image"
+      cd docker/$image
+      ./create_image
+      cd ../..
+      if ! docker image inspect "$image" >/dev/null 2>&1; then
+        missing_images+=("$image")
+      fi
     fi
+  done
+  if [ ${#missing_images[@]} -ne 0 ]; then
+    echo "Missing docker images: ${missing_images[*]}"
+    echo "Please build or pull them before running this script."
+    exit 1
   fi
-done
-if [ ${#missing_images[@]} -ne 0 ]; then
-  echo "Missing docker images: ${missing_images[*]}"
-  echo "Please build or pull them before running this script."
-  exit 1
-fi
 
-# Make sure gns3server is installed
-if ! command -v gns3server &> /dev/null
-then
-  echo "gns3server could not be found, please install it."
-  exit
-fi
-
-# Check if the QEMU images are present
-# First see if the directory exists
-if [ ! -d "$GNS3_SERVER_DT_IMAGE_PATH" ] ; then
-  echo "QEMU image directory not found: $GNS3_SERVER_DT_IMAGE_PATH"
-   exit 1
-fi
-
-# Next see if the required images are present
-REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
-for img in $REQ_IMAGES ; do
-  if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
-    echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
-    echo "Please download it and place it there before running this script."
+  # Make sure gns3server is installed
+  if ! command -v gns3server &> /dev/null
+  then
+    echo "gns3server could not be found, please install it."
+    exit
   fi
-done
+
+  # Check if the QEMU images are present
+  # First see if the directory exists
+  if [ ! -d "$GNS3_SERVER_DT_IMAGE_PATH" ] ; then
+    echo "QEMU image directory not found: $GNS3_SERVER_DT_IMAGE_PATH"
+    exit 1
+  fi
+
+  # Next see if the required images are present
+  REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
+  for img in $REQ_IMAGES ; do
+    if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
+      echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
+      echo "Please download it and place it there before running this script."
+    fi
+  done
+
+fi
 
 # Make sure python3 is installed
 if ! command -v python3 &> /dev/null
@@ -101,15 +138,29 @@ fi
 # ------------------------------------------------------------------------------
 # Start the servers ...
 # ------------------------------------------------------------------------------
+if [ -f /usr/local/bin/gns3server ] ; then
 
-# Check if the gns3server is running if, not start it
-P=`ps -ef |grep gns3server | grep -v "grep" | grep python3 | awk '{ print $2 }'`
-if [ -z "$P" ]; then
-  echo "Starting GNS3 server..."
-  gns3server --host 0.0.0.0 --port 3080 --local -A -q --daemon
-  sleep 2
+  # Check if the gns3server is running if, not start it
+  P=`ps -ef |grep gns3server | grep -v "grep" | grep python3 | awk '{ print $2 }'`
+  if [ -z "$P" ]; then
+    echo "Starting GNS3 server..."
+    gns3server --host 0.0.0.0 --port 3080 --local -A -q --daemon
+    sleep 2
+  else
+    echo "GNS3 server is already running."
+  fi
+
+  gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
+  network=$(read_cfg_value "SUBNET_ROUTER_NETWORK")
+  if [ -n "$gateway" ] && [ -n "$network" ]; then
+    existing=$(ip route | grep -F "$gateway" | wc -l)
+    if [ "$existing" = "0" ]; then
+      echo "Installing route to $network through gateway $gateway"
+      sudo ip route add "$network" via "$gateway"
+    fi
+  fi
 else
-  echo "GNS3 server is already running."
+  echo "gns3server not found in /usr/local/bin/gns3server, Assuming real network"
 fi
 
 # Start the dashboard server, always restart it
@@ -121,4 +172,5 @@ fi
 python3 ./dashboard_server.py 1>&2 2>/tmp/dashboard.log &
 
 echo "Dashboard server started."
-echo "You can access the dashboard at http://localhost:4000"
+my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
+echo "You can access the dashboard at http://$my_ip:4000"

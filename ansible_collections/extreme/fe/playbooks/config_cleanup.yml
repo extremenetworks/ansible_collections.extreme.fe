@@ -50,9 +50,13 @@
           - no vlan 202
           - no vlan 203
           - no vlan 204
+          - no vlan 220
+          - no vlan 221
           - no i-sid name 100
           - no i-sid name 202
           - no i-sid name 203
           - no i-sid name 204
+          - no i-sid name 220
+          - no i-sid name 221
           - router isis enable
         continue_on_failure: true

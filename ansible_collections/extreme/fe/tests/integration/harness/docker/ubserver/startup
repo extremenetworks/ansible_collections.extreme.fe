@@ -10,11 +10,13 @@
 touch /var/lib/dhcp/dhcpd.leases
 /usr/sbin/dhcpd -4 --no-pid eth1
 
-
 # Setup NAT forwarding
 nft add table ip nat
 nft add chain ip nat POSTROUTING { type nat hook postrouting priority 100 \; }
 nft add rule ip nat POSTROUTING oif "eth0" masquerade
+
+# Send my IP address to the dashboard, this is needed in case we are using a DHCP client to the LAN side
+/home/ubuntu/send-ip-address &
 
 bash
 while [ 1 = 1 ] 

@@ -1,9 +1,9 @@
 ---
-- name: Delete VLANs 2 through 500 on ExtremeNetworks Fabric Engine switches
+- name: Delete VLANs 2 through 14 and 20 on ExtremeNetworks Fabric Engine switches
   hosts: gns3_network
   gather_facts: false
   collections:
-    - local.extreme_fe
+    - extreme.fe
   vars:
     vlan_list:
       - "2"

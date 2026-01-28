@@ -1,10 +1,11 @@
 inventory: tests/integration/harness/cfg/inventory.ini
-playbook_args:
+playbook_args: -v
 logfile: /tmp/test.log
 test_coverage: false
 trace_http: false
 file_prefix: vscode://vscode-remote/ssh-remote+amd
 browser_prefix: file://wsl.localhost/Ubuntu-24.04/
+gns3_server: true
 Tests:
 
 - Name: Pre-start 1 - Clean configuration
@@ -19,10 +20,13 @@ Tests:
     File: tools/cmp_cfg
     fatal: true
 
+- include test_CLI_command.yml
 - include test_Fact.yml
 - include test_ISID_CVLAN.yml
 - include test_L2_interfaces.yml
 - include test_L3_and_Ping.yml
+- include test_LAG_and_Autosense.yml
+- include test_MLAG.yml
 - include test_POE.yml
 - include test_Save_config.yml
 - include test_VLAN.yml

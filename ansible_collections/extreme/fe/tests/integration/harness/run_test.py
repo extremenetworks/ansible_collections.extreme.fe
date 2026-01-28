@@ -19,6 +19,7 @@ import sqlite3
 import textwrap
 import tempfile
 import urllib.request
+from urllib.parse import urlparse
 from collections import defaultdict
 from functools import lru_cache
 
@@ -76,6 +77,8 @@ DEFAULT_DASHBOARD_PUSH_URL = os.environ.get(
     "RUN_TEST_DASHBOARD_PUSH_URL",
     "http://127.0.0.1:4000/update",
 )
+
+TOPOLOGY_MONITORED_HOSTS = ("fe_dt_1", "fe_dt_2", "fe_dt_4", "fe_dt_5")
 
 
 class DashboardPushClient:
@@ -383,6 +386,65 @@ def _discover_ansible_python_paths(ansible_playbook_path: str) -> List[Path]:
             candidates.append(candidate.resolve())
 
     return candidates
+
+
+def _resolve_dashboard_status_url() -> Optional[str]:
+    push_url = os.environ.get("RUN_TEST_DASHBOARD_PUSH_URL")
+    if not push_url:
+        return None
+    try:
+        parsed = urlparse(push_url.strip())
+    except Exception:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    return f"{base}/status"
+
+
+def _fetch_dashboard_host_states(timeout: float = 1.0) -> Optional[Dict[str, bool]]:
+    status_url = _resolve_dashboard_status_url()
+    if status_url is None:
+        return None
+    request = urllib.request.Request(status_url, headers={"Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read()
+    except Exception:
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+    hosts = payload.get("hosts")
+    if not isinstance(hosts, list):
+        return None
+    states: Dict[str, bool] = {}
+    for entry in hosts:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("host")
+        if not isinstance(name, str):
+            continue
+        normalized = name.strip()
+        if not normalized:
+            continue
+        states[normalized.lower()] = bool(entry.get("reachable"))
+    return states or None
+
+
+def _assess_dashboard_devices(hosts: Sequence[str]) -> Optional[tuple[bool, list[str]]]:
+    states = _fetch_dashboard_host_states()
+    if states is None:
+        return None
+    down: list[str] = []
+    for host in hosts:
+        normalized = (host or "").strip().lower()
+        if not normalized or normalized not in states:
+            return None
+        if not states[normalized]:
+            down.append(host)
+    return (not down, down)
 
 
 def _safe_remove(path: Path) -> None:
@@ -2300,6 +2362,12 @@ def validate_playbooks_syntax(tests: Sequence[TestConfig]) -> Tuple[bool, List[s
     ansible_env = dict(os.environ)
     ansible_env["ANSIBLE_CONFIG"] = str(ANSIBLE_CONFIG_PATH)
 
+    workdir = _prepare_collection_workdir()
+    workspace_collections = workdir.parent.parent
+    collections_paths = f"{workspace_collections}:{DEFAULT_COLLECTIONS_PATHS}"
+    ansible_env.setdefault("ANSIBLE_COLLECTIONS_PATHS", collections_paths)
+    ansible_env.setdefault("ANSIBLE_COLLECTIONS_PATH", collections_paths)
+
     for pb_path in playbook_paths:
         if not pb_path.is_file():
             return _fail(f"Playbook not found: {pb_path}")
@@ -2961,10 +3029,13 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
 
     preview_coverage = False
     preview_trace_http = False
+    gns3_enabled = True
     browser_prefix: Optional[str] = None
     if isinstance(preview_data, dict):
         preview_coverage = _to_bool(preview_data.get("test_coverage"), default=False)
         preview_trace_http = _to_bool(preview_data.get("trace_http"), default=False)
+        if "gns3_server" in preview_data:
+            gns3_enabled = _to_bool(preview_data.get("gns3_server"), default=True)
         raw_prefix = preview_data.get("file_prefix")
         if raw_prefix is not None:
             prefix_text = str(raw_prefix).strip()
@@ -2992,45 +3063,51 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
         if browser_prefix is not None:
             dashboard.set_browser_prefix(browser_prefix)
 
-    # Run gns3_topology check before any other prechecks
-    # gns3_cmd = ["/home/bjorn/ansible/test/cfg/gns3_topology", "check"]
-    # gns3_cmd = ["/home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
-    # /home/rwa/Desktop/ansible_01/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg
-    gns3_cmd = ["/home/rwa/work/ansible_collections.extreme.fe/ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology", "check"]
-
-    ansible_dev_root = os.environ["ANSIBLE_DEV_ROOT"]
-
-    gns3_topology = Path(ansible_dev_root) / \
-        "ansible_collections/extreme/fe/tests/integration/harness/cfg/gns3_topology"
-
-    gns3_cmd = [str(gns3_topology), "check"]
-
-    if dashboard is not None:
-        dashboard.mark_precheck_running("gns3_topology check")
-    try:
-        gns3_result = subprocess.run(gns3_cmd, capture_output=True, text=True, check=False)
-        gns3_output = (gns3_result.stdout or "") + (gns3_result.stderr or "")
-        gns3_ok = gns3_result.returncode == 0
-        gns3_status = "[PASS]" if gns3_ok else "[FAIL]"
+    if gns3_enabled:
+        # Run gns3_topology check before any other prechecks
+        gns3_cmd = [str(TEST_DIR / "cfg" / "gns3_topology"), "check"]
+        gns3_precheck_name = "gns3_topology check"
         gns3_title = "-- gns3_topology check"
-        gns3_messages: List[str] = [_status_line(gns3_title, gns3_status)]
-        for line in gns3_output.splitlines():
-            if line.strip():
-                gns3_messages.append(line)
         if dashboard is not None:
-            dashboard.update_precheck("gns3_topology check", gns3_ok, gns3_messages[1:])
-        # Log GNS3 check output to log file only, not console
-        for message in gns3_messages:
-            log(message, stream=False)
-        if not gns3_ok:
-            return 1
-        # Do NOT add gns3_messages to precheck_messages to avoid console output
-    except Exception as exc:
-        gns3_error_msg = f"Failed to run gns3_topology check: {exc}"
-        log(gns3_error_msg, stream=False)
-        if dashboard is not None:
-            dashboard.update_precheck("gns3_topology check", False, [str(exc)])
-        return 1
+            dashboard.mark_precheck_running(gns3_precheck_name)
+        topology_status = _assess_dashboard_devices(TOPOLOGY_MONITORED_HOSTS)
+        if topology_status is not None and topology_status[0]:
+            gns3_messages = [_status_line(gns3_title, "[PASS]"), "All devices are UP"]
+            if dashboard is not None:
+                dashboard.update_precheck(gns3_precheck_name, True, ["All devices are UP"])
+            for message in gns3_messages:
+                log(message, stream=False)
+        else:
+            down_devices: List[str] = []
+            if topology_status is not None:
+                down_devices = topology_status[1]
+            try:
+                gns3_result = subprocess.run(gns3_cmd, capture_output=True, text=True, check=False)
+                gns3_output = (gns3_result.stdout or "") + (gns3_result.stderr or "")
+                gns3_ok = gns3_result.returncode == 0
+                gns3_status = "[PASS]" if gns3_ok else "[FAIL]"
+                gns3_messages: List[str] = [_status_line(gns3_title, gns3_status)]
+                if down_devices:
+                    gns3_messages.append(
+                        "Dashboard reported offline device(s): " + ", ".join(down_devices)
+                    )
+                for line in gns3_output.splitlines():
+                    if line.strip():
+                        gns3_messages.append(line)
+                if dashboard is not None:
+                    dashboard.update_precheck(gns3_precheck_name, gns3_ok, gns3_messages[1:])
+                # Log GNS3 check output to log file only, not console
+                for message in gns3_messages:
+                    log(message, stream=False)
+                if not gns3_ok:
+                    return 1
+                # Do NOT add gns3_messages to precheck_messages to avoid console output
+            except Exception as exc:
+                gns3_error_msg = f"Failed to run gns3_topology check: {exc}"
+                log(gns3_error_msg, stream=False)
+                if dashboard is not None:
+                    dashboard.update_precheck(gns3_precheck_name, False, [str(exc)])
+                return 1
 
     if _coverage_requested():
         if dashboard is not None:
@@ -3361,9 +3438,12 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             script_path = Path(script.file)
             if not script_path.is_absolute():
                 summary_candidate = (summary_dir / script_path).resolve()
+                test_candidate = (TEST_DIR / script_path).resolve()
                 repo_candidate = (REPO_ROOT / script_path).resolve()
                 if summary_candidate.exists():
                     script_path = summary_candidate
+                elif test_candidate.exists():
+                    script_path = test_candidate
                 elif repo_candidate.exists():
                     script_path = repo_candidate
                 else:
@@ -3860,9 +3940,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not args.summary_file.is_file():
-        print(f"Summary file not found: {args.summary_file}")
+    summary_path = args.summary_file
+    if not summary_path.is_file() and not summary_path.is_absolute():
+        candidate = INVENTORY_ROOT / summary_path
+        if candidate.is_file():
+            summary_path = candidate
+    if not summary_path.is_file():
+        print(f"Summary file not found: {summary_path}")
         return 1
+    args.summary_file = summary_path
 
     dashboard = Dashboard(DASHBOARD_PATH, args.summary_file)
     # Render an initial placeholder so the browser can load immediately.
