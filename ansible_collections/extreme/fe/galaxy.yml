@@ -16,6 +16,8 @@ build_ignore:
   - .gitattributes
   - .vscode
   - .idea
+  - dist
+  - "*.tar.gz"
 tags:
   - networking
   - extreme
