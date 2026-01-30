@@ -2,3 +2,10 @@ ansible_collections/extreme/fe/plugins/httpapi/extreme_fe_httpapi.pyc
 ansible_collections/extreme/fe/plugins/httpapi/__pycache__/
 *.pyc
 __pycache__/
+.venv/
+venv/
+tmp-galaxy/
+*.tar.gz
+.DS_Store
+.trae/
+
