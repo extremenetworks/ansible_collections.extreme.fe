@@ -1,0 +1,14 @@
+#!/bin/bash
+
+# If gns3server is available, display its status
+if command -v gns3server &> /dev/null
+then
+  echo "GNS3 server status:"
+  systemctl status gns3server.service
+else
+  echo "gns3server not found, skipping gns3server status"
+fi
+
+# Display the dashboard service status
+echo "Dashboard service status:"
+systemctl status ansible-dashboard.service 

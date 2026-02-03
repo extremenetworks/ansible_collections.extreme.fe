@@ -1,5 +1,27 @@
 #!/bin/bash
 
+# Stop the services if they are running
+sudo systemctl stop ansible-dashboard.service || true
+sudo systemctl stop gns3server.service || true
+
+sleep 1
+
+# If gns3server is available, start it
+if command -v gns3server &> /dev/null
+then
+  echo "Starting GNS3 server"
+  sudo systemctl start gns3server.service
+else
+  echo "gns3server not found, skipping gns3server start"
+fi
+
+# Start the dashboard service
+echo "Starting ansible-dashboard service"
+sudo systemctl start ansible-dashboard.service 
+
+exit 0
+
+
 # Set the python environment
 source venv/bin/activate
 

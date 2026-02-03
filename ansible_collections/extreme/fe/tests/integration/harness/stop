@@ -1,7 +1,14 @@
 #!/bin/bash
 
+
+# Stop the services if they are running
+sudo systemctl stop ansible-dashboard.service || true
+sudo systemctl stop gns3server.service || true
+
+exit 0
+
 # Set the python environment
-source venv/bin/activate
+source venv/bin/activatenew branch and 
 
 # Set the directory paths
 cpath=`pwd`
