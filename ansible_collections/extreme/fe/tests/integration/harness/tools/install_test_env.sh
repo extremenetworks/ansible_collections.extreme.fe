@@ -453,8 +453,10 @@ Restart=on-failure
 WantedBy=multi-user.target
 EOF
 
+  sudo systemctl daemon-reload
+  sudo systemctl enable gns3server.service
 fi
-
+ANSIBLE_DIR="$(cd "$HARNESS_DIR/../../.." && pwd)"
 sudo tee /etc/systemd/system/ansible-dashboard.service > /dev/null <<EOF
 [Unit]
 Description=Start Ansible dashboard on boot
@@ -474,7 +476,6 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable gns3server.service
 sudo systemctl enable ansible-dashboard.service
 
 echo " =================================================="

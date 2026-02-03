@@ -5,7 +5,6 @@ source venv/bin/activate
 
 # Set the directory paths
 cpath=`pwd`
-echo "cpath set to: -- ${cpath%} --"
 export ANSIBLE="${cpath%/tests/integration/harness}"
 export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
 
@@ -37,8 +36,8 @@ then
   done
   wait
   for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
-    if [ ${#missing_images[@]} -ne 0 ]; then
-      echo "Missing docker images: ${missing_images[*]}"
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      echo "Missing docker image: $image"
       exit 1
     fi
   done
