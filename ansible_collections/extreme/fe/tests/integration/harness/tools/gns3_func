@@ -372,7 +372,7 @@ exec_rest_local_port() {
     IP="$1"
     URL_A="$2"
     URL="http://${IP}:7777/rest/openapi/$URL_A"
-    #CURL_OPTIONS="--silent"
+    CURL_OPTIONS="--silent"
     #CURL_HEADER="Host: openapi.$Device"
 
     # Get the openAPI version and schema version
@@ -631,12 +631,12 @@ create_subNetRouter_node () {
 
     # Create the ubserverR router
     template_ID="$snt_t_id" 
-    RESULT=$(curl  --fail  --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
+    RESULT=$(curl  --fail  --silent --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
         --data "{\"name\": \"Subnet Router\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
     UUID_SROUTER=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"name\": \"Subnet Router\"}" > /dev/null
-    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"symbol\": \":/symbols/classic/router.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
 
