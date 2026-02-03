@@ -610,21 +610,7 @@ create_subNetRouter_node () {
     snt_t_id=$(curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates" | jq -r '.[] | select(.name=="SubNetRouter") | .template_id')
     echo "  Using SubNetRouter template ID: $snt_t_id"
 
-    # Determine if we have a route to the test network
-    # Uses SUBNET_ROUTER_GATEWAY and SUBNET_ROUTER_NETWORK from gns3.cfg
-    #
-    # This can't be run here, since we may be running from within the non-interactive dashboard
-    # and the ip route command needs to be run with sudo !
-    #if [ -n "$SUBNET_ROUTER_GATEWAY" ] && [ -n "$SUBNET_ROUTER_NETWORK" ]; then
-    #    R=`ip route | grep "$SUBNET_ROUTER_GATEWAY" | wc -l`
-    #    if [ "$R" = "0" ] ; then
-    #        # Need to install the route
-    #        echo "Installing route to $SUBNET_ROUTER_NETWORK through gateway $SUBNET_ROUTER_GATEWAY"
-    #        ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
-    #    fi
-    #fi
-
-    if [ "$snt_t_id" = "0" ] ; then
+       if [ "$snt_t_id" = "0" ] ; then
         echo "  *** ERROR *** : SubNetRouter template ID could not be found"
         exit 1
     fi

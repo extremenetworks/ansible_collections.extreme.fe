@@ -46,25 +46,10 @@ read_cfg_value() {
   sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "$cfg" | head -n1
 }
 
-install_subnet_route() {
-  local gateway network
-  gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
-  network=$(read_cfg_value "SUBNET_ROUTER_NETWORK")
-  if [ -n "$gateway" ] && [ -n "$network" ]; then
-    local existing
-    existing=$(ip route | grep -F "$gateway" | wc -l)
-    if [ "$existing" = "0" ]; then
-      echo "Installing route to $network through gateway $gateway"
-      sudo ip route add "$network" via "$gateway"
-    fi
-  fi
-}
-
+# Ask the user if they want to install the GNS3 environment
 if prompt_install_gns3 ; then
   INSTALL_GNS3=true
   echo " Installing with GNS3 environment"
-
-  #install_subnet_route
 
   # add "add-ub-route" to the sudoers file if not already present
   echo "bjorn ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
@@ -407,9 +392,6 @@ network:
       parameters:
         stp: false
         forward-delay: 0
-      routes:
-        - to: 192.168.$network.0/24
-          via: $gateway
 EOF
         sudo netplan apply
         echo " Configured br0 bridge in $NETPLAN_FILE (backup saved to $backup_path)"
@@ -478,9 +460,10 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable ansible-dashboard.service
 
-echo " =================================================="
-echo " Automatic reboot in 5 seconds !!!!"
-echo " =================================================="
+echo " Installation complete"
+echo " ============================================"
+echo " === Automatic reboot in 5 seconds !!!!   ==="
+echo " ============================================"
 
 sync
 sleep 5
