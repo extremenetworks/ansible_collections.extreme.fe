@@ -8,7 +8,7 @@ sudo systemctl stop gns3server.service || true
 exit 0
 
 # Set the python environment
-source venv/bin/activatenew branch and 
+source venv/bin/activate
 
 # Set the directory paths
 cpath=`pwd`
