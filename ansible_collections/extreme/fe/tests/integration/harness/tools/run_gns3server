@@ -5,7 +5,7 @@ source venv/bin/activate
 
 # Set the directory paths
 cpath=`pwd`
-echo "cpath set to: -- ${cpath%} --"
+echo "cpath set to: -- ${cpath} --"
 export ANSIBLE="${cpath%/tests/integration/harness}"
 export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
 
