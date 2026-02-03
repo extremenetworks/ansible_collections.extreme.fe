@@ -333,7 +333,7 @@ if [ "$INSTALL_GNS3" = true ] ; then
     $(lsb_release -cs) stable" \
     | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-  # 5. Install the Doche question (take the default "yes"ker Engine
+  # 5. Install the Docker Engine
   sudo apt update
   if sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
     :
