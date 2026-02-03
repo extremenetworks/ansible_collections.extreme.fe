@@ -1,0 +1,128 @@
+---
+# =============================================================================
+# Simple PoE Bounce for WAP Recovery
+# =============================================================================
+#
+# What this does:
+#   1. Shows you the current PoE status
+#   2. Turns OFF power to the WAP port
+#   3. Waits a few seconds (configurable)
+#   4. Turns ON power to the WAP port
+#   5. Waits for WAP to restart
+#   6. Verifies the port is powered again
+#
+# How to run:
+#   Basic:    ansible-playbook wap_poe_bounce.yml -i inventory.ini
+#
+#   Override port from command line (no file editing needed):
+#             ansible-playbook wap_poe_bounce.yml -i inventory.ini -e wap_port=1:5
+#
+#   Override wait times:
+#             ansible-playbook wap_poe_bounce.yml -i inventory.ini -e power_off_wait=10 -e power_on_wait=60
+#
+# =============================================================================
+
+- name: Bounce PoE on WAP Port
+  hosts: switches
+  gather_facts: false
+  
+  vars:
+    # =====================
+    # DEFAULT CONFIGURATION:
+    # =====================
+    wap_port: "1:10"        # WAP port number (e.g., "1:5", "1:10")
+    power_off_wait: 5       # Seconds to wait after turning power OFF
+    power_on_wait: 30       # Seconds to wait for WAP to boot after power ON
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Step 1: Show initial status 
+    # -------------------------------------------------------------------------
+    - name: "Step 1 - Check initial PoE status"
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+        config:
+          - port: "{{ wap_port }}"
+      register: poe_before
+
+    - name: "Step 1 - Show INITIAL status"
+      ansible.builtin.debug:
+        msg:
+          - "Port {{ wap_port }} - PoE Enabled: {{ poe_before.ports[0].current.enable | default('unknown') }}"
+          - "Status: {{ poe_before.ports[0].state.status | default('N/A') }}"
+          - "Power: {{ poe_before.ports[0].state.powerConsumed | default('0') }} mW"
+
+    # -------------------------------------------------------------------------
+    # Step 2: Turn OFF power
+    # -------------------------------------------------------------------------
+    - name: "Step 2 - Turn OFF PoE power on port {{ wap_port }}"
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ wap_port }}"
+            enable: false
+
+    - name: "Step 2 - Wait {{ power_off_wait }} seconds (power is OFF)"
+      ansible.builtin.pause:
+        seconds: "{{ power_off_wait }}"
+        prompt: "Power is OFF - waiting {{ power_off_wait }} seconds..."
+
+    # -------------------------------------------------------------------------
+    # Step 3: Show current OFF status
+    # -------------------------------------------------------------------------
+    - name: "Step 3 - Check current OFF status"
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+        config:
+          - port: "{{ wap_port }}"
+      register: poe_off
+
+    - name: "Step 3 - Show OFF status"
+      ansible.builtin.debug:
+        msg:
+          - "Port {{ wap_port }} - PoE Enabled: {{ poe_off.ports[0].current.enable | default('unknown') }}"
+          - "Status: {{ poe_off.ports[0].state.status | default('N/A') }}"
+          - "Power: {{ poe_off.ports[0].state.powerConsumed | default('0') }} mW"
+
+    # -------------------------------------------------------------------------
+    # Step 4: Turn ON power
+    # -------------------------------------------------------------------------
+    - name: "Step 4 - Turn ON PoE power on port {{ wap_port }}"
+      extreme.fe.extreme_fe_poe:
+        state: merged
+        config:
+          - port: "{{ wap_port }}"
+            enable: true
+
+    - name: "Step 4 - Wait {{ power_on_wait }} seconds for WAP to boot"
+      ansible.builtin.pause:
+        seconds: "{{ power_on_wait }}"
+        prompt: "Power is ON - waiting {{ power_on_wait }} seconds for WAP to start..."
+
+    # -------------------------------------------------------------------------
+    # Step 5: Verify and show final status
+    # -------------------------------------------------------------------------
+    - name: "Step 5 - Check final PoE status"
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+        config:
+          - port: "{{ wap_port }}"
+      register: poe_after
+
+    - name: "Step 5 - Show AFTER status"
+      ansible.builtin.debug:
+        msg:
+          - "Port {{ wap_port }} - PoE Enabled: {{ poe_after.ports[0].current.enable | default('unknown') }}"
+          - "Status: {{ poe_after.ports[0].state.status | default('N/A') }}"
+          - "Power: {{ poe_after.ports[0].state.powerConsumed | default('0') }} mW"
+
+    # -------------------------------------------------------------------------
+    # Step 6: Summary
+    # -------------------------------------------------------------------------
+    - name: "Step 6 - PoE bounce complete!"
+      ansible.builtin.debug:
+        msg:
+          - "✓ PoE bounce completed on port {{ wap_port }}"
+          - "✓ Power was OFF for {{ power_off_wait }} seconds"
+          - "✓ WAP had {{ power_on_wait }} seconds to restart"
+          - "✓ Current PoE status: {{ poe_after.ports[0].current.enable | default('unknown') | ternary('ENABLED', 'DISABLED') }}"
