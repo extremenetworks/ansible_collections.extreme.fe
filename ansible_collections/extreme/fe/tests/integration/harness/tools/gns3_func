@@ -613,7 +613,7 @@ create_subNetRouter_node () {
     # Determine if we have a route to the test network
     # Uses SUBNET_ROUTER_GATEWAY and SUBNET_ROUTER_NETWORK from gns3.cfg
     #
-    # This can't be run hewre, since we may be running from within the non-interactive dashboard
+    # This can't be run here, since we may be running from within the non-interactive dashboard
     # and the ip route command needs to be run with sudo !
     #if [ -n "$SUBNET_ROUTER_GATEWAY" ] && [ -n "$SUBNET_ROUTER_NETWORK" ]; then
     #    R=`ip route | grep "$SUBNET_ROUTER_GATEWAY" | wc -l`
