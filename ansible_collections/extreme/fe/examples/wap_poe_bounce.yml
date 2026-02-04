@@ -25,7 +25,7 @@
 - name: Bounce PoE on WAP Port
   hosts: switches
   gather_facts: false
-  
+
   vars:
     # =====================
     # DEFAULT CONFIGURATION:
@@ -36,7 +36,7 @@
 
   tasks:
     # -------------------------------------------------------------------------
-    # Step 1: Show initial status 
+    # Step 1: Show initial status
     # -------------------------------------------------------------------------
     - name: "Step 1 - Check initial PoE status"
       extreme.fe.extreme_fe_poe:
@@ -125,4 +125,4 @@
           - "✓ PoE bounce completed on port {{ wap_port }}"
           - "✓ Power was OFF for {{ power_off_wait }} seconds"
           - "✓ WAP had {{ power_on_wait }} seconds to restart"
-          - "✓ Current PoE status: {{ poe_after.ports[0].current.enable | default('unknown') | ternary('ENABLED', 'DISABLED') }}"
+          - "✓ Current PoE status: {{ poe_after.ports[0].current.enable | default(false) | bool | ternary('ENABLED', 'DISABLED') }}"
