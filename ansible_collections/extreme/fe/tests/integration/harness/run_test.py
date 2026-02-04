@@ -3030,12 +3030,15 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
     preview_coverage = False
     preview_trace_http = False
     gns3_enabled = True
+    stop_on_error = False
     browser_prefix: Optional[str] = None
     if isinstance(preview_data, dict):
         preview_coverage = _to_bool(preview_data.get("test_coverage"), default=False)
         preview_trace_http = _to_bool(preview_data.get("trace_http"), default=False)
         if "gns3_server" in preview_data:
             gns3_enabled = _to_bool(preview_data.get("gns3_server"), default=True)
+        if "stop_on_error" in preview_data:
+            stop_on_error = _to_bool(preview_data.get("stop_on_error"), default=False)
         raw_prefix = preview_data.get("file_prefix")
         if raw_prefix is not None:
             prefix_text = str(raw_prefix).strip()
@@ -3646,6 +3649,10 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
                 detail_text = detail_text[:600] + "…"
             dashboard.mark_test_result(idx, test_passed, duration_str, detail_text, log_line=test_log_start)
         results.append(test_passed)
+
+        if not test_passed and stop_on_error:
+            log("Stop on error enabled; skipping remaining tests.")
+            break
 
 
     all_passed = all(results) if results else False

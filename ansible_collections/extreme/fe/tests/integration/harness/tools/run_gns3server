@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# Set the python environment
+source venv/bin/activate
+
+# Set the directory paths
+cpath=`pwd`
+echo "cpath set to: -- ${cpath} --"
+export ANSIBLE="${cpath%/tests/integration/harness}"
+export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
+
+# Source the GNS3 configuration
+source cfg/gns3.cfg
+
+read_cfg_value() {
+  local key="$1"
+  sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "${cpath}/cfg/gns3.cfg" | head -n1
+}
+
+#-------------------------------------------------------------
+# Sanity checks:
+#-------------------------------------------------------------
+#   Make sure qemu is installed
+if ! command -v qemu-system-x86_64 &> /dev/null
+then
+    echo "qemu-system-x86_64 could not be found, please install it."
+  exit 1
+fi
+
+# Make sure docker is installed
+if ! command -v docker &> /dev/null
+then
+  echo "docker could not be found, please install it."
+  exit 1
+fi
+
+# Ensure required docker images are present
+REQUIRED_DOCKER_IMAGES=(pc ubserver)
+missing_images=()
+for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "Building missing image: $image"
+    cd docker/$image
+    ./create_image
+    cd ../..
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      missing_images+=("$image")
+    fi
+  fi
+done
+if [ ${#missing_images[@]} -ne 0 ]; then
+  echo "Missing docker images: ${missing_images[*]}"
+  echo "Please build or pull them before running this script."
+  exit 1
+fi
+
+# Make sure gns3server is installed
+if ! command -v gns3server &> /dev/null
+then
+  echo "gns3server could not be found, please install it."
+  exit 1
+fi
+
+# Check if the QEMU images are present
+# First see if the directory exists
+if [ ! -d "$GNS3_SERVER_DT_IMAGE_PATH" ] ; then
+  echo "QEMU image directory not found: $GNS3_SERVER_DT_IMAGE_PATH"
+  exit 1
+fi
+
+# Next see if the required images are present
+REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
+for img in $REQ_IMAGES ; do
+  if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
+    echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
+    echo "Please download it and place it there before running this script."
+  fi
+done
+
+# ------------------------------------------------------------------------------
+# Start the servers ...
+# ------------------------------------------------------------------------------
+gns3server --host 0.0.0.0 --port 3080 --local -A 

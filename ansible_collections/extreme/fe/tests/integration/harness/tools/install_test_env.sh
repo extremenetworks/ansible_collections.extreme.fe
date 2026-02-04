@@ -1,4 +1,19 @@
 #!/bin/bash
+set -euo pipefail
+trap 'echo "Error on line $LINENO: $BASH_COMMAND" >&2' ERR
+
+AUTO_YES=false
+while getopts ":y" opt; do
+  case "$opt" in
+    y) AUTO_YES=true ;;
+    *) ;;
+  esac
+done
+
+if [ "${EUID:-$(id -u)}" -eq 0 ] || [ -n "${SUDO_USER-}" ]; then
+  echo "Error: Do not run this script with sudo. Please run it as a regular user." >&2
+  exit 1
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARNESS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -6,6 +21,9 @@ GNS3_CFG_PATH="$HARNESS_DIR/cfg/gns3.cfg"
 TOOLS_DIR="$HARNESS_DIR/tools"
 
 prompt_install_gns3() {
+  if [ "$AUTO_YES" = true ]; then
+    return 0
+  fi
   local prompt="Do you want to install the GNS3 environment? [Y/n]: "
   local response
   read -r -p "$prompt" response
@@ -16,7 +34,6 @@ prompt_install_gns3() {
     *) return 0 ;;
   esac
 
-  
 }
 
 read_cfg_value() {
@@ -29,44 +46,38 @@ read_cfg_value() {
   sed -n -E "s/^${key}=\"?([^\"]*)\"?/\1/p" "$cfg" | head -n1
 }
 
-install_subnet_route() {
-  local gateway network
-  gateway=$(read_cfg_value "SUBNET_ROUTER_GATEWAY")
-  network=$(read_cfg_value "SUBNET_ROUTER_NETWORK")
-  if [ -n "$gateway" ] && [ -n "$network" ]; then
-    local existing
-    existing=$(ip route | grep -F "$gateway" | wc -l)
-    if [ "$existing" = "0" ]; then
-      echo "Installing route to $network through gateway $gateway"
-      sudo ip route add "$network" via "$gateway"
-    fi
-  fi
-}
-
+# Ask the user if they want to install the GNS3 environment
 if prompt_install_gns3 ; then
   INSTALL_GNS3=true
   echo " Installing with GNS3 environment"
-  
-  #install_subnet_route
 
   # add "add-ub-route" to the sudoers file if not already present
-  echo "bjorn ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route 
+  echo "bjorn ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
   sudo chmod 440 /etc/sudoers.d/add-ub-route
 
-  # Ask the user for the project name, default is Ansible   
-  project_prompt=" Enter the GNS3 project name [Ansible]: "
-  read -r -p "$project_prompt" project_response
-  project_response=${project_response:-Ansible} 
+  # Ask the user for the project name, default is Ansible
+  project_response="Ansible"
+  if [ "$AUTO_YES" != true ]; then
+    project_prompt=" Enter the GNS3 project name [Ansible]: "
+    read -r -p "$project_prompt" project_response
+    project_response=${project_response:-Ansible}
+  fi
 
-  # Ask the user for the subnet of the GNS3 Network  
-  subnet_prompt=" Enter subnet n for the GNS3 internal network (e.g., 192.168.n.0) [5]: "
-  read -r -p "$subnet_prompt" subnet_response
-  subnet_response=${subnet_response:-5}
-  
+  # Ask the user for the subnet of the GNS3 Network
+  subnet_response="5"
+  if [ "$AUTO_YES" != true ]; then
+    subnet_prompt=" Enter subnet n for the GNS3 internal network (e.g., 192.168.n.0) [5]: "
+    read -r -p "$subnet_prompt" subnet_response
+    subnet_response=${subnet_response:-5}
+  fi
+
   # Ask if the Subnet router public IP should use a DHCP client or static IP
-  dhcp_prompt=" Should the Subnet Router use DHCP for its public IP? [Y/n]: "
-  read -r -p "$dhcp_prompt" dhcp_response
-  dhcp_response=${dhcp_response:-Y}
+  dhcp_response="Y"
+  if [ "$AUTO_YES" != true ]; then
+    dhcp_prompt=" Should the Subnet Router use DHCP for its public IP? [Y/n]: "
+    read -r -p "$dhcp_prompt" dhcp_response
+    dhcp_response=${dhcp_response:-Y}
+  fi
   case "$dhcp_response" in
     [Yy]*)
       UB_SERVER_ETH0_DHCP="true"
@@ -74,17 +85,25 @@ if prompt_install_gns3 ; then
       ;;
     [Nn]*)
       UB_SERVER_ETH0_DHCP="false"
-      static_ip_prompt=" Enter the static IP for the Subnet Router public interface (e.g., 192.168.1.252, or 10.10.10.15) [192.168.1.252]: "
-      read -r -p "$static_ip_prompt" static_ip_response
-      UB_SERVER_ETH0_IP=${static_ip_response:-192.168.1.252}
+      static_ip_response="192.168.1.252"
+      if [ "$AUTO_YES" != true ]; then
+        static_ip_prompt=" Enter the static IP for the Subnet Router public interface (e.g., 192.168.1.252, or 10.10.10.15) [192.168.1.252]: "
+        read -r -p "$static_ip_prompt" static_ip_response
+        static_ip_response=${static_ip_response:-192.168.1.252}
+      fi
+      UB_SERVER_ETH0_IP="$static_ip_response"
 
       # Ask for the netmask and gateway if static IP is chosen
-      netmask_prompt=" Enter the netmask for the Subnet Router public interface (e.g., 255.255.255.0) [255.255.255.0]: "
-      read -r -p "$netmask_prompt" netmask_response
-      netmask_response=${netmask_response:-255.255.255.0}
-      gateway_prompt=" Enter the gateway for the Subnet Router public interface (e.g., 192.168.1.1) [192.168.1.1]: "
-      read -r -p "$gateway_prompt" gateway_response
-      gateway_response=${gateway_response:-192.168.1.1}
+      netmask_response="255.255.255.0"
+      gateway_response="192.168.1.1"
+      if [ "$AUTO_YES" != true ]; then
+        netmask_prompt=" Enter the netmask for the Subnet Router public interface (e.g., 255.255.255.0) [255.255.255.0]: "
+        read -r -p "$netmask_prompt" netmask_response
+        netmask_response=${netmask_response:-255.255.255.0}
+        gateway_prompt=" Enter the gateway for the Subnet Router public interface (e.g., 192.168.1.1) [192.168.1.1]: "
+        read -r -p "$gateway_prompt" gateway_response
+        gateway_response=${gateway_response:-192.168.1.1}
+      fi
       ;;
     *)
       UB_SERVER_ETH0_DHCP="true"
@@ -93,12 +112,14 @@ if prompt_install_gns3 ; then
   esac
 
   # Determine our own IP, so we can set it for the GNS3_SERVER_HOST
-  my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
+  my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr | awk '{print $2}' | cut -d'/' -f1 | head -n1)
   if [ -z "$my_ip" ] ; then
     echo " Unable to determine my own IP address"
-    # Ask formy own IP
-    ip_prompt=" Enter the IP address of this host (GNS3 server) []: "
-    read -r -p "$ip_prompt" my_ip
+    # Ask for my own IP
+    if [ "$AUTO_YES" != true ]; then
+      ip_prompt=" Enter the IP address of this host (GNS3 server) []: "
+      read -r -p "$ip_prompt" my_ip
+    fi
   fi
   if [ -z "$my_ip" ] ; then
     echo " No IP address provided, cannot continue"
@@ -127,19 +148,19 @@ if prompt_install_gns3 ; then
   # eth0 can be DHCP or static
   if [ "$UB_SERVER_ETH0_DHCP" = "false" ] ; then
     echo "iface eth0 inet static" > "$IFile"
-    echo "	address $UB_SERVER_ETH0_IP" >> "$IFile"
-    echo "	netmask $netmask_response" >> "$IFile"
-    echo "	gateway $gateway_response" >> "$IFile"
+    echo "address $UB_SERVER_ETH0_IP" >> "$IFile"
+    echo "  netmask $netmask_response" >> "$IFile"
+    echo "  gateway $gateway_response" >> "$IFile"
   else
     echo "auto eth0" > "$IFile"
     echo "iface eth0 inet dhcp" >> "$IFile"
-    echo "	hostname br0_vm-1" >> "$IFile"
+    echo "  hostname br0_vm-1" >> "$IFile"
   fi
 
   # eth1 is always static, only the subnet n can be chosen, within the 192.168.x.0/24 range
   echo "iface eth1 inet static" >> "$IFile"
-  echo "	address 192.168.$subnet_response.1" >> "$IFile"
-  echo "	netmask 255.255.255.0" >> "$IFile"
+  echo "  address 192.168.$subnet_response.1" >> "$IFile"
+  echo "  netmask 255.255.255.0" >> "$IFile"
 
   # Write the host IP to the dashboard-server-ip file
   DASHBOARD_IP_FILE="$HARNESS_DIR/docker/ubserver/dashboard-server-ip"
@@ -150,16 +171,16 @@ if prompt_install_gns3 ; then
   INV_FILE="$HARNESS_DIR/cfg/inventory.ini"
   echo " Creating Ansible inventory file $INV_FILE"
 
-  # Copy the template-inventory.ini to inventory.ini, replacing SUBNET with the chosen subnet n 
+  # Copy the template-inventory.ini to inventory.ini, replacing SUBNET with the chosen subnet n
   sed -E "s/SUBNET/$subnet_response/g" "$HARNESS_DIR/cfg/template-inventory.ini" > "$INV_FILE"
-    
+
   # Create the DHCPd.conf file from the template, make sure to replace $SUBNET with the chosen subnet n
   DHCPD_TEMPLATE="$HARNESS_DIR/docker/ubserver/template-dhcpd.conf"
   DHCPD_CONF="$HARNESS_DIR/docker/ubserver/dhcpd.conf"
   echo " Creating DHCPd configuration file $DHCPD_CONF from template $DHCPD_TEMPLATE"
   sed -E "s/SUBNET/$subnet_response/g" "$DHCPD_TEMPLATE" > "$DHCPD_CONF"
 
-  # Create a new interfaces file in the pc directory, based upon the teomplate-interfaces file, be sure to substitute $SUBNET
+  # Create a new interfaces file in the pc directory, based upon the template-interfaces file, be sure to substitute $SUBNET
   PC_TEMPLATE="$HARNESS_DIR/docker/pc/template-interfaces"
   PC_INTERFACES="$HARNESS_DIR/docker/pc/interfaces"
   echo " Creating PC interfaces file $PC_INTERFACES from template $PC_TEMPLATE"
@@ -168,12 +189,46 @@ else
   INSTALL_GNS3=false
 fi
 
+# Check for free logical disk space and grow root filesystem if possible
+echo " Checking for free logical disk space"
+vg_free_g="0"
+if command -v vgs >/dev/null 2>&1; then
+  vg_free_g=$(sudo vgs --noheadings --units g --nosuffix -o vg_free 2>/dev/null | awk '{sum+=$1} END{printf "%.2f", sum+0}' || true)
+  if [ -z "$vg_free_g" ]; then
+    vg_free_g="0"
+  fi
+fi
+
+if awk "BEGIN {exit !($vg_free_g > 1.0)}"; then
+  root_lv=$(findmnt -n -o SOURCE /)
+  if command -v lvs >/dev/null 2>&1 && sudo lvs "$root_lv" >/dev/null 2>&1; then
+    before_size=$(df -BG --output=size / | tail -n1 | tr -dc '0-9')
+    fs_type=$(findmnt -n -o FSTYPE /)
+    sudo lvextend -l +100%FREE "$root_lv"
+    if [ "$fs_type" = "xfs" ]; then
+      sudo xfs_growfs /
+    else
+      sudo resize2fs "$root_lv"
+    fi
+    after_size=$(df -BG --output=size / | tail -n1 | tr -dc '0-9')
+    echo " Root filesystem grown from ${before_size}G to ${after_size}G"
+  else
+    echo " All logical space is already used"
+  fi
+else
+  echo " All logical space is already used"
+fi
+
 # Set the correct timezone
 # First check if the timezone is set to UTC
 current_tz=$(timedatectl | grep "Time zone" | awk '{print $3}')
 if [ "$current_tz" = "Etc/UTC" ]; then
   # Ask the user which timezone is desired
-  read -p "Enter desired timezone (e.g., America/Chicago, America/New_York, America/Los_Angeles): " desired_tz
+  desired_tz="America/Chicago"
+  if [ "$AUTO_YES" != true ]; then
+    read -r -p "Enter desired timezone (e.g., America/Chicago, America/New_York, America/Los_Angeles) [America/Chicago]: " desired_tz
+    desired_tz=${desired_tz:-America/Chicago}
+  fi
   if [ -n "$desired_tz" ]; then
     sudo timedatectl set-timezone "$desired_tz"
     echo " Timezone set to $desired_tz"
@@ -195,8 +250,17 @@ else
 fi
 
 # Update packages and install build dependencies
-sudo apt update 
+sudo apt update
 sudo apt upgrade -y
+
+# Re-sync networking, otherwise DNS setting may be lost
+echo "------------------------------------------------"
+echo "*** Re-starting Networking services in order ***"
+echo "------------------------------------------------"
+sudo systemctl restart systemd-networkd
+sudo networkctl reload
+sudo systemctl restart systemd-resolved
+echo "------------------------------------------------"
 
 # Install packages
 echo "*** Installing packages ***"
@@ -204,7 +268,7 @@ echo "*** Installing packages ***"
 echo "Installing Vmware tools"
 sudo apt install -y open-vm-tools
 
-sudo apt install -y git python3 python3-pip python3-venv expect fping 
+sudo apt install -y git python3 python3-pip python3-venv expect fping
 
 #################################
 # Install ssh
@@ -255,12 +319,24 @@ if [ "$INSTALL_GNS3" = true ] ; then
     | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
   # 5. Install the Docker Engine
-  sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo apt update
+  if sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+    :
+  else
+    echo " Docker CE packages not available; falling back to Ubuntu docker.io"
+    DOCKER_IO_VERSION="28.2.2-0ubuntu1"
+    sudo apt install -y "docker.io=$DOCKER_IO_VERSION"
+    if apt-cache policy docker-compose-plugin 2>/dev/null | grep -q "Candidate:" && ! apt-cache policy docker-compose-plugin 2>/dev/null | grep -q "Candidate: (none)"; then
+      sudo apt install -y docker-compose-plugin
+    else
+      echo " docker-compose-plugin not available in this Ubuntu release; skipping"
+    fi
+  fi
 
   echo "*** Installing gns3 ***"
   sudo add-apt-repository -y ppa:gns3/ppa
 
-  sudo apt install -y python3 python3-pip python3-venv \
+  sudo DEBIAN_FRONTEND=noninteractive apt install -y python3 python3-pip python3-venv \
     qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients \
     bridge-utils virt-manager docker.io dynamips vpcs ubridge
 
@@ -274,7 +350,7 @@ if [ "$INSTALL_GNS3" = true ] ; then
 
   pip install gns3-server==2.2.54 gns3-gui==2.2.54
 
-  sudo ln -s ~/gns3-venv/bin/gns3server /usr/local/bin/gns3server
+  sudo ln -s -f ~/gns3-venv/bin/gns3server /usr/local/bin/gns3server
 
   sudo ufw allow 3080/tcp
 
@@ -316,9 +392,6 @@ network:
       parameters:
         stp: false
         forward-delay: 0
-      routes:
-        - to: 192.168.$network.0/24
-          via: $gateway
 EOF
         sudo netplan apply
         echo " Configured br0 bridge in $NETPLAN_FILE (backup saved to $backup_path)"
@@ -341,10 +414,58 @@ EOF
 
   # Update privilege level
   #sudo usermod -aG kvm,libvirt,ubridge $(whoami)
- 
-  
-  echo " =================================================="
-  echo " You must reboot for all the changes to take effect"
-  echo " =================================================="
 
+  # Configure startup to run gns3server and dashboard service on boot
+  ANSIBLE_DIR="$(cd "$HARNESS_DIR/../../.." && pwd)"
+  sudo tee /etc/systemd/system/gns3server.service > /dev/null <<EOF
+[Unit]
+Description=Start gns3server on boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$(whoami)
+Environment=ANSIBLE=$ANSIBLE_DIR
+WorkingDirectory=$ANSIBLE_DIR/tests/integration/harness
+ExecStart=/bin/bash -lc 'cd "\$ANSIBLE/tests/integration/harness" && tools/run_gns3server'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable gns3server.service
 fi
+ANSIBLE_DIR="$(cd "$HARNESS_DIR/../../.." && pwd)"
+sudo tee /etc/systemd/system/ansible-dashboard.service > /dev/null <<EOF
+[Unit]
+Description=Start Ansible dashboard on boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$(whoami)
+Environment=ANSIBLE=$ANSIBLE_DIR
+WorkingDirectory=$ANSIBLE_DIR/tests/integration/harness
+ExecStart=/bin/bash -lc 'cd "\$ANSIBLE/tests/integration/harness" && tools/run_dashboard'
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable ansible-dashboard.service
+
+echo " Installation complete"
+echo " ============================================"
+echo " === Automatic reboot in 5 seconds !!!!   ==="
+echo " ============================================"
+
+sync
+sleep 5
+sudo reboot
+

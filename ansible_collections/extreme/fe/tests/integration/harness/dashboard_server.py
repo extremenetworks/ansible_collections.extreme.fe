@@ -741,7 +741,8 @@ INDEX_HTML = """<!DOCTYPE html>
             diff: false,
             gns3Server: true,
             gns3ServerIp: '',
-            inventory: ''
+            inventory: '',
+            stopOnError: false
         };
         updateTopologyButtonVisibility(configSettings.gns3Server);
         let configUpdateTimer = null;
@@ -1209,7 +1210,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 diff: Boolean(data.diff ?? defaults.diff),
                 gns3Server: Boolean(rawGns3),
                 gns3ServerIp: typeof rawGns3Ip === 'string' ? rawGns3Ip : defaults.gns3ServerIp,
-                inventory: typeof rawInventory === 'string' ? rawInventory : defaults.inventory
+                inventory: typeof rawInventory === 'string' ? rawInventory : defaults.inventory,
+                stopOnError: Boolean(data.stop_on_error ?? data.stopOnError ?? defaults.stopOnError)
             };
         }
 
@@ -1307,6 +1309,16 @@ INDEX_HTML = """<!DOCTYPE html>
                     <select name="inventory" aria-label="Inventory selection"${inventorySelectAttributes}>
                         ${inventoryOptionsMarkup}
                     </select>
+                </div>
+                <div class="config-option">
+                    <span class="config-option-title">Stop on error</span>
+                    <label class="single-toggle" data-toggle-name="stop-on-error">
+                        <input type="checkbox" name="stop-on-error" value="true" ${settings.stopOnError ? 'checked' : ''} aria-label="Stop on error">
+                        <span class="single-toggle-visual" aria-hidden="true">
+                            <span class="single-toggle-dot"></span>
+                        </span>
+                        <span class="single-toggle-text">${settings.stopOnError ? 'On' : 'Off'}</span>
+                    </label>
                 </div>
             `;
             configSettingsContainer.innerHTML = markup;
@@ -1430,7 +1442,8 @@ INDEX_HTML = """<!DOCTYPE html>
                         diff: selectionState.diff,
                         gns3_server: selectionState.gns3Server,
                         gns3_server_ip: selectionState.gns3ServerIp,
-                        inventory: selectionState.inventory
+                        inventory: selectionState.inventory,
+                        stop_on_error: selectionState.stopOnError
                     })
                 });
                 if (!response.ok) {
@@ -1520,6 +1533,7 @@ INDEX_HTML = """<!DOCTYPE html>
             const gns3Input = configPanel.querySelector('input[name="gns3-server"]');
             const gns3IpInput = configPanel.querySelector('input[name="gns3-server-ip"]');
             const diffInput = configPanel.querySelector('input[name="diff"]');
+            const stopOnErrorInput = configPanel.querySelector('input[name="stop-on-error"]');
             const verboseRadio = configPanel.querySelector('input[name="verbose-level"]:checked');
             const verboseValue = verboseRadio ? Number.parseInt(verboseRadio.value, 10) : base.verboseLevel;
             const inventorySelect = configPanel.querySelector('select[name="inventory"]');
@@ -1541,7 +1555,8 @@ INDEX_HTML = """<!DOCTYPE html>
                 verboseLevel: Number.isNaN(verboseValue)
                     ? base.verboseLevel
                     : Math.min(5, Math.max(0, verboseValue)),
-                inventory: sanitizedInventory
+                inventory: sanitizedInventory,
+                stopOnError: stopOnErrorInput ? stopOnErrorInput.checked : base.stopOnError
             };
         }
 
@@ -2647,6 +2662,7 @@ def read_run_options() -> dict[str, object]:
         "inventory": "",
         "gns3_server": True,
         "gns3_server_ip": _read_gns3_server_host(),
+        "stop_on_error": False,
     }
     if not DEFAULT_SUMMARY_PATH.exists():
         return dict(defaults)
@@ -2657,6 +2673,7 @@ def read_run_options() -> dict[str, object]:
     inventory_value = defaults["inventory"]
     gns3_enabled = defaults["gns3_server"]
     gns3_server_ip = defaults["gns3_server_ip"]
+    stop_on_error = defaults["stop_on_error"]
     for raw_line in DEFAULT_SUMMARY_PATH.read_text(encoding="utf-8").splitlines():
         stripped = raw_line.strip()
         if not stripped or stripped.startswith("#"):
@@ -2679,6 +2696,9 @@ def read_run_options() -> dict[str, object]:
         elif lowered.startswith("gns3_server:"):
             value = bare.split(":", 1)[1].strip().lower()
             gns3_enabled = value not in {"false", "0", "no", "off"}
+        elif lowered.startswith("stop_on_error:"):
+            value = bare.split(":", 1)[1].strip().lower()
+            stop_on_error = value in {"true", "1", "yes", "on"}
     return {
         "test_coverage": test_coverage,
         "trace_http": trace_http,
@@ -2687,6 +2707,7 @@ def read_run_options() -> dict[str, object]:
         "inventory": inventory_value,
         "gns3_server": gns3_enabled,
         "gns3_server_ip": gns3_server_ip,
+        "stop_on_error": stop_on_error,
     }
 
 
@@ -2796,6 +2817,7 @@ def update_test_configuration(
     gns3_server: bool,
     gns3_server_ip: Optional[str],
     inventory: Optional[str],
+    stop_on_error: bool,
 ) -> None:
     summary_path = DEFAULT_SUMMARY_PATH
     if not summary_path.exists():
@@ -2830,6 +2852,7 @@ def update_test_configuration(
     args_written = False
     inventory_written = False
     gns3_written = False
+    stop_on_error_written = False
     for line in original_lines:
         stripped = line.strip()
         bare = stripped.lstrip("#").strip() if stripped.startswith("#") else stripped
@@ -2866,6 +2889,10 @@ def update_test_configuration(
             updated_lines.append(f"{indent}gns3_server: {'true' if gns3_server else 'false'}")
             gns3_written = True
             continue
+        if lowered.startswith("stop_on_error:"):
+            updated_lines.append(f"{indent}stop_on_error: {'true' if stop_on_error else 'false'}")
+            stop_on_error_written = True
+            continue
         updated_lines.append(line)
     pending_lines: list[str] = []
     if inventory_action == "set" and not inventory_written and inventory_entry_value is not None:
@@ -2876,6 +2903,8 @@ def update_test_configuration(
         pending_lines.append(f"trace_http: {'true' if trace_http else 'false'}")
     if not gns3_written:
         pending_lines.append(f"gns3_server: {'true' if gns3_server else 'false'}")
+    if not stop_on_error_written:
+        pending_lines.append(f"stop_on_error: {'true' if stop_on_error else 'false'}")
     if not args_written:
         suffix = f" {new_args_value}" if new_args_value else ""
         pending_lines.append(f"playbook_args:{suffix}")
@@ -2915,6 +2944,7 @@ class ConfigUpdateRequest(BaseModel):
     gns3_server: bool = True
     gns3_server_ip: Optional[str] = None
     inventory: Optional[str] = None
+    stop_on_error: bool = False
 
 
 class ConfigOpenRequest(BaseModel):
@@ -3935,6 +3965,7 @@ async def update_config(payload: ConfigUpdateRequest) -> JSONResponse:
             gns3_server=payload.gns3_server,
             gns3_server_ip=payload.gns3_server_ip,
             inventory=payload.inventory,
+            stop_on_error=payload.stop_on_error,
         )
     except FileNotFoundError as exc:
         return JSONResponse({"status": "error", "detail": str(exc)}, status_code=404)

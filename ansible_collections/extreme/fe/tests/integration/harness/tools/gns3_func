@@ -115,7 +115,7 @@ start_all_nodes () {
     fi
 
     # Get all the nodes
-    RESULT=$(curl --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
+    RESULT=$(curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes" | jq -r '.[].node_id') 
     if [ -n "$GNS3_DEBUG" ]; then
         echo "RESULT:$RESULT"
     fi
@@ -123,7 +123,7 @@ start_all_nodes () {
     # Re-iterate through all nodes and if they have not been started, start them
     for NODE_ID in $RESULT; do
         # Get the status of the node
-        NODE_STATUS=$(curl  --fail --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${NODE_ID}" | jq -r '.status')
+        NODE_STATUS=$(curl  --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${NODE_ID}" | jq -r '.status')
         #echo "NODE_ID:$NODE_ID STATUS:$NODE_STATUS"
         if [ "$NODE_STATUS" != "started" ] ; then
             echo "Starting node UUID:$NODE_ID (status:$NODE_STATUS)"
@@ -372,7 +372,7 @@ exec_rest_local_port() {
     IP="$1"
     URL_A="$2"
     URL="http://${IP}:7777/rest/openapi/$URL_A"
-    #CURL_OPTIONS="--silent"
+    CURL_OPTIONS="--silent"
     #CURL_HEADER="Host: openapi.$Device"
 
     # Get the openAPI version and schema version
@@ -610,30 +610,19 @@ create_subNetRouter_node () {
     snt_t_id=$(curl --fail --silent --show-error --location --request GET "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/templates" | jq -r '.[] | select(.name=="SubNetRouter") | .template_id')
     echo "  Using SubNetRouter template ID: $snt_t_id"
 
-    # Determine if we have a route to the test network
-    # Uses SUBNET_ROUTER_GATEWAY and SUBNET_ROUTER_NETWORK from gns3.cfg
-    if [ -n "$SUBNET_ROUTER_GATEWAY" ] && [ -n "$SUBNET_ROUTER_NETWORK" ]; then
-        R=`ip route | grep "$SUBNET_ROUTER_GATEWAY" | wc -l`
-        if [ "$R" = "0" ] ; then
-            # Need to install the route
-            echo "Installing route to $SUBNET_ROUTER_NETWORK through gateway $SUBNET_ROUTER_GATEWAY"
-            ip route add $SUBNET_ROUTER_NETWORK via $SUBNET_ROUTER_GATEWAY
-        fi
-    fi
-
-    if [ "$snt_t_id" = "0" ] ; then
+       if [ "$snt_t_id" = "0" ] ; then
         echo "  *** ERROR *** : SubNetRouter template ID could not be found"
         exit 1
     fi
 
     # Create the ubserverR router
     template_ID="$snt_t_id" 
-    RESULT=$(curl  --fail  --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
+    RESULT=$(curl  --fail  --silent --show-error --location --request POST "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/templates/$template_ID" \
         --data "{\"name\": \"Subnet Router\", \"compute_id\": \"${COMPUTE_ID}\", \"x\": $XPOS, \"y\": $YPOS}")
     UUID_SROUTER=$(jq --raw-output ".node_id" <<< "${RESULT}")
-    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"name\": \"Subnet Router\"}" > /dev/null
-    curl --fail --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
+    curl --fail --silent --show-error --location --request PUT "http://${GNS3_SERVER_HOST}:${GNS3_SERVER_PORT}/v2/projects/${UUID_PROJ}/nodes/${UUID_SROUTER}" \
         --data "{\"symbol\": \":/symbols/classic/router.svg\",\
         \"label\": {\"rotation\": 0, \"style\": \"null\", \"text\": \"LAN\", \"x\": $LABEL_XPOS, \"y\": $LABEL_YPOS}}" > /dev/null
 
