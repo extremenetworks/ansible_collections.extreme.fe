@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Update both the ubserver and pc images
+
+# Make sure docker is installed
+if ! command -v docker &> /dev/null
+then
+    echo "docker could not be found, please install it."
+    exit 1
+fi
+
+# The ANSIBLE environment variable must be set, fail otherwise
+if [ -z "$ANSIBLE" ] ; then
+  echo "The ANSIBLE environment variable is not set. Please set it to the root of the Ansible repository."
+  exit 1
+fi
+
+cd $ANSIBLE/tests/integration/harness/docker/ubserver
+
+./create_image >/tmp/ubserver_build.log 2>&1
+if [ $? -ne 0 ]; then
+  echo "Failed to build ubserver image. Check /tmp/ubserver_build.log for details."
+  exit 1
+fi
+cd ../pc
+./create_image >/tmp/pc_build.log 2>&1
+if [ $? -ne 0 ]; then
+  echo "Failed to build pc image. Check /tmp/pc_build.log for details."
+  exit 1
+fi
+cd ..
+echo "Successfully updated ubserver and pc images."
+exit 0

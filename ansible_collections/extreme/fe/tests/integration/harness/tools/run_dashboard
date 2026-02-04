@@ -8,44 +8,24 @@ cpath=`pwd`
 export ANSIBLE="${cpath%/tests/integration/harness}"
 export ANSIBLE_CONFIG="${cpath}/cfg/ansible.cfg"
 
+# Determine the hosts IP address
+my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
+
+# Update the GNS3_SERVER_HOST variable in the gns3.cfg file in case it has changed
+sed -i -E "s/^(GNS3_SERVER_HOST=).*/\1\"${my_ip}\"/" "${cpath}/cfg/gns3.cfg"
+
+# Determine if the host IP needs to be updated in the docker ubserver image
+UBH=`cat $ANSIBLE/tests/integration/harness/docker/ubserver/dashboard-server-ip`
+if [ "$my_ip" != "$UBH" ] ; then
+  echo "Host IP has changed from $UBH to $my_ip, updating ubserver image"
+  echo $my_ip > $ANSIBLE/tests/integration/harness/docker/ubserver/dashboard-server-ip
+fi
+
 # Source the GNS3 configuration
 source cfg/gns3.cfg
-
-# Make sure gns3server is installed
-if command -v gns3server &> /dev/null
-then
-  # gns3server is installed
-
-  # Make sure docker is installed
-  if ! command -v docker &> /dev/null
-  then
-    echo "docker could not be found, please install it."
-    exit 1
-  fi
-
-  # Ensure required docker images are present
-  REQUIRED_DOCKER_IMAGES=(pc ubserver)
-  missing_images=()
-  for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
-    if ! docker image inspect "$image" >/dev/null 2>&1; then
-      echo "Building missing image: $image"
-      cd docker/$image
-      ./create_image &
-      cd ../..
-    fi
-  done
-  wait
-  for image in "${REQUIRED_DOCKER_IMAGES[@]}"; do
-    if ! docker image inspect "$image" >/dev/null 2>&1; then
-      echo "Missing docker image: $image"
-      exit 1
-    fi
-  done
-fi
 
 # ------------------------------------------------------------------------------
 # Start the server
 # ------------------------------------------------------------------------------
-my_ip=$(ip addr show | grep 'inet ' | grep -v '127.0.0.1' | grep -v docker | grep -v virbr| awk '{print $2}' | cut -d'/' -f1 | head -n1)
 echo "You can access the dashboard at http://$my_ip:4000"
 python3 ./dashboard_server.py 1>&2 2>/tmp/dashboard.log 

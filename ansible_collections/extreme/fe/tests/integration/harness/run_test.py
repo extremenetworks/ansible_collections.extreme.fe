@@ -3067,6 +3067,41 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             dashboard.set_browser_prefix(browser_prefix)
 
     if gns3_enabled:
+        # Run Build Docker images precheck first (fatal if it fails)
+        docker_update_script = TEST_DIR / "docker" / "update_image"
+        docker_precheck_name = "Build Docker images"
+        docker_title = "-- Build Docker images"
+        if dashboard is not None:
+            dashboard.mark_precheck_running(docker_precheck_name)
+        try:
+            docker_result = subprocess.run(
+                [str(docker_update_script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            docker_output = (docker_result.stdout or "") + (docker_result.stderr or "")
+            docker_ok = docker_result.returncode == 0
+            docker_status = "[PASS]" if docker_ok else "[FAIL]"
+            docker_messages: List[str] = [_status_line(docker_title, docker_status)]
+            for line in docker_output.splitlines():
+                if line.strip():
+                    docker_messages.append(line)
+            if dashboard is not None:
+                dashboard.update_precheck(docker_precheck_name, docker_ok, docker_messages[1:])
+            for message in docker_messages:
+                log(message, stream=False)
+            if not docker_ok:
+                # Fatal error - do not continue with prechecks or tests
+                return 1
+        except Exception as exc:
+            docker_error_msg = f"Failed to run Build Docker images: {exc}"
+            log(docker_error_msg, stream=False)
+            if dashboard is not None:
+                dashboard.update_precheck(docker_precheck_name, False, [str(exc)])
+            # Fatal error - do not continue with prechecks or tests
+            return 1
+
         # Run gns3_topology check before any other prechecks
         gns3_cmd = [str(TEST_DIR / "cfg" / "gns3_topology"), "check"]
         gns3_precheck_name = "gns3_topology check"
