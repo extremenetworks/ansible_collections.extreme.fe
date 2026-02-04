@@ -3102,6 +3102,41 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             # Fatal error - do not continue with prechecks or tests
             return 1
 
+        # Run Fabric Engine DT image check precheck before gns3_topology check (fatal if it fails)
+        dt_image_script = TEST_DIR / "tools" / "check_dt_images"
+        dt_precheck_name = "Fabric Engine DT image check"
+        dt_title = "-- Fabric Engine DT image check"
+        if dashboard is not None:
+            dashboard.mark_precheck_running(dt_precheck_name)
+        try:
+            dt_result = subprocess.run(
+                [str(dt_image_script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            dt_output = (dt_result.stdout or "") + (dt_result.stderr or "")
+            dt_ok = dt_result.returncode == 0
+            dt_status = "[PASS]" if dt_ok else "[FAIL]"
+            dt_messages: List[str] = [_status_line(dt_title, dt_status)]
+            for line in dt_output.splitlines():
+                if line.strip():
+                    dt_messages.append(line)
+            if dashboard is not None:
+                dashboard.update_precheck(dt_precheck_name, dt_ok, dt_messages[1:])
+            for message in dt_messages:
+                log(message, stream=False)
+            if not dt_ok:
+                # Fatal error - do not continue with prechecks or tests
+                return 1
+        except Exception as exc:
+            dt_error_msg = f"Failed to run Fabric Engine DT image check: {exc}"
+            log(dt_error_msg, stream=False)
+            if dashboard is not None:
+                dashboard.update_precheck(dt_precheck_name, False, [str(exc)])
+            # Fatal error - do not continue with prechecks or tests
+            return 1
+
         # Run gns3_topology check before any other prechecks
         gns3_cmd = [str(TEST_DIR / "cfg" / "gns3_topology"), "check"]
         gns3_precheck_name = "gns3_topology check"
