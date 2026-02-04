@@ -1,0 +1,29 @@
+---
+- name: Remove ports 1:5-1:10 from VLAN 6
+  hosts: gns3_network
+  gather_facts: false
+  vars:
+    target_ports:
+      - PORT:1:5
+      - PORT:1:6
+      - PORT:1:7
+      - PORT:1:8
+      - PORT:1:9
+      - PORT:1:10
+  tasks:
+    - name: Ensure VLAN 6 exists
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 6
+        vr_name: GlobalRouter
+        state: merged
+
+    - name: Remove VLAN 6 membership from trunk port
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "{{ interface }}"
+        remove_tagged_vlans: [6]
+        untagged_vlan: 6
+        state: deleted
+      loop: "{{ target_ports }}"
+      loop_control:
+        loop_var: interface
+        label: "{{ interface }}"

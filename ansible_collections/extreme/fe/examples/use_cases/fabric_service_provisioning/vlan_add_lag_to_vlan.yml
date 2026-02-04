@@ -1,0 +1,15 @@
+---
+- name: Add LAG 10 as tagged member of VLAN 200
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  collections:
+    - extreme.fe
+  tasks:
+    - name: Ensure LAG 10 is a tagged member of VLAN 200
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 12
+        vr_name: GlobalRouter
+        lag_interfaces:
+          - name: "10"
+            tag: tagged
+        state: merged

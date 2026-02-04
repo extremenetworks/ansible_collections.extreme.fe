@@ -1,0 +1,21 @@
+---
+- name: Configure VLAN 20 on ports 1:4 and 1:7 (TRUNK)
+  hosts: fe_dt_upper_hosts
+  gather_facts: false
+
+  tasks:
+    - name: Configure interface 1:4 for VLAN 20 access
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:4
+        port_type: TRUNK
+        untagged_vlan: 20
+        tagged_vlans: []
+        state: replaced
+
+    - name: Configure interface 1:7 for VLAN 20 access
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: PORT:1:7
+        port_type: TRUNK
+        untagged_vlan: 20
+        tagged_vlans: []
+        state: replaced

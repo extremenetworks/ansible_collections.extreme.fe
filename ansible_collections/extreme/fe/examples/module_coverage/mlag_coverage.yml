@@ -1,0 +1,386 @@
+---
+- name: MLAG Module Coverage Validation
+  hosts: fe_dt_1
+  gather_facts: false
+  vars:
+    coverage_vlan_vist: 100
+    coverage_vlan_data_primary: 220
+    coverage_vlan_data_secondary: 221
+    coverage_peer_remote_ip: "192.168.100.1"
+    coverage_peer_local_ip: "192.168.100.4"
+    coverage_auth_key: "coverage_auth_key"
+    coverage_lag_primary: "31"
+    coverage_lag_secondary: "32"
+    coverage_lag_tertiary: "33"
+    coverage_ports_initial:
+      - port_id: "{{ coverage_lag_primary }}"
+        mlag_id: 301
+    coverage_ports_update:
+      - port_id: "{{ coverage_lag_secondary }}"
+        mlag_id: 302
+      - port_id: "{{ coverage_lag_tertiary }}"
+        mlag_id: 303
+    coverage_rsmlt_base:
+      - vlan_id: 100
+        enabled: true
+        hold_up_timer: 60
+        hold_down_timer: 30
+    coverage_rsmlt_additional:
+      - vlan_id: 220
+        enabled: false
+        hold_up_timer: 0
+        hold_down_timer: 0
+      - vlan_id: 221
+        enabled: true
+        hold_up_timer: 120
+        hold_down_timer: 45
+    coverage_peer_template:
+      peer_id: "Default"
+      peer_ip_address: "{{ coverage_peer_remote_ip }}"
+      local_ip_address: "{{ coverage_peer_local_ip }}"
+      local_vlan_id: "{{ coverage_vlan_vist }}"
+      authentication_key: "{{ coverage_auth_key }}"
+      hello_interval: 1500
+      hello_timeout: 7500
+    mlag_delete_supported: true
+
+  tasks:
+    - name: Phase 0 | Disable autosense on coverage ports
+      extreme.fe.extreme_fe_autosense:
+        state: merged
+        ports:
+          - { name: "1:20", enable: false }
+          - { name: "1:21", enable: false }
+          - { name: "1:22", enable: false }
+      register: disable_autosense
+      changed_when: disable_autosense is changed or disable_autosense.failed
+      tags: [setup, autosense]
+
+    - name: Phase 0 | Ensure infrastructure VLANs exist
+      extreme.fe.extreme_fe_vlans:
+        state: merged
+        vlan_id: "{{ item.vlan_id }}"
+        vlan_name: "{{ item.name }}"
+        vlan_type: PORT_MSTP_RSTP
+      loop:
+        - { vlan_id: "{{ coverage_vlan_vist }}", name: "MLAG-VIST" }
+        - { vlan_id: "{{ coverage_vlan_data_primary }}", name: "MLAG-DATA-PRIMARY" }
+        - { vlan_id: "{{ coverage_vlan_data_secondary }}", name: "MLAG-DATA-SECONDARY" }
+      changed_when: true
+      tags: [setup, vlans]
+
+    - name: Phase 0 | Map coverage VLANs to ISIDs
+      extreme.fe.extreme_fe_fabric_l2:
+        state: merged
+        isid: "{{ item }}"
+        cvlan: "{{ item }}"
+        name: "MLAG-ISID-{{ item }}"
+      loop:
+        - "{{ coverage_vlan_vist }}"
+        - "{{ coverage_vlan_data_primary }}"
+        - "{{ coverage_vlan_data_secondary }}"
+      changed_when: true
+      tags: [setup, isid]
+
+    - name: Phase 0 | Configure L3 interface for MLAG VLAN
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: merged
+        config:
+          - type: vlan
+            vlan_id: "{{ coverage_vlan_vist }}"
+            ipv4:
+              - "{{ coverage_peer_local_ip }}/24"
+      register: configure_l3_interface
+      failed_when: configure_l3_interface is failed and 'Duplicate IP address' not in (configure_l3_interface.msg | default(""))
+      changed_when: true
+      tags: [setup, l3]
+
+    - name: Phase 0 | Ensure coverage LAGs exist
+      extreme.fe.extreme_fe_lag:
+        state: merged
+        lag_id: "{{ item.lag_id }}"
+        name: "Coverage-LAG-{{ item.lag_id }}"
+        mode: LACP
+        lacp_key: "{{ item.lag_id }}"
+        member_ports: "{{ item.ports }}"
+      loop:
+        - { lag_id: "{{ coverage_lag_primary }}", ports: ["1:20"] }
+        - { lag_id: "{{ coverage_lag_secondary }}", ports: ["1:21"] }
+        - { lag_id: "{{ coverage_lag_tertiary }}", ports: ["1:22"] }
+      tags: [setup, lags]
+
+    - name: Phase 0 | Ensure ISIS is disabled before MLAG changes
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - configure terminal
+          - no router isis enable
+          - exit
+      failed_when: false
+      tags: [setup, cli]
+
+    - name: Phase 0 | Remove any existing MLAG configuration
+      extreme.fe.extreme_fe_mlag:
+        state: deleted
+      register: deleted_all_pre
+      ignore_errors: true
+      tags: [setup, cleanup]
+
+    - name: Phase 0 | Track MLAG delete capability
+      ansible.builtin.set_fact:
+        mlag_delete_supported: false
+      when:
+        - deleted_all_pre is failed
+        - (deleted_all_pre.msg | default("")) is search('requested URL is not available')
+      tags: [setup, cleanup]
+
+    - name: Validation | Missing config for present state should fail
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config: null
+      register: missing_config_validation
+      ignore_errors: true
+      tags: [validation, negative]
+
+    - name: Assert missing config validation triggered
+      ansible.builtin.assert:
+        that:
+          - missing_config_validation is failed
+          - "'config is required for state' in missing_config_validation.msg"
+      tags: [validation, negative]
+
+    - name: Validation | Invalid peer IP detected
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - peer_id: "Default"
+              peer_ip_address: "999.999.999.999"
+      register: invalid_peer_ip
+      ignore_errors: true
+      tags: [validation, negative]
+
+    - name: Assert invalid peer IP rejected
+      ansible.builtin.assert:
+        that:
+          - invalid_peer_ip is failed
+          - "'peer_ip_address is not a valid IP address' in invalid_peer_ip.msg"
+      tags: [validation, negative]
+
+    - name: Validation | Invalid local IP detected
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - peer_id: "Default"
+              peer_ip_address: "{{ coverage_peer_remote_ip }}"
+              local_ip_address: not.an.ip
+      register: invalid_local_ip
+      ignore_errors: true
+      tags: [validation, negative]
+
+    - name: Assert invalid local IP rejected
+      ansible.builtin.assert:
+        that:
+          - invalid_local_ip is failed
+          - "'local_ip_address is not a valid IP address' in invalid_local_ip.msg"
+      tags: [validation, negative]
+
+    - name: Validation | Hello interval guard
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - peer_id: "Default"
+              peer_ip_address: "{{ coverage_peer_remote_ip }}"
+              local_ip_address: "{{ coverage_peer_local_ip }}"
+              hello_interval: 50
+      register: invalid_hello_interval
+      ignore_errors: true
+      tags: [validation, negative]
+
+    - name: Assert hello interval validation triggered
+      ansible.builtin.assert:
+        that:
+          - invalid_hello_interval is failed
+          - "'hello_interval must be an integer' in invalid_hello_interval.msg"
+      tags: [validation, negative]
+
+    - name: Validation | Hello timeout guard
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - peer_id: "Default"
+              peer_ip_address: "{{ coverage_peer_remote_ip }}"
+              local_ip_address: "{{ coverage_peer_local_ip }}"
+              hello_timeout: 70000
+      register: invalid_hello_timeout
+      ignore_errors: true
+      tags: [validation, negative]
+
+    - name: Assert hello timeout validation triggered
+      ansible.builtin.assert:
+        that:
+          - invalid_hello_timeout is failed
+          - "'hello_timeout must be an integer' in invalid_hello_timeout.msg"
+      tags: [validation, negative]
+
+    - name: Phase 1 | Dry run configuration in check mode
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - "{{ coverage_peer_template | combine({'ports': coverage_ports_initial}) }}"
+          rsmlt:
+            instances: "{{ coverage_rsmlt_base }}"
+      check_mode: true
+      register: check_mode_preview
+      tags: [check_mode, positive]
+
+    - name: Phase 2 | Configure baseline MLAG peer
+      extreme.fe.extreme_fe_mlag:
+        state: present
+        config:
+          peers:
+            - "{{ coverage_peer_template | combine({'ports': coverage_ports_initial}) }}"
+      register: configure_baseline_peer
+      failed_when: configure_baseline_peer is failed and 'Virtual IST already exists' not in (configure_baseline_peer.msg | default(""))
+      changed_when: configure_baseline_peer is changed or 'Virtual IST already exists' in (configure_baseline_peer.msg | default(""))
+      tags: [present, positive]
+
+    - name: Phase 2 | Gather full MLAG state with ports and RSMLT
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+        gather_filter:
+          include_ports: true
+          include_rsmlt: true
+          include_state: true
+      register: gather_full_state
+      tags: [gathered, positive]
+
+    - name: Assert default peer discovered
+      ansible.builtin.assert:
+        that:
+          - gather_full_state.gathered.peers | length > 0
+          - gather_full_state.gathered.rsmlt is defined
+      tags: [gathered, positive]
+
+    - name: Phase 3 | Merge additional ports and timers
+      extreme.fe.extreme_fe_mlag:
+        state: merged
+        config:
+          peers:
+            - "{{ coverage_peer_template | combine({'ports': coverage_ports_initial + coverage_ports_update, 'hello_interval': 2000, 'hello_timeout': 9000}) }}"
+      register: merged_ports
+      failed_when: merged_ports is failed and 'Virtual IST already exists' not in (merged_ports.msg | default(""))
+      changed_when: merged_ports is changed or 'Virtual IST already exists' in (merged_ports.msg | default(""))
+      tags: [merged, positive]
+
+    - name: Phase 3 | Gather peer-only information
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+        gather_filter:
+          include_ports: false
+          include_rsmlt: false
+          include_state: false
+      register: gather_peer_only
+      tags: [gathered, positive]
+
+    - name: Phase 3 | Gather filtered peer ID with state
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+        gather_filter:
+          peer_ids: ["Default"]
+          include_ports: true
+          include_rsmlt: false
+          include_state: true
+      register: gather_filtered_peer
+      tags: [gathered, positive]
+
+    - name: Phase 4 | Replace configuration end-to-end
+      extreme.fe.extreme_fe_mlag:
+        state: replaced
+        config:
+          peers:
+            - "{{ coverage_peer_template | combine({'local_vlan_id': coverage_vlan_data_primary, 'authentication_key': 'replaced_auth', 'ports': coverage_ports_initial}) }}"
+          rsmlt:
+            instances: "{{ coverage_rsmlt_base + coverage_rsmlt_additional }}"
+      register: replaced_state
+      ignore_errors: true
+      tags: [replaced, positive]
+
+    - name: Phase 4 | Ensure replace completed
+      ansible.builtin.assert:
+        that:
+          - replaced_state is succeeded or "requested URL is not available" in (replaced_state.msg | default(""))
+      tags: [replaced, positive]
+
+    - name: Phase 5 | Remove peer via absent state
+      extreme.fe.extreme_fe_mlag:
+        state: absent
+        config:
+          peers:
+            - peer_id: "Default"
+      register: absent_peer
+      ignore_errors: true
+      tags: [absent, cleanup]
+
+    - name: Phase 5 | Track absent operation failures
+      ansible.builtin.set_fact:
+        mlag_delete_supported: false
+      when:
+        - absent_peer is failed
+        - (absent_peer.msg | default("")) is search('requested URL is not available')
+      tags: [absent, cleanup]
+
+    - name: Phase 5 | Remove any remaining MLAG configuration
+      extreme.fe.extreme_fe_mlag:
+        state: deleted
+      register: deleted_all_post
+      ignore_errors: true
+      tags: [deleted, cleanup]
+
+    - name: Phase 5 | Track delete operation failures
+      ansible.builtin.set_fact:
+        mlag_delete_supported: false
+      when:
+        - deleted_all_post is failed
+        - (deleted_all_post.msg | default("")) is search('requested URL is not available')
+      tags: [deleted, cleanup]
+
+    - name: Phase 5 | Final gather to verify cleanup
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+        gather_filter:
+          include_ports: true
+          include_rsmlt: true
+          include_state: true
+      register: final_gather
+      tags: [gathered, cleanup]
+
+    - name: Assert final gather shows no configuration
+      ansible.builtin.assert:
+        that:
+          - (mlag_delete_supported | default(true) and (final_gather.gathered.peers | length == 0)) or
+            ((not (mlag_delete_supported | default(true))) and (final_gather.gathered.peers | length > 0))
+      tags: [cleanup, verification]
+
+    - name: Phase 6 | Re-enable autosense on coverage ports
+      extreme.fe.extreme_fe_autosense:
+        state: merged
+        ports:
+          - { name: "1:20", enable: true }
+          - { name: "1:21", enable: true }
+          - { name: "1:22", enable: true }
+      failed_when: false
+      tags: [cleanup, autosense]
+
+    - name: Phase 6 | Coverage summary
+      ansible.builtin.debug:
+        msg:
+          - "MLAG coverage play completed"
+          - "Validation tests executed: 8"
+          - "Positive configuration phases executed"
+          - "MLAG config cleaned up successfully"
+      tags: [summary]

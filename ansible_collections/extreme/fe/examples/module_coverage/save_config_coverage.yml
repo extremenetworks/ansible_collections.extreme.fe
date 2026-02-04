@@ -1,0 +1,95 @@
+---
+- name: Exercise Fabric Engine save config module behaviours
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  vars:
+    backup_filename: "coverage-backup.cfg"
+  tasks:
+    - name: Save configuration to active file
+      extreme.fe.extreme_fe_save_config:
+        verbose: false
+      register: save_default
+
+    - name: Save configuration using explicit filename
+      extreme.fe.extreme_fe_save_config:
+        name: "{{ backup_filename }}"
+      register: save_named
+
+    - name: Save configuration with verbose flag
+      extreme.fe.extreme_fe_save_config:
+        verbose: false
+      register: save_verbose
+
+    - name: Preview configuration save in check mode
+      extreme.fe.extreme_fe_save_config:
+        name: "  trimmed-name.cfg  "
+      check_mode: true
+      register: save_preview
+
+    - name: Attempt save with empty filename (expected failure)
+      extreme.fe.extreme_fe_save_config:
+        name: "   "
+      register: save_empty
+      failed_when: false
+      changed_when: false
+
+    - name: Attempt save with non-string filename (expected failure)
+      extreme.fe.extreme_fe_save_config:
+        name: [invalid, value]
+      register: save_type_error
+      failed_when: false
+      changed_when: false
+
+    - name: Attempt verbose save with filename (expected device error)
+      extreme.fe.extreme_fe_save_config:
+        name: "{{ backup_filename }}"
+        verbose: true
+      register: save_verbose_named
+      failed_when: false
+      changed_when: false
+
+    - name: Summarise save config results
+      ansible.builtin.debug:
+        msg:
+          - "Default save: {{ save_default | default({}) }}"
+          - "Named save: {{ save_named | default({}) }}"
+          - "Verbose save: {{ save_verbose | default({}) }}"
+          - "Preview payload: {{ save_preview | default({}) }}"
+          - "Whitespace error: {{ save_empty | default({}) }}"
+          - "Type error: {{ save_type_error | default({}) }}"
+          - "Verbose named error: {{ save_verbose_named | default({}) }}"
+
+    - name: Validate successful saves
+      ansible.builtin.assert:
+        that:
+          - save_default.changed | bool
+          - save_named.changed | bool
+          - save_verbose.changed | bool
+        fail_msg: "Expected successful save operations did not report changed"
+
+    - name: Validate preview submission payload
+      ansible.builtin.assert:
+        that:
+          - save_preview.changed | bool
+          - save_preview.submitted.name == 'trimmed-name.cfg'
+        fail_msg: "Check mode payload did not trim the supplied filename"
+
+    - name: Validate whitespace filename failure response
+      ansible.builtin.assert:
+        that:
+          - "'must not be empty' in save_empty.msg"
+        fail_msg: "Whitespace-only filename should fail with validation error"
+
+    - name: Validate invalid type failure response
+      ansible.builtin.assert:
+        that:
+          - save_type_error.code == 422
+          - "'Invalid input detected' in save_type_error.msg"
+        fail_msg: "Non-string filename should trigger type validation error"
+
+    - name: Validate device error handling
+      ansible.builtin.assert:
+        that:
+          - save_verbose_named.code == 422
+          - "'config file name' in save_verbose_named.msg"
+        fail_msg: "Verbose named save should surface the device error payload"

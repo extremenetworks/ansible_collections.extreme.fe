@@ -1,0 +1,14 @@
+---
+- name: Remove LAG 10 from VLAN 12
+  hosts: fe_dt_lower_hosts
+  gather_facts: false
+  collections:
+    - extreme.fe
+  tasks:
+    - name: Remove LAG 10 from VLAN 12
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: 12
+        vr_name: GlobalRouter
+        remove_lag_interfaces:
+          - name: "10"
+        state: merged

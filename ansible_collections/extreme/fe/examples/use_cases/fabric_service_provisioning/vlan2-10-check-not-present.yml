@@ -1,0 +1,22 @@
+---
+- name: Verify VLANs 2 through 10 are absent
+  hosts: gns3_network
+  gather_facts: false
+  vars:
+    vlan_range: "{{ range(2, 11) | list }}"
+  tasks:
+    - name: Gather VLAN information
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+      register: vlan_info
+
+    - name: Assert VLAN is absent
+      assert:
+        that: "item not in existing_vlans"
+        fail_msg: "VLAN {{ item }} is present"
+      vars:
+        existing_vlans: >-
+          {{ vlan_info.vlans | default([]) | map(attribute='id') | list }}
+      loop: "{{ vlan_range }}"
+      loop_control:
+        loop_var: item
