@@ -97,7 +97,7 @@
           - "  - config_name provided: {{ _config_was_specified | ternary('YES (' ~ (config_name | default('')) ~ ')', 'NO') }}"
           - ""
           - "Actions to perform:"
-          - "  - Delete VLAN: {{ _cleanup_vlan | ternary('YES - VLAN ' ~ _actual_vlan_id ~ ' and all bound ISIDs', 'NO') }}"
+          - "  - Delete VLAN: {{ _cleanup_vlan | ternary('YES - VLAN ' ~ _actual_vlan_id ~ ' and the bound ISID', 'NO') }}"
           - "  - Delete config: {{ _cleanup_config | ternary('YES - ' ~ _actual_config_name, 'NO') }}"
 
     # -------------------------------------------------------------------------
@@ -138,7 +138,7 @@
 
     - name: "Step 3 - Find ISID bound to VLAN {{ _actual_vlan_id }}"
       ansible.builtin.set_fact:
-        isid_to_delete: "{{ isid_info.gathered[0].cvlan | default([]) | selectattr('platformVlanId', 'equalto', _actual_vlan_id | int) | map(attribute='isid') | first | default(0) }}"
+        isid_to_delete: "{{ (isid_info.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', _actual_vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
       when: _cleanup_vlan | bool
 
     - name: "Step 3 - Show ISID found"

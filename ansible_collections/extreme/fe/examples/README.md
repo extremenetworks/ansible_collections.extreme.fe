@@ -27,7 +27,7 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 *   **VLAN Service Provisioning:**
     *   Create VLANs with auto-generated names
     *   Add ports to VLANs (preserves existing configuration)
-    *   Create/replace ISIDs for SPB fabric connectivity
+    *   Create/replace ISID for SPB fabric connectivity
     *   Smart ISID replacement (auto-deletes old ISID if changing)
     *   Save configuration to named files
 
@@ -427,7 +427,7 @@ ok: [fe_sw_1] => {
     "msg": "Port 1:8 -> VLAN 10 - Added/Updated"
 }
 
-TASK [Gather existing ISIDs] *************************************************
+TASK [Gather existing ISID] *************************************************
 ok: [fe_sw_1]
 
 TASK [Find ISID currently bound to VLAN 10] **********************************
@@ -478,7 +478,7 @@ that auto-detects what to delete based on the parameters provided.
 | (no parameters)                      | Delete default VLAN 5 + ISID + config.cfg    |
 | `-e vlan_id=X`                       | Delete only VLAN X + ISID (no config)        |
 | `-e config_name=X`                   | Delete only config file X (no VLAN)           |
-| `-e vlan_id=X -e config_name=Y`      | Delete VLAN X + ISIDs + config Y              |
+| `-e vlan_id=X -e config_name=Y`      | Delete VLAN X + ISID + config Y              |
 
 **Parameters:**
 
@@ -517,7 +517,7 @@ ok: [fe_sw_1] => {
         "  - config_name provided: NO",
         "",
         "Actions to perform:",
-        "  - Delete VLAN: YES - VLAN 50 and all bound ISIDs",
+        "  - Delete VLAN: YES - VLAN 50 and the bound ISID",
         "  - Delete config: NO"
     ]
 }
