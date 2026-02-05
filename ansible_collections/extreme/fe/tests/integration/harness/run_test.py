@@ -3067,6 +3067,76 @@ def _execute_tests(args: argparse.Namespace, dashboard: Optional[Dashboard] = No
             dashboard.set_browser_prefix(browser_prefix)
 
     if gns3_enabled:
+        # Run Build Docker images precheck first (fatal if it fails)
+        docker_update_script = TEST_DIR / "docker" / "update_image"
+        docker_precheck_name = "Build Docker images"
+        docker_title = "-- Build Docker images"
+        if dashboard is not None:
+            dashboard.mark_precheck_running(docker_precheck_name)
+        try:
+            docker_result = subprocess.run(
+                [str(docker_update_script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            docker_output = (docker_result.stdout or "") + (docker_result.stderr or "")
+            docker_ok = docker_result.returncode == 0
+            docker_status = "[PASS]" if docker_ok else "[FAIL]"
+            docker_messages: List[str] = [_status_line(docker_title, docker_status)]
+            for line in docker_output.splitlines():
+                if line.strip():
+                    docker_messages.append(line)
+            if dashboard is not None:
+                dashboard.update_precheck(docker_precheck_name, docker_ok, docker_messages[1:])
+            for message in docker_messages:
+                log(message, stream=False)
+            if not docker_ok:
+                # Fatal error - do not continue with prechecks or tests
+                return 1
+        except Exception as exc:
+            docker_error_msg = f"Failed to run Build Docker images: {exc}"
+            log(docker_error_msg, stream=False)
+            if dashboard is not None:
+                dashboard.update_precheck(docker_precheck_name, False, [str(exc)])
+            # Fatal error - do not continue with prechecks or tests
+            return 1
+
+        # Run Fabric Engine DT image check precheck before gns3_topology check (fatal if it fails)
+        dt_image_script = TEST_DIR / "tools" / "check_dt_images"
+        dt_precheck_name = "Fabric Engine DT image check"
+        dt_title = "-- Fabric Engine DT image check"
+        if dashboard is not None:
+            dashboard.mark_precheck_running(dt_precheck_name)
+        try:
+            dt_result = subprocess.run(
+                [str(dt_image_script)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            dt_output = (dt_result.stdout or "") + (dt_result.stderr or "")
+            dt_ok = dt_result.returncode == 0
+            dt_status = "[PASS]" if dt_ok else "[FAIL]"
+            dt_messages: List[str] = [_status_line(dt_title, dt_status)]
+            for line in dt_output.splitlines():
+                if line.strip():
+                    dt_messages.append(line)
+            if dashboard is not None:
+                dashboard.update_precheck(dt_precheck_name, dt_ok, dt_messages[1:])
+            for message in dt_messages:
+                log(message, stream=False)
+            if not dt_ok:
+                # Fatal error - do not continue with prechecks or tests
+                return 1
+        except Exception as exc:
+            dt_error_msg = f"Failed to run Fabric Engine DT image check: {exc}"
+            log(dt_error_msg, stream=False)
+            if dashboard is not None:
+                dashboard.update_precheck(dt_precheck_name, False, [str(exc)])
+            # Fatal error - do not continue with prechecks or tests
+            return 1
+
         # Run gns3_topology check before any other prechecks
         gns3_cmd = [str(TEST_DIR / "cfg" / "gns3_topology"), "check"]
         gns3_precheck_name = "gns3_topology check"

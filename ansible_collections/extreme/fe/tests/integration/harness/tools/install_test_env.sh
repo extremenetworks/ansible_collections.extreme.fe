@@ -347,11 +347,9 @@ if [ "$INSTALL_GNS3" = true ] ; then
   source ~/gns3-venv/bin/activate
 
   pip install --upgrade pip
-
   pip install gns3-server==2.2.54 gns3-gui==2.2.54
 
   sudo ln -s -f ~/gns3-venv/bin/gns3server /usr/local/bin/gns3server
-
   sudo ufw allow 3080/tcp
 
   # Update privilege level for kvm, libvirt, ubridge, docker
@@ -388,32 +386,18 @@ network:
       interfaces: [ens33]
       macaddress: $mac_address
       dhcp4: true
-      dhcp6: true
+      dhcp6: false
       parameters:
         stp: false
         forward-delay: 0
 EOF
         sudo netplan apply
         echo " Configured br0 bridge in $NETPLAN_FILE (backup saved to $backup_path)"
-        #echo " Network settings have changed; please reboot for the changes to take effect."
       fi
     fi
   else
     echo " Netplan file $NETPLAN_FILE not found; skipping bridge configuration"
   fi
-
-  #Install gns3 2.2.54 version
-  #sudo add-apt-repository -y ppa:gns3/ppa
-
-  #sudo apt install -y python3-pip python3-pyqt5 python3-pyqt5.qtwebsockets python3-pyqt5.qtsvg qemu-kvm qemu-utils libvirt-daemon-system libvirt-clients bridge-utils virtinst virt-manager dynamips vpcs ubridge
-
-  #pip3 install gns3-server==2.2.54 gns3-gui==2.2.54
-
-  # Export PATH
-  #echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-
-  # Update privilege level
-  #sudo usermod -aG kvm,libvirt,ubridge $(whoami)
 
   # Configure startup to run gns3server and dashboard service on boot
   ANSIBLE_DIR="$(cd "$HARNESS_DIR/../../.." && pwd)"
@@ -468,4 +452,3 @@ echo " ============================================"
 sync
 sleep 5
 sudo reboot
-
