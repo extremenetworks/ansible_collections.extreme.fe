@@ -9,6 +9,7 @@ import html
 import json
 import os
 import re
+import socket
 import shlex
 import shutil
 import subprocess
@@ -22,11 +23,13 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
+DASHBOARD_TITLE_PLACEHOLDER = "__DASHBOARD_TITLE__"
+
 INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
-    <title>Extreme FE Dashboard</title>
+    <title>__DASHBOARD_TITLE__</title>
     <style>
         :root {
             color-scheme: dark;
@@ -654,7 +657,7 @@ INDEX_HTML = """<!DOCTYPE html>
 <body>
     <header>
         <div class="header-left">
-            <h1>Extreme FE Dashboard</h1>
+            <h1>__DASHBOARD_TITLE__</h1>
             <div class="control-bar">
                 <button id="control-button" class="control-button control-start">Start</button>
                 <div id="run-status" class="status-indicator status-na">N/A</div>
@@ -2016,6 +2019,47 @@ INDEX_HTML = """<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+def _resolve_hostname() -> str:
+    try:
+        result = subprocess.run(
+            ["hostname"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        name = (result.stdout or "").strip()
+        if name:
+            return name
+    except Exception:
+        pass
+    fallback = socket.gethostname()
+    return fallback.strip() if isinstance(fallback, str) and fallback.strip() else "unknown"
+
+
+def _resolve_host_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip:
+                return str(ip)
+    except Exception:
+        pass
+    return "127.0.0.1"
+
+
+def _build_dashboard_title() -> str:
+    hostname = _resolve_hostname()
+    host_ip = _resolve_host_ip()
+    return f"Extreme Ansible FE dashboard {hostname} ({host_ip})"
+
+
+def _render_index_html() -> str:
+    title = _build_dashboard_title()
+    escaped = html.escape(title)
+    return INDEX_HTML.replace(DASHBOARD_TITLE_PLACEHOLDER, escaped)
 def _resolve_ansible_root() -> Path:
     env_path = os.environ.get("ANSIBLE")
     if env_path:
@@ -3585,7 +3629,7 @@ class InfrastructureMonitor:
 
 
 manager = ConnectionManager()
-app = FastAPI(title="Extreme FE Dashboard", version="1.0.0")
+app = FastAPI(title=_build_dashboard_title(), version="1.0.0")
 host_monitor = HostReachabilityMonitor(manager)
 infra_monitor = InfrastructureMonitor(manager)
 
@@ -3919,7 +3963,7 @@ async def topology_url() -> JSONResponse:
 
 @app.get("/", response_class=HTMLResponse)
 async def index() -> HTMLResponse:
-    return HTMLResponse(INDEX_HTML)
+    return HTMLResponse(_render_index_html())
 
 
 @app.get("/latest")

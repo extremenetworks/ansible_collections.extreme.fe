@@ -1,0 +1,15 @@
+#!/bin/bash
+
+# See if the required images are present
+REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
+for img in $REQ_IMAGES ; do
+  if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
+    echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
+    echo "Please download it and place it there before running the test."
+    exit 1
+  fi
+done
+
+echo "Fabric Engine DT images found"
+
+exit 0
