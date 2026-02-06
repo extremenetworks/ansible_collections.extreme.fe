@@ -1,0 +1,124 @@
+---
+# =============================================================================
+# VLAN + Port + ISID Configuration
+# =============================================================================
+#
+# What this does:
+#   1. Creates VLAN (or keeps existing) with name "VLAN-<ID>"
+#   2. Adds port to VLAN (keeps existing ports)
+#   3. Creates/replaces ISID bound to VLAN
+#   4. Saves configuration
+#
+# PARAMETERS:
+#   vlan_id      - VLAN ID (default: 5)
+#   vlan_port    - Port to add to VLAN (default: 1:5)
+#   vlan_isid    - I-SID number (default: same as vlan_id)
+#   config_name  - Config file name (default: config.cfg)
+#
+# EXAMPLES:
+#   ansible-playbook provision_vlan_service.yml -i inventory.ini
+#   ansible-playbook provision_vlan_service.yml -i inventory.ini -e vlan_id=10 -e vlan_port=1:8
+#   ansible-playbook provision_vlan_service.yml -i inventory.ini -e vlan_id=10 -e vlan_port=1:8 -e vlan_isid=10010
+#   ansible-playbook provision_vlan_service.yml -i inventory.ini -e config_name=myconfig.cfg
+#
+# =============================================================================
+
+- name: Configure VLAN, Port and ISID
+  hosts: switches
+  gather_facts: false
+
+  vars:
+    vlan_id: 5
+    vlan_port: "1:5"
+    vlan_isid: "{{ vlan_id }}"
+    config_name: "config.cfg"
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Step 1: Create/ensure VLAN exists
+    # -------------------------------------------------------------------------
+    - name: "Create VLAN {{ vlan_id }}"
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ vlan_id }}"
+        vlan_name: "VLAN-{{ vlan_id }}"
+        state: merged
+      register: vlan_result
+
+    - name: "Show VLAN result"
+      ansible.builtin.debug:
+        msg: "VLAN {{ vlan_id }} - {{ vlan_result.changed | ternary('Created/Updated', 'Already exists') }}"
+
+    # -------------------------------------------------------------------------
+    # Step 2: Add port to VLAN (keeps existing ports)
+    # -------------------------------------------------------------------------
+    - name: "Add port {{ vlan_port }} to VLAN {{ vlan_id }}"
+      extreme.fe.extreme_fe_l2_interfaces:
+        interface: "PORT:{{ vlan_port }}"
+        port_type: ACCESS
+        untagged_vlan: "{{ vlan_id }}"
+        state: merged
+      register: port_result
+
+    - name: "Show port result"
+      ansible.builtin.debug:
+        msg: "Port {{ vlan_port }} -> VLAN {{ vlan_id }} - {{ port_result.changed | ternary('Added/Updated', 'Already configured') }}"
+
+    # -------------------------------------------------------------------------
+    # Step 3: Check for existing ISID on VLAN and delete if different
+    # -------------------------------------------------------------------------
+    - name: "Gather existing ISID"
+      extreme.fe.extreme_fe_fabric_l2:
+        state: gathered
+      register: fabric_l2_gathered
+
+    - name: "Find ISID currently bound to VLAN {{ vlan_id }}"
+      ansible.builtin.set_fact:
+        existing_isid: "{{ (fabric_l2_gathered.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
+
+    - name: "Delete existing ISID {{ existing_isid }} if different from {{ vlan_isid }}"
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ existing_isid | int }}"
+        state: deleted
+      when:
+        - existing_isid | int > 0
+        - existing_isid | int != vlan_isid | int
+      register: delete_isid_result
+
+    - name: "Show delete ISID result"
+      ansible.builtin.debug:
+        msg: "Old ISID {{ existing_isid }} deleted from VLAN {{ vlan_id }}"
+      when:
+        - delete_isid_result is defined
+        - delete_isid_result.changed | default(false)
+
+    # -------------------------------------------------------------------------
+    # Step 4: Create/replace ISID bound to VLAN
+    # -------------------------------------------------------------------------
+    - name: "Create ISID {{ vlan_isid }} bound to VLAN {{ vlan_id }}"
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ vlan_isid | int }}"
+        name: "L2VSN-{{ vlan_isid }}"
+        cvlan: "{{ vlan_id }}"
+        state: merged
+      register: isid_result
+
+    - name: "Show ISID result"
+      ansible.builtin.debug:
+        msg: "ISID {{ vlan_isid }} -> VLAN {{ vlan_id }} - {{ isid_result.changed | ternary('Created/Updated', 'Already configured') }}"
+
+    # -------------------------------------------------------------------------
+    # Step 5: Save configuration
+    # -------------------------------------------------------------------------
+    - name: "Save configuration to {{ config_name }}"
+      extreme.fe.extreme_fe_save_config:
+        name: "{{ config_name }}"
+        verbose: false
+      register: save_result
+
+    - name: "Summary"
+      ansible.builtin.debug:
+        msg:
+          - "✓ VLAN {{ vlan_id }} (VLAN-{{ vlan_id }})"
+          - "✓ Port {{ vlan_port }} assigned to VLAN {{ vlan_id }}"
+          - "✓ ISID {{ vlan_isid }} bound to VLAN {{ vlan_id }}"
+          - "✓ Config saved to {{ config_name }}"

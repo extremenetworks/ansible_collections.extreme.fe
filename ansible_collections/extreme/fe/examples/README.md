@@ -4,13 +4,6 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 
 **NOTE:** These examples are intended for learning and testing purposes. Review and adapt them to your environment before production use.
 
-## Features (Demonstrated in this Example)
-
-*   **PoE Management:**
-    *   Check PoE status on ports
-    *   Power cycling (bounce) for WAP recovery
-    *   Monitor power consumption
-
 ## Requirements
 
 *   **Ansible:** Tested with:
@@ -23,6 +16,26 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 *   **Extreme Networks FabricEngine Switches:** With REST API enabled.
     *   See [Enable REST API on Switch](#enable-rest-api-on-switch) section below.
 *   **Network Connectivity:** Your Ansible control node must have network connectivity to the managed switches.
+
+## Features (Demonstrated in this Example)
+
+*   **PoE Management:**
+    *   Check PoE status on ports
+    *   Power cycling (bounce) for WAP recovery
+    *   Monitor power consumption
+
+*   **VLAN Service Provisioning:**
+    *   Create VLANs with auto-generated names
+    *   Add ports to VLANs (preserves existing configuration)
+    *   Create/replace ISID for SPB fabric connectivity
+    *   Smart ISID replacement (auto-deletes old ISID if changing)
+    *   Save configuration to named files
+
+*   **VLAN Service Cleanup:**
+    *   Smart detection of what to delete based on parameters
+    *   Auto-find and delete the ISID bound to a VLAN
+    *   Delete VLANs based on the default or provided VLAN ID
+    *   Delete configuration files
 
 ## Enable REST API on Switch
 
@@ -355,6 +368,208 @@ ok: [fe_sw_1] => {
     ]
 }
 ```
+
+### provision_vlan_service.yml - VLAN + Port + ISID Configuration
+
+This playbook creates or updates a complete VLAN service with port assignment and
+SPB fabric ISID binding.
+
+**What it does:**
+1. Creates VLAN (or keeps existing) with name "VLAN-\<ID\>"
+2. Adds port to VLAN (keeps existing ports)
+3. Creates/replaces the ISID bound to the VLAN (auto-deletes old ISID if different)
+4. Saves configuration
+
+**Parameters:**
+
+| Parameter     | Description                    | Default          | Example                  |
+|---------------|--------------------------------|------------------|--------------------------|
+| `vlan_id`     | VLAN ID to create/configure    | `5`              | `-e vlan_id=10`          |
+| `vlan_port`   | Port to add to the VLAN        | `1:5`            | `-e vlan_port=1:8`       |
+| `vlan_isid`   | I-SID number for SPB fabric    | same as vlan_id  | `-e vlan_isid=10010`     |
+| `config_name` | Config file name to save       | `config.cfg`     | `-e config_name=my.cfg`  |
+
+**Examples:**
+
+```bash
+# Basic usage with defaults (VLAN 5, port 1:5, ISID 5, config.cfg)
+ansible-playbook -i inventory.ini provision_vlan_service.yml
+
+# Create VLAN 10 with port 1:8
+ansible-playbook -i inventory.ini provision_vlan_service.yml -e vlan_id=10 -e vlan_port=1:8
+
+# Create VLAN 10 with custom ISID
+ansible-playbook -i inventory.ini provision_vlan_service.yml -e vlan_id=10 -e vlan_port=1:8 -e vlan_isid=10010
+
+# Change the ISID of VLAN 10
+ansible-playbook -i inventory.ini provision_vlan_service.yml -e vlan_id=10 -e vlan_isid=10011
+
+# All parameters
+ansible-playbook -i inventory.ini provision_vlan_service.yml -e vlan_id=20 -e vlan_port=1:10 -e vlan_isid=20000 -e config_name=custom.cfg
+```
+
+**Expected Output:**
+
+```
+TASK [Create VLAN 10] ********************************************************
+changed: [fe_sw_1]
+
+TASK [Show VLAN result] ******************************************************
+ok: [fe_sw_1] => {
+    "msg": "VLAN 10 - Created/Updated"
+}
+
+TASK [Add port 1:8 to VLAN 10] ***********************************************
+changed: [fe_sw_1]
+
+TASK [Show port result] ******************************************************
+ok: [fe_sw_1] => {
+    "msg": "Port 1:8 -> VLAN 10 - Added/Updated"
+}
+
+TASK [Gather existing ISID] *************************************************
+ok: [fe_sw_1]
+
+TASK [Find ISID currently bound to VLAN 10] **********************************
+ok: [fe_sw_1]
+
+TASK [Delete existing ISID 10 if different from 10010] ***********************
+changed: [fe_sw_1]
+
+TASK [Show delete ISID result] ***********************************************
+ok: [fe_sw_1] => {
+    "msg": "Old ISID 10 deleted from VLAN 10"
+}
+
+TASK [Create ISID 10010 bound to VLAN 10] ************************************
+changed: [fe_sw_1]
+
+TASK [Show ISID result] ******************************************************
+ok: [fe_sw_1] => {
+    "msg": "ISID 10010 -> VLAN 10 - Created/Updated"
+}
+
+TASK [Save configuration to config.cfg] **************************************
+changed: [fe_sw_1]
+
+TASK [Summary] ***************************************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "✓ VLAN 10 (VLAN-10)",
+        "✓ Port 1:8 assigned to VLAN 10",
+        "✓ ISID 10010 bound to VLAN 10",
+        "✓ Config saved to config.cfg"
+    ]
+}
+```
+
+**Note:** If the VLAN already has a different ISID bound, the playbook will automatically
+delete the old ISID before creating the new one.
+
+### cleanup_vlan_service.yml - VLAN + ISID Cleanup
+
+This playbook removes resources created by `provision_vlan_service.yml`. It has smart behavior
+that auto-detects what to delete based on the parameters provided.
+
+**Smart Behavior:**
+
+| Command                              | Behavior                                      |
+|--------------------------------------|-----------------------------------------------|
+| (no parameters)                      | Delete default VLAN 5 + ISID + config.cfg    |
+| `-e vlan_id=X`                       | Delete only VLAN X + ISID (no config)        |
+| `-e config_name=X`                   | Delete only config file X (no VLAN)           |
+| `-e vlan_id=X -e config_name=Y`      | Delete VLAN X + ISID + config Y              |
+
+**Parameters:**
+
+| Parameter     | Description                    | Default          | Example                  |
+|---------------|--------------------------------|------------------|--------------------------|
+| `vlan_id`     | VLAN ID to delete              | `5`              | `-e vlan_id=10`          |
+| `config_name` | Config file name to delete     | `config.cfg`     | `-e config_name=my.cfg`  |
+
+**Examples:**
+
+```bash
+# Delete default VLAN (5) + ISID + default config (config.cfg)
+ansible-playbook -i inventory.ini cleanup_vlan_service.yml
+
+# Delete only specific VLAN (e.g., VLAN 50 and all ISID bound to it) - NO config
+ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e vlan_id=50
+
+# Delete only a specific config file - NO VLAN
+ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e config_name=iot-config.cfg
+
+# Delete specific VLAN + specific config file
+ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e vlan_id=50 -e config_name=iot-config.cfg
+
+# Dry run (check mode) - see what would be deleted without making changes
+ansible-playbook -i inventory.ini cleanup_vlan_service.yml --check
+```
+**Expected Output:**
+
+```
+TASK [Step 1 - Show cleanup mode] ********************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "=== CLEANUP MODE ===",
+        "Parameters detected:",
+        "  - vlan_id provided: YES (50)",
+        "  - config_name provided: NO",
+        "",
+        "Actions to perform:",
+        "  - Delete VLAN: YES - VLAN 50 and the bound ISID",
+        "  - Delete config: NO"
+    ]
+}
+
+TASK [Step 2 - Show VLAN info found] *****************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "VLAN 50 found: YES",
+        "VLAN Name: VLAN-50",
+        "VLAN VR: GlobalRouter"
+    ]
+}
+
+TASK [Step 3 - Show ISID found] **********************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "ISID bound to VLAN 50: 5000"
+    ]
+}
+
+TASK [Step 4 - Delete ISID 5000 (bound to VLAN 50)] **************************
+changed: [fe_sw_1]
+
+TASK [Step 4 - Show ISID deletion result] ************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "ISID 5000 deletion: SUCCESS"
+    ]
+}
+
+TASK [Step 5 - Delete VLAN 50 from VR GlobalRouter] **************************
+changed: [fe_sw_1]
+
+TASK [Step 5 - Show VLAN deletion result] ************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "VLAN 50 deletion: SUCCESS"
+    ]
+}
+
+TASK [Step 7 - Cleanup Summary] **********************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "=== CLEANUP COMPLETE ===",
+        "VLAN 50 (VR: GlobalRouter) deleted: ✓ YES",
+        "ISID deleted: 5000",
+        "Config: not requested"
+    ]
+}
+```
+**Note:** The playbook automatically finds and deletes the ISID bound to the specified VLAN,
+you don't need to know what ISID was used. It also auto-detects the VR the VLAN belongs to.
 
 ## Troubleshooting
 
