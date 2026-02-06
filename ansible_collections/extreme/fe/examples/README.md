@@ -37,6 +37,13 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
     *   Delete VLANs based on the default or provided VLAN ID
     *   Delete configuration files
 
+*   **Firmware Upgrade:**
+    *   Check current firmware version
+    *   Skip upgrade if already on target version
+    *   Add and activate new firmware
+    *   Automatic reboot and wait for switch
+    *   Verify upgrade succeeded
+
 ## Enable REST API on Switch
 
 Before using this Ansible collection, you must enable the REST API (OpenAPI) on your Extreme Networks FabricEngine switch.
@@ -570,6 +577,110 @@ ok: [fe_sw_1] => {
 ```
 **Note:** The playbook automatically finds and deletes the ISID bound to the specified VLAN,
 you don't need to know what ISID was used. It also auto-detects the VR the VLAN belongs to.
+
+### firmware_upgrade.yml - Firmware Upgrade
+
+This playbook performs a complete firmware upgrade on FabricEngine switches with version
+verification.
+
+**What it does:**
+1. Checks current firmware version
+2. Skips upgrade if already on target version
+3. Saves configuration (optional)
+4. Adds software from firmware file
+5. Activates the new software version
+6. Reboots the switch
+7. Waits for switch to come back online
+8. Verifies the upgrade succeeded
+
+**Parameters:**
+
+| Parameter          | Description                             | Default    | Example                                  |
+|--------------------|-----------------------------------------|------------|------------------------------------------|
+| `software_file`    | Name of the firmware file on /intflash/ | (required) | `-e software_file=5420.9.3.2.0int003.voss` |
+| `software_version` | Target firmware version string          | (required) | `-e software_version=9.3.2.0_B003`       |
+| `save_config`      | Save config before upgrade              | `true`     | `-e save_config=false`                   |
+
+**Examples:**
+
+```bash
+# Basic upgrade
+ansible-playbook -i inventory.ini firmware_upgrade.yml \
+  -e software_file=5420.9.3.2.0int003.voss \
+  -e software_version=9.3.2.0_B003
+
+# Skip saving config before upgrade
+ansible-playbook -i inventory.ini firmware_upgrade.yml \
+  -e software_file=5420.9.3.2.0int003.voss \
+  -e software_version=9.3.2.0_B003 \
+  -e save_config=false
+
+# Dry run (check mode) - see what would happen without making changes
+ansible-playbook -i inventory.ini firmware_upgrade.yml \
+  -e software_file=5420.9.3.2.0int003.voss \
+  -e software_version=9.3.2.0_B003 \
+  --check
+```
+
+**Expected Output (upgrade needed):**
+
+```
+TASK [Show upgrade parameters] ***********************************************
+ok: [fe_sw_1] => {
+    "msg": "File: 5420.9.3.2.0int003.voss → version 9.3.2.0_B003"
+}
+
+TASK [Show current version] **************************************************
+ok: [fe_sw_1] => {
+    "msg": "Current: 9.3.2.0_B002 | Target: 9.3.2.0_B003 | Upgrade needed: True"
+}
+
+TASK [Save configuration] ****************************************************
+changed: [fe_sw_1]
+
+TASK [Add software 5420.9.3.2.0int003.voss] **********************************
+changed: [fe_sw_1]
+
+TASK [Activate software 5420.9.3.2.0int003] **********************************
+changed: [fe_sw_1]
+
+TASK [Reboot switch] *********************************************************
+changed: [fe_sw_1]
+
+TASK [Wait for switch to reboot] *********************************************
+ok: [fe_sw_1]
+
+TASK [Wait for services to start] ********************************************
+Pausing for 30 seconds
+ok: [fe_sw_1]
+
+TASK [Verify upgrade succeeded] **********************************************
+ok: [fe_sw_1] => {
+    "msg": "Upgrade verified: 9.3.2.0_B003"
+}
+
+TASK [Summary] ***************************************************************
+ok: [fe_sw_1] => {
+    "msg": "Upgraded 9.3.2.0_B002 → 9.3.2.0_B003"
+}
+```
+
+**Expected Output (already on target version):**
+
+```
+TASK [Show current version] **************************************************
+ok: [fe_sw_1] => {
+    "msg": "Current: 9.3.2.0_B003 | Target: 9.3.2.0_B003 | Upgrade needed: False"
+}
+
+TASK [Summary (no upgrade needed)] *******************************************
+ok: [fe_sw_1] => {
+    "msg": "Already on target version: 9.3.2.0_B003"
+}
+```
+
+**Note:** The firmware file must be uploaded to /intflash/ on the switch before running
+this playbook. Use SCP, SFTP, or the switch's file transfer commands to upload the file.
 
 ## Troubleshooting
 
