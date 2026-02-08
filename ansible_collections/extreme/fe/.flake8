@@ -22,6 +22,7 @@ exclude =
     venv,
     .eggs,
     tests/output,
+    tests,
 
 # Per-file ignores
 per-file-ignores =

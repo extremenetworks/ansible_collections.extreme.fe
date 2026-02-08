@@ -9,6 +9,8 @@ exclude_paths:
   - .venv/
   - venv/
   - tests/output/
+  - tests/
+  - .github/
   - changelogs/
 
 # Enable offline mode (no network access)
