@@ -7,6 +7,17 @@ authors:
 description: Ansible Collection for Extreme Networks Fabric Engine
 license:
   - GPL-3.0-or-later
+build_ignore:
+  - tests
+  - .github
+  - scripts
+  - venv
+  - .gitignore
+  - .gitattributes
+  - .vscode
+  - .idea
+  - dist
+  - "*.tar.gz"
 tags:
   - networking
   - extreme

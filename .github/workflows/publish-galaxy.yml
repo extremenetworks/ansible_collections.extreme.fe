@@ -1,0 +1,27 @@
+name: Publish Ansible Galaxy Collection
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Ansible
+        run: pip install ansible-core
+
+      - name: Build and Publish Collection
+        env:
+          ANSIBLE_GALAXY_TOKEN: ${{ secrets.GALAXY_API_KEY }}
+        run: |
+          ansible-galaxy collection build ansible_collections/extreme/fe
+          ansible-galaxy collection publish extreme-fe-*.tar.gz --token $ANSIBLE_GALAXY_TOKEN
