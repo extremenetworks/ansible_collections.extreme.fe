@@ -7,7 +7,7 @@ __metaclass__ = type
 
 import json
 from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils._text import to_text
+from ansible.module_utils.common.text.converters import to_text
 
 class ExtremeFeRest(object):
     def __init__(self, module):
