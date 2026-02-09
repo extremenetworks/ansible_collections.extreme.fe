@@ -93,93 +93,92 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Merge configuration for Fabric Engine LAG 10
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Create or update LAG 10 with initial members
-            local.extreme_fe.extreme_fe_lag:
-                state: merged
-                lag_id: 10
-                name: Uplink-LAG-10
-                mode: LACP
-                lacp_key: '10'
-                member_ports:
-                    - '1:1'
-                    - '1:2'
-                add_member_ports:
-                    - '1:3'
+# Task-level examples for ansible-doc:
 
-- name: Merge LAG 11 and purge unspecified members
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Enforce membership for LAG 11 while removing strays
-            local.extreme_fe.extreme_fe_lag:
-                state: merged
-                lag_id: 11
-                member_ports:
-                    - '1:7'
-                    - '1:8'
-                purge_member_ports: true
+# =========================================================================
+# Full playbook examples with prerequisites:
+# See examples/extreme_fe_lag_examples.yml for complete playbooks
+# =========================================================================
+#
+# Prerequisites:
+#
+## Create LAGs (if not already existing)
+# mlt 10 name "Uplink-LAG-10" enable
+# mlt 11 name "MLT-11" enable
+# mlt 20 name "MLT-20" enable
+#
+## Ensure ARP Inspection is consistently configured on LAG member ports
+## (All ports in a LAG must have the same ARP Inspection setting)
+# interface gigabitEthernet 1/5-1/9
+#   no ip arp-inspection trust
+# exit
+#
+## Verify Configuration
+# show mlt
+# show ip arp-inspection interfaces
 
-- name: Replace membership for Fabric Engine LAG 10
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Enforce the desired member set
-            local.extreme_fe.extreme_fe_lag:
-                state: replaced
-                lag_id: 10
-                member_ports:
-                    - '1:1'
-                    - '1:2'
+# -------------------------------------------------------------------------
+# Task 1: Create or update LAG with member ports
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge configuration for Fabric Engine LAG 10"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Create or update LAG 10 with initial members
+  extreme.fe.extreme_fe_lag:
+    state: merged
+    lag_id: 10
+    name: Uplink-LAG-10
+    mode: LACP
+    lacp_key: '10'
+    member_ports:
+      - '1:5'
+      - '1:6'
+    add_member_ports:
+      - '1:7'
 
-- name: Override LAG 20 and clear existing members
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Remove all members while keeping the LAG definition
-            local.extreme_fe.extreme_fe_lag:
-                state: overridden
-                lag_id: 20
-                member_ports: []
+# -------------------------------------------------------------------------
+# Task 2: Merge LAG with purge option
+# -------------------------------------------------------------------------
+# - name: "Task 2: Merge LAG 11 and purge unspecified members"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enforce membership for LAG 11 while removing strays
+  extreme.fe.extreme_fe_lag:
+    state: merged
+    lag_id: 11
+    member_ports:
+      - '1:8'
+      - '1:9'
+    purge_member_ports: true
 
-- name: Delete Fabric Engine LAG 30
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Remove the entire LAG
-            local.extreme_fe.extreme_fe_lag:
-                state: deleted
-                lag_id: 30
+# -------------------------------------------------------------------------
+# Task 3: Replace LAG membership
+# -------------------------------------------------------------------------
+# - name: "Task 3: Replace membership for Fabric Engine LAG 10"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enforce the desired member set
+  extreme.fe.extreme_fe_lag:
+    state: replaced
+    lag_id: 10
+    member_ports:
+      - '1:5'
+      - '1:6'
 
-- name: Remove specific LAG members without deleting the LAG
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Prune members from LAG 40
-            local.extreme_fe.extreme_fe_lag:
-                state: deleted
-                lag_id: 40
-                remove_member_ports:
-                    - '1:15'
-                    - '1:16'
-
-- name: Gather LAG configuration details
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Read LAG 10 configuration
-            local.extreme_fe.extreme_fe_lag:
-                state: gathered
-                gather_filter:
-                    - '10'
-            register: lag_details
-
-        - name: Show gathered LAG data
-            ansible.builtin.debug:
-                var: lag_details.lags
+# -------------------------------------------------------------------------
+# Task 4: Override LAG and clear all members
+# -------------------------------------------------------------------------
+# - name: "Task 4: Override LAG 20 and clear existing members"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Remove all members while keeping the LAG definition
+  extreme.fe.extreme_fe_lag:
+    state: overridden
+    lag_id: 20
 """
 
 RETURN = r"""

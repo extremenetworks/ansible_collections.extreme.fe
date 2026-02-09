@@ -76,57 +76,104 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Merge IPv4 address on VLAN 20
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Ensure VLAN 20 has 10.0.1.101/24 configured
-      extreme_fe_l3_interfaces:
-        config:
-          - vlan_id: 20
-            name: VLAN 20
-            ipv4:
-              - address: 10.0.1.101
-                prefix: 24
-        state: merged
+# Task-level examples for ansible-doc:
 
-- name: Replace IPv4 and IPv6 addresses on VLAN 200
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Replace address list
-      extreme_fe_l3_interfaces:
-        config:
-          - vlan_id: 200
-            name: VLAN 200
-            ipv4:
-              - 10.10.200.1/24
-            ipv6:
-              - 2001:db8:200::1/64
-        state: replaced
+# =========================================================================
+# Full playbook examples with prerequisites:
+# See examples/extreme_fe_l3_interfaces_examples.yml for complete playbooks
+# =========================================================================
+#
+# Prerequisites:
+#
+## Create VLANs (if not already existing)
+# vlan create 20 type port-mstprstp 0
+# vlan create 200 type port-mstprstp 0
+#
+## Give VLANs descriptive names
+# vlan name 20 "VLAN-20"
+# vlan name 200 "VLAN-200"
+#
+## Create loopback interface 5
+# interface loopback 5
+#   ip address 1.1.1.5 255.255.255.255
+# exit
+#
+## Enable IP routing (if not already enabled)
+# ip routing
+#
+## Make VLANs IP interfaces (add dummy IPs to enable L3)
+# interface vlan 20
+#   ip address 10.0.20.1 255.255.255.0
+# exit
+# interface vlan 200
+#   ip address 10.0.200.1 255.255.255.0
+# exit
+#
+## Verify Configuration
+# show ip interface
+# show ipv6 interface
+# show interfaces loopback
 
-- name: Remove all addressing from loopback 5
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Clear loopback IPs
-      extreme_fe_l3_interfaces:
-        config:
-          - loopback_id: 5
-            name: Loopback 5
-        state: deleted
+# -------------------------------------------------------------------------
+# Task 1: Merge IPv4 address on VLAN interface
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge IPv4 address on VLAN 20"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Ensure VLAN 20 has 10.0.1.101/24 configured
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - vlan_id: 20
+        name: VLAN 20
+        ipv4:
+          - address: 10.0.1.101
+            prefix: 24
+    state: merged
 
-- name: Gather configured Layer 3 interfaces
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect routed interface addressing
-      extreme_fe_l3_interfaces:
-        state: gathered
-      register: routed_interfaces
+# -------------------------------------------------------------------------
+# Task 2: Replace interface addresses with IPv4 and IPv6
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace IPv4 and IPv6 addresses on VLAN 200"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Replace address list
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - vlan_id: 200
+        name: VLAN 200
+        ipv4:
+          - 10.10.200.1/24
+        ipv6:
+          - 2001:db8:200::1/64
+    state: replaced
 
-    - debug:
-        var: routed_interfaces.interfaces
+# -------------------------------------------------------------------------
+# Task 3: Delete all addresses from loopback interface
+# -------------------------------------------------------------------------
+# - name: "Task 3: Remove all addressing from loopback 5"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Clear loopback IPs
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - loopback_id: 5
+        name: Loopback 5
+    state: deleted
+
+# -------------------------------------------------------------------------
+# Task 4: Gather Layer 3 interface configuration
+# -------------------------------------------------------------------------
+# - name: "Task 4: Gather configured Layer 3 interfaces"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect routed interface addressing
+  extreme.fe.extreme_fe_l3_interfaces:
+    state: gathered
+  register: routed_interfaces
 """
 
 RETURN = r"""
@@ -471,7 +518,14 @@ def get_loopback_info(loopbacks: Sequence[Dict[str, object]], loopback_id: int) 
 
 
 def put_loopback_addresses(connection: Connection, loopback_id: int, addresses: Set[str]) -> None:
-    payload = {"ipAddressList": addresses_to_payload(addresses, is_vlan=False)}
+    # Per the OpenAPI spec: "An empty request means that IP address configuration
+    # will be deleted for that loopback interface/VLAN."
+    # When the address set is empty, send {} instead of {"ipAddressList": []}
+    # to properly delete the loopback interface.
+    if not addresses:
+        payload: Dict[str, object] = {}
+    else:
+        payload = {"ipAddressList": addresses_to_payload(addresses, is_vlan=False)}
     data = connection.send_request(payload, path=loopback_path(loopback_id), method="PUT")
     if _is_error_response(data):
         raise ExtremeFeL3InterfacesError(

@@ -87,51 +87,101 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Configure interface 1:5 as an access port in VLAN 5
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Set access port
-            local.extreme_fe.extreme_fe_l2_interfaces:
-                interface: PORT:1:5
-                port_type: ACCESS
-                untagged_vlan: 5
-                tagged_vlans: []
-                state: replaced
+# Task-level examples for ansible-doc:
 
-- name: Add VLANs 5 and 6 to trunk port 1:10
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Ensure trunk membership
-            local.extreme_fe.extreme_fe_l2_interfaces:
-                interface: PORT:1:10
-                port_type: TRUNK
-                tagged_vlans: [5, 6]
-                state: replaced
+# =========================================================================
+# Full playbook examples with prerequisites:
+# See examples/extreme_fe_l2_interfaces_examples.yml for complete playbooks
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## Create VLANs (if not already existing)
+# # vlan create 5 type port-mstprstp 0
+# # vlan create 6 type port-mstprstp 0
+# # vlan create 20 type port-mstprstp 0
+#
+# ## Disable Auto-Sense on target ports (required before manual VLAN config)
+# # auto-sense
+# #   no enable port 1/5,1/7,1/8,1/10
+# # exit
+#
+# ## Verify Configuration
+# # show vlan basic
+# # show vlan members
 
-- name: Remove VLAN 20 from interface 1:7
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Drop tagged VLAN 20
-            local.extreme_fe.extreme_fe_l2_interfaces:
-                interface: PORT:1:7
-                remove_tagged_vlans: [20]
-                state: merged
+# -------------------------------------------------------------------------
+# Task 1: Configure access port
+# Description:
+#   - Configure an interface as an access port in a specific VLAN
+#   - Access ports for end devices on a single VLAN
+# Prerequisites:
+#   - VLAN 5 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 1: Configure interface 1:5 as an access port in VLAN 5"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Set access port
+  extreme.fe.extreme_fe_l2_interfaces:
+    interface: PORT:1:5
+    port_type: ACCESS
+    untagged_vlan: 5
+    tagged_vlans: []
+    state: replaced
 
-- name: Gather VLAN configuration for interface 1:8
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Gather interface VLAN settings
-            local.extreme_fe.extreme_fe_l2_interfaces:
-                interface: PORT:1:8
-                state: gathered
-            register: l2_info
+# -------------------------------------------------------------------------
+# Task 2: Configure trunk port with tagged VLANs
+# Description:
+#   - Configure a trunk port with multiple tagged VLANs
+#   - Trunk ports for switch-to-switch connections
+# Prerequisites:
+#   - VLANs 5 and 6 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 2: Add VLANs 5 and 6 to trunk port 1:10"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Ensure trunk membership
+  extreme.fe.extreme_fe_l2_interfaces:
+    interface: PORT:1:10
+    port_type: TRUNK
+    untagged_vlan: 1
+    tagged_vlans: [5, 6]
+    state: replaced
 
-        - debug:
-                var: l2_info.interface
+# -------------------------------------------------------------------------
+# Task 3: Remove VLAN from interface
+# Description:
+#   - Remove a specific tagged VLAN using 'remove_tagged_vlans' option
+#   - Useful for cleaning up VLAN assignments
+# Prerequisites:
+#   - VLAN 20 must be added to port 1:7 first
+# -------------------------------------------------------------------------
+# - name: "Task 3: Remove VLAN 20 from interface 1:7"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Drop tagged VLAN 20
+  extreme.fe.extreme_fe_l2_interfaces:
+    interface: PORT:1:7
+    remove_tagged_vlans: [20]
+    state: merged
+
+# -------------------------------------------------------------------------
+# Task 4: Gather L2 interface configuration
+# Description:
+#   - Retrieve current L2 configuration (port type, VLANs)
+# -------------------------------------------------------------------------
+# - name: "Task 4: Gather VLAN configuration for interface 1:8"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Gather interface VLAN settings
+  extreme.fe.extreme_fe_l2_interfaces:
+    interface: PORT:1:8
+    state: gathered
+  register: l2_config
 """
 
 RETURN = r"""

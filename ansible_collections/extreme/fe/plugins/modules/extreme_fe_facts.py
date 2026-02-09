@@ -51,46 +51,79 @@ requirements:
 """
 
 EXAMPLES = r"""
-- name: Gather default Fabric Engine facts
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect basic device information
-      extreme_fe_facts:
-      register: facts
+# Task-level examples for ansible-doc:
 
-- name: Gather hardware facts only
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect hardware inventory
-      extreme_fe_facts:
-        gather_subset:
-          - hardware
-      register: fe_hw
+# =========================================================================
+# Full playbook examples:
+# See examples/extreme_fe_facts_examples.yml for complete playbooks
+# Note: This is a READ-ONLY module - no prerequisites required
+# =========================================================================
 
-- name: Gather configuration facts and VLAN/L3 resources
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect config and resource data
-      extreme_fe_facts:
-        gather_subset:
-          - config
-          - neighbors
-        gather_network_resources:
-          - vlans
-          - l3_interfaces
-      register: device_data
+# -------------------------------------------------------------------------
+# Task 1: Gather default facts
+# Description:
+#   - Collect basic device information (hostname, serial, version, uptime)
+#   - Default behavior when no subsets specified
+# -------------------------------------------------------------------------
+# - name: "Task 1: Gather default Fabric Engine facts"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect basic device information
+  extreme.fe.extreme_fe_facts:
+  register: facts
 
-- name: Gather every supported fact subset and resource
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect full set of facts
-      extreme_fe_facts:
-        gather_subset: [all]
-        gather_network_resources: [all]
+# -------------------------------------------------------------------------
+# Task 2: Gather hardware facts only
+# Description:
+#   - Selectively gather hardware-related facts
+#   - Returns chassis, modules, fans, power supplies, memory info
+# -------------------------------------------------------------------------
+# - name: "Task 2: Gather hardware facts only"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect hardware inventory
+  extreme.fe.extreme_fe_facts:
+    gather_subset:
+      - hardware
+  register: fe_hw
+
+# -------------------------------------------------------------------------
+# Task 3: Gather configuration and network resources
+# Description:
+#   - Combine gather_subset with gather_network_resources
+#   - Useful for auditing or backup purposes
+# -------------------------------------------------------------------------
+# - name: "Task 3: Gather configuration facts and VLAN/L3 resources"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect config and resource data
+  extreme.fe.extreme_fe_facts:
+    gather_subset:
+      - config
+      - neighbors
+    gather_network_resources:
+      - vlans
+      - l3_interfaces
+  register: device_data
+
+# -------------------------------------------------------------------------
+# Task 4: Gather all facts and resources
+# Description:
+#   - Collect complete set of available facts using 'all' keyword
+#   - Comprehensive view but may take longer to execute
+# -------------------------------------------------------------------------
+# - name: "Task 4: Gather all facts and resources"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect full set of facts
+  extreme.fe.extreme_fe_facts:
+    gather_subset: [all]
+    gather_network_resources: [all]
+  register: full_facts
 """
 
 RETURN = r"""
@@ -103,7 +136,7 @@ ansible_facts:
   returned: always
   type: dict
   contains:
-    extreme_fe_facts:
+    extreme.fe.extreme_fe_facts:
       description: Fact data grouped by subset name.
       type: dict
     extreme_fe_facts_network_resources:

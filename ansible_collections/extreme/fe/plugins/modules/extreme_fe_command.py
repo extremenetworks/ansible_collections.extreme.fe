@@ -45,27 +45,52 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Execute a set of CLI commands on Fabric Engine with strict stop-on-failure
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Run CLI commands
-      extreme_fe_command:
-        commands:
-          - enable
-          - configure terminal
-          - show vlan basic
+# Task-level examples for ansible-doc:
 
-- name: Allow the switch to continue executing CLI commands after failures
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Execute CLI sequence with continue on failure
-      extreme_fe_command:
-        commands:
-          - enable
-          - enable super-user-mode
-        continue_on_failure: true
+# =========================================================================
+# Full playbook examples:
+# See examples/extreme_fe_command_examples.yml for complete playbooks
+# =========================================================================
+
+# -------------------------------------------------------------------------
+# Task 1: Execute CLI commands with strict error handling
+# Description:
+#   - This example demonstrates how to execute a sequence of CLI commands
+#     on a Fabric Engine switch. By default, execution stops immediately
+#     if any command fails, ensuring that configuration errors are caught
+#     early and the switch state remains predictable.
+# -------------------------------------------------------------------------
+# - name: "Task 1: Execute CLI commands with strict stop-on-failure"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Run CLI commands
+  extreme.fe.extreme_fe_command:
+    commands:
+      - enable
+      - configure terminal
+      - show vlan basic
+  register: cli_result
+
+# -------------------------------------------------------------------------
+# Task 2: Execute CLI commands with continue on failure
+# Description:
+#   - This example shows how to use the 'continue_on_failure' option to
+#     execute multiple CLI commands even if some fail. This is useful when
+#     running commands that may not apply to all switches (e.g., enabling
+#     super-user mode which may already be active or not available).
+# -------------------------------------------------------------------------
+# - name: "Task 2: Execute CLI commands with continue on failure"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Execute CLI sequence with continue on failure
+  extreme.fe.extreme_fe_command:
+    commands:
+      - enable
+      - enable super-user-mode
+      - show vlan basic
+    continue_on_failure: true
 """
 
 RETURN = r"""
@@ -83,8 +108,9 @@ responses:
       description: CLI command that was issued.
       type: str
     output:
-      description: Raw CLI output produced by the device.
-      type: str
+      description: CLI output as a list of lines for better readability.
+      type: list
+      elements: str
     status_code:
       description: HTTP-style status code reported for the CLI command.
       type: int
@@ -136,6 +162,16 @@ def _validated_commands(commands: List[str]) -> List[str]:
     return normalized
 
 
+def _output_to_lines(output: Optional[str]) -> List[str]:
+    """Convert raw CLI output string to a list of lines for better readability."""
+    if output is None:
+        return []
+    text = to_text(output, errors="surrogate_then_replace")
+    # Split on newlines, strip trailing carriage returns from each line
+    lines = [line.rstrip('\r') for line in text.split('\n')]
+    return lines
+
+
 def _build_cli_path(continue_on_failure: bool) -> str:
     if continue_on_failure:
         return f"{CLI_ENDPOINT}?continue_on_failure=true"
@@ -171,10 +207,11 @@ def _normalize_response(
         command = to_text(entry.get("cliInput") or commands[idx], errors="surrogate_then_replace")
         status = entry.get("statusCode")
         output = entry.get("cliOutput")
+        output_lines = _output_to_lines(output)
         normalized_entry: Dict[str, object] = {
             "command": command,
             "status_code": status,
-            "output": to_text(output, errors="surrogate_then_replace") if output is not None else "",
+            "output": output_lines,
         }
         normalized.append(normalized_entry)
         if status != 200:
@@ -182,7 +219,7 @@ def _normalize_response(
                 "index": idx,
                 "command": command,
                 "status_code": status,
-                "output": normalized_entry["output"],
+                "output": output_lines,
             })
 
     metadata = response.get("metadata") if isinstance(response.get("metadata"), dict) else None
@@ -228,7 +265,7 @@ def main() -> None:
     continue_on_failure: bool = bool(module.params.get("continue_on_failure"))
 
     if module.check_mode:
-        module.exit_json(changed=True, responses=[{"command": cmd, "status_code": None, "output": ""} for cmd in commands])
+        module.exit_json(changed=True, responses=[{"command": cmd, "status_code": None, "output": []} for cmd in commands])
 
     connection = Connection(module._socket_path)
     try:

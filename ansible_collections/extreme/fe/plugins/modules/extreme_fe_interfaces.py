@@ -148,75 +148,110 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Disable ports 1:5 through 1:10 using merged state
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Disable selected ports
-            local.extreme_fe.extreme_fe_interfaces:
-                state: merged
-                admin:
-                    - name: "1:5"
-                        enabled: false
-                    - name: "1:6"
-                        enabled: false
-                    - name: "1:7"
-                        enabled: false
-                    - name: "1:8"
-                        enabled: false
-                    - name: "1:9"
-                        enabled: false
-                    - name: "1:10"
-                        enabled: false
+# Task-level examples for ansible-doc:
 
-- name: Replace configuration for ports 1:5 and 1:6
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Tune interface attributes
-            local.extreme_fe.extreme_fe_interfaces:
-                state: replaced
-                ports:
-                    - name: "1:5"
-                        description: Server uplink
-                        auto_negotiation: false
-                        speed: 10G
-                        duplex: FULL_DUPLEX
-                        flow_control: DISABLE
-                        ip_arp_inspection_trusted: true
-                        port_mode: true
-                        native_vlan: 200
-                    - name: "1:6"
-                        description: Backup uplink
-                        auto_negotiation: true
-                        flow_control: ENABLE
+# =========================================================================
+# Full playbook examples with prerequisites:
+# See examples/extreme_fe_interfaces_examples.yml for complete playbooks
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## Disable link-debounce on target ports (required before disabling ports)
+# # interface gigabitEthernet 1/5-1/10
+# #   no link-debounce
+# # exit
+#
+# ## Disable Auto-Sense on target ports (required before manual configuration)
+# # auto-sense
+# #   no enable port 1/5,1/6,1/7,1/8,1/9,1/10
+# # exit
+#
+# ## Enable flow-control-mode boot flag (if using flow_control option)
+# # boot config flags flow-control-mode
+#
+# ## Verify Configuration
+# # show auto-sense status
+# # show interfaces gigabitEthernet config 1/5-1/10
 
-- name: Remove interface overrides for ports 1:5 and 1:6
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Clear configuration
-            local.extreme_fe.extreme_fe_interfaces:
-                state: deleted
-                ports:
-                    - name: "1:5"
-                    - name: "1:6"
+# -------------------------------------------------------------------------
+# Task 1: Disable multiple ports using merged state
+# Description:
+#   - Administratively disable a range of ports
+#   - 'merged' state is non-destructive (only modifies specified attributes)
+# Prerequisites:
+#   - Link debounce must be disabled on target ports
+# -------------------------------------------------------------------------
+# - name: "Task 1: Disable ports 1:5 through 1:10 using merged state"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Disable selected ports
+  extreme.fe.extreme_fe_interfaces:
+    state: merged
+    admin:
+      - name: "1:5"
+        enabled: false
+      - name: "1:6"
+        enabled: false
+      - name: "1:7"
+        enabled: false
+      - name: "1:8"
+        enabled: false
+      - name: "1:9"
+        enabled: false
+      - name: "1:10"
+        enabled: false
 
-- name: Gather interface state details for ports 1:1 and 1:2
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Read interface state
-            local.extreme_fe.extreme_fe_interfaces:
-                state: gathered
-                gather_filter:
-                    - "1:1"
-                    - "1:2"
-            register: interface_state
+# -------------------------------------------------------------------------
+# Task 2: Replace interface configuration
+# Description:
+#   - Enforce specific interface settings using 'replaced' state
+#   - All attributes set exactly as defined
+# Prerequisites:
+#   - Port must be a member of native_vlan (if specified)
+#   - flow-control-mode boot flag enabled (if using flow_control)
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace configuration for ports 1:5 and 1:6"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Tune interface attributes
+  extreme.fe.extreme_fe_interfaces:
+    state: replaced
+    ports:
+      - name: "1:5"
+        description: Server uplink
+        auto_negotiation: false
+        speed: 100M
+        duplex: FULL_DUPLEX
+        flow_control: DISABLE
+        ip_arp_inspection_trusted: true
+        port_mode: true
+        native_vlan: 200
+      - name: "1:6"
+        description: Backup uplink
+        auto_negotiation: true
+        flow_control: ENABLE
 
-        - name: Show interface state results
-            ansible.builtin.debug:
-                var: interface_state.ports_state
+# -------------------------------------------------------------------------
+# Task 3: Delete interface configuration overrides
+# Description:
+#   - Remove custom interface configurations using 'deleted' state
+#   - Resets ports to default settings
+# Prerequisites:
+#   - Target ports must not be Auto-Sense enabled
+# -------------------------------------------------------------------------
+# - name: "Task 3: Remove interface overrides for ports 1:5 and 1:6"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Clear configuration
+  extreme.fe.extreme_fe_interfaces:
+    state: deleted
+    ports:
+      - name: "1:5"
+      - name: "1:6"
 """
 
 RETURN = r"""
@@ -552,10 +587,13 @@ def _normalize_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]
         if param not in entry:
             continue
         value = entry.get(param)
-        if value is None and state == STATE_MERGED:
+        # Skip None values - API does not accept None for any typed field
+        if value is None:
             continue
-        if rest_key == "autoAdvertisementsList" and isinstance(value, list):
-            payload[rest_key] = list(value)
+        if rest_key == "autoAdvertisementsList":
+            # API expects an array - ensure we send a list copy
+            if isinstance(value, list):
+                payload[rest_key] = list(value)
         else:
             payload[rest_key] = value
     return payload
@@ -623,6 +661,18 @@ def delete_port_settings(
     if not ports:
         return False, []
 
+    # Default values to reset port configuration (from OpenAPI schema)
+    default_payload = {
+        "enabled": True,
+        "autoNegotiationEnabled": True,
+        "autoAdvertisementsList": ["NONE"],
+        "debounceTimer": 0,
+        "channelized": False,
+        "eee": False,
+        "portMode": False,
+        "flexUni": False,
+    }
+
     changed = False
     removed_ports: List[str] = []
     for entry in ports:
@@ -639,7 +689,9 @@ def delete_port_settings(
             continue
 
         try:
-            response = connection.send_request(None, path=f"/v0/configuration/ports/{port_name}", method="DELETE")
+            # Use PUT with default values to reset port configuration
+            # DELETE method is not supported by the API for ports
+            response = connection.send_request(default_payload, path=f"/v0/configuration/ports/{port_name}", method="PUT")
         except ConnectionError as exc:
             if getattr(exc, "code", None) == 404:
                 if existing_settings is not None:
@@ -651,7 +703,7 @@ def delete_port_settings(
 
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeInterfacesError(
-                f"Failed to remove configuration for interface {port_name}",
+                f"Failed to reset configuration for interface {port_name}",
                 details=response,
             )
 

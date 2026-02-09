@@ -69,60 +69,116 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Merge ISID 500 bound to CVLAN 500
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Provision ISID 500
-      local.extreme_fe.extreme_fe_fabric_l2:
-        isid: 500
-        cvlan: 500
-        name: Campus-500
-        state: merged
+# Task-level examples for ansible-doc:
 
-- name: Replace ISID 600 definition
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Ensure ISID 600 matches the reference configuration
-      local.extreme_fe.extreme_fe_fabric_l2:
-        isid: 600
-        cvlan: 600
-        name: Campus-Core-600
-        state: replaced
+# =========================================================================
+# Full playbook examples with prerequisites:
+# See examples/extreme_fe_fabric_l2_examples.yml for complete playbooks
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## Create VLANs for ISID bindings (if not already existing)
+# # vlan create 500 type port-mstprstp 0
+# # vlan create 600 type port-mstprstp 0
+# # vlan create 700 type port-mstprstp 0
+#
+# ## For Tasks 2-4 (replace/override/delete), create ISIDs first
+# # vlan i-sid 500 500
+# # vlan i-sid 600 600
+# # vlan i-sid 700 700
+#
+# ## Verify Configuration
+# # show vlan i-sid
 
-- name: Clear the friendly name while keeping the CVLAN binding
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Remove ISID name
-      local.extreme_fe.extreme_fe_fabric_l2:
-        isid: 500
-        cvlan: 500
-        state: overridden
+# -------------------------------------------------------------------------
+# Task 1: Provision ISID 500
+# Description:
+#   - Create or update an ISID entry with a specific CVLAN and name
+#   - 'merged' state is non-destructive (adds/modifies without removing)
+# Prerequisites:
+#   - VLAN 500 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge ISID 500 bound to CVLAN 500"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Provision ISID 500
+  extreme.fe.extreme_fe_fabric_l2:
+    isid: 500
+    cvlan: 500
+    name: Campus-500
+    state: merged
 
-- name: Remove ISID 700
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Delete ISID 700
-      local.extreme_fe.extreme_fe_fabric_l2:
-        isid: 700
-        cvlan: 700
-        state: deleted
+# -------------------------------------------------------------------------
+# Task 2: Replace ISID 600 configuration
+# Description:
+#   - Enforce specific ISID configuration using 'replaced' state
+#   - Ensures ISID matches exactly what is defined
+# Prerequisites:
+#   - VLAN 600 must exist
+#   - ISID 600 should already exist
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace ISID 600 definition"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Ensure ISID 600 matches the reference configuration
+  extreme.fe.extreme_fe_fabric_l2:
+    isid: 600
+    cvlan: 600
+    name: Campus-Core-600
+    state: replaced
 
-- name: Gather the configured ISIDs
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Collect ISID information
-      local.extreme_fe.extreme_fe_fabric_l2:
-        state: gathered
-      register: result
+# -------------------------------------------------------------------------
+# Task 3: Override ISID 500 to remove the name
+# Description:
+#   - 'overridden' state replaces entire ISID configuration
+#   - No 'name' parameter clears existing friendly name
+# Prerequisites:
+#   - ISID 500 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 3: Clear the friendly name while keeping the CVLAN binding"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Remove ISID name
+  extreme.fe.extreme_fe_fabric_l2:
+    isid: 500
+    cvlan: 500
+    state: overridden
 
-    - name: Display gathered data
-      ansible.builtin.debug:
-        var: result.gathered
+# -------------------------------------------------------------------------
+# Task 4: Delete ISID 700
+# Description:
+#   - Remove an ISID configuration using 'deleted' state
+#   - Unbinds CVLAN from ISID (VLAN is NOT deleted)
+# Prerequisites:
+#   - ISID 700 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 4: Remove ISID 700"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Delete ISID 700
+  extreme.fe.extreme_fe_fabric_l2:
+    isid: 700
+    cvlan: 700
+    state: deleted
+
+# -------------------------------------------------------------------------
+# Task 5: Gather ISID information
+# Description:
+#   - Retrieve current ISID configuration (read-only operation)
+# -------------------------------------------------------------------------
+# - name: "Task 5: Gather the configured ISIDs"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect ISID information
+  extreme.fe.extreme_fe_fabric_l2:
+    state: gathered
+  register: isid_config
 """
 
 RETURN = r"""
