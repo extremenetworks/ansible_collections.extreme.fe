@@ -584,14 +584,17 @@ This playbook performs a complete firmware upgrade on FabricEngine switches with
 verification.
 
 **What it does:**
-1. Checks current firmware version
-2. Skips upgrade if already on target version
-3. Saves configuration (optional)
-4. Adds software from firmware file
-5. Activates the new software version
-6. Reboots the switch
-7. Waits for switch to come back online
-8. Verifies the upgrade succeeded
+1. Validates parameters
+2. Checks current firmware version
+3. Skips upgrade if already on target version
+4. Saves configuration (optional)
+5. Verifies firmware file exists on switch
+6. Adds software from firmware file
+7. Activates the new software version
+8. Reboots the switch
+9. Waits for switch to come back online
+10. Commits the software upgrade
+11. Verifies the upgrade succeeded
 
 **Parameters:**
 
@@ -654,6 +657,9 @@ TASK [Wait for services to start] ********************************************
 Pausing for 30 seconds
 ok: [fe_sw_1]
 
+TASK [Commit software upgrade] ***********************************************
+changed: [fe_sw_1]
+
 TASK [Verify upgrade succeeded] **********************************************
 ok: [fe_sw_1] => {
     "msg": "Upgrade verified: 9.3.2.0_B003"
@@ -681,6 +687,10 @@ ok: [fe_sw_1] => {
 
 **Note:** The firmware file must be uploaded to /intflash/ on the switch before running
 this playbook. Use SCP, SFTP, or the switch's file transfer commands to upload the file.
+
+**Check Mode:** When run with `--check`, the playbook validates parameters, checks the
+current firmware version, and reports whether an upgrade would be needed. All system-modifying
+tasks (file check, add, activate, reboot, commit, verify) are skipped.
 
 ## Troubleshooting
 

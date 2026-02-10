@@ -4,14 +4,17 @@
 # =============================================================================
 #
 # What this does:
-#   1. Checks current firmware version
-#   2. Skips upgrade if already on target version
-#   3. Saves configuration (optional)
-#   4. Adds software from firmware file
-#   5. Activates the new software version
-#   6. Reboots the switch
-#   7. Waits for switch to come back online
-#   8. Verifies the upgrade succeeded
+#   1. Validates parameters
+#   2. Checks current firmware version
+#   3. Skips upgrade if already on target version
+#   4. Saves configuration (optional)
+#   5. Verifies firmware file exists on switch
+#   6. Adds software from firmware file
+#   7. Activates the new software version
+#   8. Reboots the switch
+#   9. Waits for switch to come back online
+#   10. Commits the software upgrade
+#   11. Verifies the upgrade succeeded
 #
 # PARAMETERS:
 #   software_file    - Name of the firmware file on /intflash/ (required)
