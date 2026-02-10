@@ -57,6 +57,16 @@
         - software_file
         - software_version
 
+    - name: "Validate software_file format"
+      ansible.builtin.fail:
+        msg: "Invalid software_file format: '{{ software_file }}' - expected only alphanumeric, dots, underscores, and dashes"
+      when: software_file | regex_search('^[a-zA-Z0-9._-]+$') is none
+
+    - name: "Validate software_version format"
+      ansible.builtin.fail:
+        msg: "Invalid software_version format: '{{ software_version }}' - expected only alphanumeric, dots, underscores, and dashes"
+      when: software_version | regex_search('^[a-zA-Z0-9._-]+$') is none
+
     - name: "Show upgrade parameters"
       ansible.builtin.debug:
         msg: "File: {{ software_file }} → version {{ software_version }}"
@@ -72,8 +82,25 @@
 
     - name: "Extract current version"
       ansible.builtin.set_fact:
-        current_version: "{{ fe_facts.ansible_facts.extreme_fe_facts.default.system.cards[0].firmwareVersion }}"
-        upgrade_needed: "{{ fe_facts.ansible_facts.extreme_fe_facts.default.system.cards[0].firmwareVersion != software_version }}"
+        current_version: >-
+          {{
+            (
+              fe_facts.ansible_facts.extreme_fe_facts.default.system.cards
+              | default([])
+              | first
+              | default({})
+            ).firmwareVersion
+            | default(None)
+          }}
+
+    - name: "Fail if version not detected"
+      ansible.builtin.fail:
+        msg: "Could not detect current firmware version - check that cards data is available in facts"
+      when: current_version is none
+
+    - name: "Determine if upgrade is needed"
+      ansible.builtin.set_fact:
+        upgrade_needed: "{{ current_version != software_version }}"
 
     - name: "Show current version"
       ansible.builtin.debug:
@@ -103,12 +130,17 @@
 
     - name: "Extract version from add output"
       ansible.builtin.set_fact:
-        extracted_version: "{{ add_result.responses[0].output | regex_search('Extraction of ([^\\s]+) to', '\\1') | first }}"
+        add_output: "{{ add_result.responses[0].output | default('') if (add_result.responses | default([]) | length > 0) else '' }}"
+      when: upgrade_needed
+
+    - name: "Parse extracted version"
+      ansible.builtin.set_fact:
+        extracted_version: "{{ (add_output | regex_search('Extraction of (\\S+) to', '\\1')) | default([]) | first | default('') }}"
       when: upgrade_needed
 
     - name: "Verify software add succeeded"
       ansible.builtin.fail:
-        msg: "Failed to add software: {{ add_result.responses[0].output | default('No output') }}"
+        msg: "Failed to add software: {{ add_output | default('No output') }}"
       when: upgrade_needed and (extracted_version is not defined or extracted_version | length == 0)
 
     # -------------------------------------------------------------------------
@@ -124,10 +156,15 @@
         ansible_command_timeout: "{{ command_timeout }}"
       when: upgrade_needed
 
+    - name: "Extract activation output"
+      ansible.builtin.set_fact:
+        activate_output: "{{ activate_result.responses[0].output | default('') if (activate_result.responses | default([]) | length > 0) else '' }}"
+      when: upgrade_needed
+
     - name: "Verify activation succeeded"
       ansible.builtin.fail:
-        msg: "Failed to activate software: {{ activate_result.responses[0].output | default('No output') }}"
-      when: upgrade_needed and 'error' in (activate_result.responses[0].output | default('') | lower)
+        msg: "Failed to activate software: {{ activate_output | default('No output') }}"
+      when: upgrade_needed and (activate_output | regex_search('(?m)^(?:Error:|ERROR:|% Error)') | default('') | length > 0)
 
     # -------------------------------------------------------------------------
     # Step 6: Reboot switch
@@ -137,8 +174,8 @@
         commands:
           - "reset -y"
         continue_on_failure: true
-      async: 10
-      poll: 0
+      async: 3
+      poll: 04
       ignore_errors: true
       when: upgrade_needed
 
@@ -171,8 +208,22 @@
 
     - name: "Extract new version"
       ansible.builtin.set_fact:
-        new_version: "{{ fe_facts_new.ansible_facts.extreme_fe_facts.default.system.cards[0].firmwareVersion }}"
+        new_version: >-
+          {{
+            (
+              fe_facts_new.ansible_facts.extreme_fe_facts.default.system.cards
+              | default([])
+              | first
+              | default({})
+            ).firmwareVersion
+            | default(None)
+          }}
       when: upgrade_needed
+
+    - name: "Fail if new version not detected"
+      ansible.builtin.fail:
+        msg: "Could not detect new firmware version after reboot - check that cards data is available in facts"
+      when: upgrade_needed and new_version is none
 
     - name: "Verify upgrade succeeded"
       ansible.builtin.assert:
