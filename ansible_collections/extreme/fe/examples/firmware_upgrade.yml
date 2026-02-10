@@ -57,7 +57,7 @@
 
   tasks:
     # -------------------------------------------------------------------------
-    # Step 1: Validate parameters
+    # Steps 1-3: Validate parameters and check version
     # -------------------------------------------------------------------------
     - name: "Validate required parameters"
       ansible.builtin.fail:
@@ -82,7 +82,7 @@
         msg: "File: {{ software_file }} → version {{ software_version }}"
 
     # -------------------------------------------------------------------------
-    # Step 2: Check current firmware version
+    # Step 2-3: Check current firmware version
     # -------------------------------------------------------------------------
     - name: "Get current firmware version"
       extreme.fe.extreme_fe_facts:
@@ -117,7 +117,7 @@
         msg: "Current: {{ current_version }} | Target: {{ software_version }} | Upgrade needed: {{ upgrade_needed }}"
 
     # -------------------------------------------------------------------------
-    # Step 3: Save configuration (if enabled)
+    # Step 4: Save configuration (if enabled)
     # -------------------------------------------------------------------------
     - name: "Save configuration"
       extreme.fe.extreme_fe_save_config:
@@ -126,7 +126,7 @@
       when: upgrade_needed and save_config | bool
 
     # -------------------------------------------------------------------------
-    # Step 4: Add software
+    # Steps 5-6: Check firmware file and add software
     # -------------------------------------------------------------------------
     - name: "Check if firmware file exists on switch"
       extreme.fe.extreme_fe_command:
@@ -162,6 +162,7 @@
         add_output: "{{ add_result.responses[0].output | default('') if (add_result.responses | default([]) | length > 0) else '' }}"
       when: upgrade_needed and not ansible_check_mode
 
+    # Note: regex_search with capture groups returns a list, so | first is needed to extract the string
     - name: "Parse extracted version"
       ansible.builtin.set_fact:
         extracted_version: "{{ (add_output | regex_search('Extraction of (\\S+) to', '\\1')) | default([]) | first | default('') }}"
@@ -173,7 +174,7 @@
       when: upgrade_needed and not ansible_check_mode and (extracted_version is not defined or extracted_version | length == 0)
 
     # -------------------------------------------------------------------------
-    # Step 5: Activate software
+    # Step 7: Activate software
     # -------------------------------------------------------------------------
     - name: "Activate software {{ extracted_version }}"
       extreme.fe.extreme_fe_command:
@@ -196,7 +197,7 @@
       when: upgrade_needed and not ansible_check_mode and (activate_output | regex_search('(?m)^(?:Error:|ERROR:|% Error)') is not none)
 
     # -------------------------------------------------------------------------
-    # Step 6: Reboot switch
+    # Steps 8-9: Reboot switch and wait for recovery
     # -------------------------------------------------------------------------
     - name: "Reboot switch"
       extreme.fe.extreme_fe_command:
@@ -210,7 +211,7 @@
 
     - name: "Wait for switch to reboot"
       ansible.builtin.wait_for:
-        host: "{{ ansible_host }}"
+        host: "{{ ansible_host | default(inventory_hostname) }}"
         port: "{{ ansible_httpapi_port | default(9443) }}"
         delay: 60
         timeout: "{{ reboot_timeout }}"
@@ -223,7 +224,7 @@
       when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------
-    # Step 7: Software commit
+    # Step 10: Software commit
     # -------------------------------------------------------------------------
     - name: "Commit software upgrade"
       extreme.fe.extreme_fe_command:
@@ -241,7 +242,7 @@
       when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------
-    # Step 8: Verify upgrade
+    # Step 11: Verify upgrade
     # -------------------------------------------------------------------------
     - name: "Get new firmware version"
       extreme.fe.extreme_fe_facts:
@@ -281,7 +282,7 @@
       when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------
-    # Step 9: Summary
+    # Summary
     # -------------------------------------------------------------------------
     - name: "Summary"
       ansible.builtin.debug:
