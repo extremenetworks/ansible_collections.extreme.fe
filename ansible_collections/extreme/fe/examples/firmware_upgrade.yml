@@ -34,6 +34,13 @@
 #
 # NOTE: The firmware file must be uploaded to /intflash/ before running.
 #
+# CHECK MODE:
+#   When run with --check, this playbook will:
+#   - Validate parameters
+#   - Check current firmware version
+#   - Report if upgrade would be needed
+#   - Skip all system-modifying tasks (add, activate, reboot, commit, verify)
+#
 # =============================================================================
 
 - name: Firmware Upgrade
@@ -118,6 +125,25 @@
     # -------------------------------------------------------------------------
     # Step 4: Add software
     # -------------------------------------------------------------------------
+    - name: "Check if firmware file exists on switch"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - "ls /intflash/{{ software_file }}"
+        continue_on_failure: true
+      register: file_check_result
+      when: upgrade_needed and not ansible_check_mode
+
+    - name: "Verify firmware file exists"
+      ansible.builtin.fail:
+        msg: |
+          Firmware file '/intflash/{{ software_file }}' not found on switch.
+          Please upload the file to /intflash/ before running this playbook.
+          You can use SCP/SFTP or the switch CLI to upload the file.
+      when: >
+        upgrade_needed and not ansible_check_mode and
+        (file_check_result.responses | default([]) | length == 0 or
+         file_check_result.responses[0].output | default('') | regex_search('No such file|not found', ignorecase=True) is not none)
+
     - name: "Add software {{ software_file }}"
       extreme.fe.extreme_fe_command:
         commands:
@@ -126,22 +152,22 @@
       register: add_result
       vars:
         ansible_command_timeout: "{{ command_timeout }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Extract version from add output"
       ansible.builtin.set_fact:
         add_output: "{{ add_result.responses[0].output | default('') if (add_result.responses | default([]) | length > 0) else '' }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Parse extracted version"
       ansible.builtin.set_fact:
         extracted_version: "{{ (add_output | regex_search('Extraction of (\\S+) to', '\\1')) | default([]) | first | default('') }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Verify software add succeeded"
       ansible.builtin.fail:
         msg: "Failed to add software: {{ add_output | default('No output') }}"
-      when: upgrade_needed and (extracted_version is not defined or extracted_version | length == 0)
+      when: upgrade_needed and not ansible_check_mode and (extracted_version is not defined or extracted_version | length == 0)
 
     # -------------------------------------------------------------------------
     # Step 5: Activate software
@@ -154,17 +180,17 @@
       register: activate_result
       vars:
         ansible_command_timeout: "{{ command_timeout }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Extract activation output"
       ansible.builtin.set_fact:
         activate_output: "{{ activate_result.responses[0].output | default('') if (activate_result.responses | default([]) | length > 0) else '' }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Verify activation succeeded"
       ansible.builtin.fail:
         msg: "Failed to activate software: {{ activate_output | default('No output') }}"
-      when: upgrade_needed and (activate_output | regex_search('(?m)^(?:Error:|ERROR:|% Error)') | default('') | length > 0)
+      when: upgrade_needed and not ansible_check_mode and (activate_output | regex_search('(?m)^(?:Error:|ERROR:|% Error)') is not none)
 
     # -------------------------------------------------------------------------
     # Step 6: Reboot switch
@@ -174,10 +200,10 @@
         commands:
           - "reset -y"
         continue_on_failure: true
-      async: 3
-      poll: 04
+      async: 15
+      poll: 0
       ignore_errors: true
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Wait for switch to reboot"
       ansible.builtin.wait_for:
@@ -186,15 +212,33 @@
         delay: 60
         timeout: "{{ reboot_timeout }}"
         state: started
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Wait for services to start"
       ansible.builtin.pause:
         seconds: 30
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------
-    # Step 7: Verify upgrade
+    # Step 7: Software commit
+    # -------------------------------------------------------------------------
+    - name: "Commit software upgrade"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - "enable"
+          - "configure terminal"
+          - "software commit"
+        continue_on_failure: true
+      register: commit_result
+      when: upgrade_needed and not ansible_check_mode
+
+    - name: "Verify software commit succeeded"
+      ansible.builtin.debug:
+        msg: "Software commit output: {{ commit_result.responses | default([]) | map(attribute='output') | list | join(' | ') }}"
+      when: upgrade_needed and not ansible_check_mode
+
+    # -------------------------------------------------------------------------
+    # Step 8: Verify upgrade
     # -------------------------------------------------------------------------
     - name: "Get new firmware version"
       extreme.fe.extreme_fe_facts:
@@ -204,7 +248,7 @@
       retries: 3
       delay: 10
       until: fe_facts_new is succeeded
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Extract new version"
       ansible.builtin.set_fact:
@@ -218,12 +262,12 @@
             ).firmwareVersion
             | default(None)
           }}
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     - name: "Fail if new version not detected"
       ansible.builtin.fail:
         msg: "Could not detect new firmware version after reboot - check that cards data is available in facts"
-      when: upgrade_needed and new_version is none
+      when: upgrade_needed and not ansible_check_mode and new_version is none
 
     - name: "Verify upgrade succeeded"
       ansible.builtin.assert:
@@ -231,15 +275,20 @@
           - new_version == software_version
         fail_msg: "Upgrade FAILED! Expected {{ software_version }}, got {{ new_version }}"
         success_msg: "Upgrade verified: {{ new_version }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------
-    # Step 8: Summary
+    # Step 9: Summary
     # -------------------------------------------------------------------------
     - name: "Summary"
       ansible.builtin.debug:
         msg: "Upgraded {{ current_version }} → {{ new_version }}"
-      when: upgrade_needed
+      when: upgrade_needed and not ansible_check_mode
+
+    - name: "Summary (check mode)"
+      ansible.builtin.debug:
+        msg: "Check mode: Would upgrade {{ current_version }} → {{ software_version }}"
+      when: upgrade_needed and ansible_check_mode
 
     - name: "Summary (no upgrade needed)"
       ansible.builtin.debug:
