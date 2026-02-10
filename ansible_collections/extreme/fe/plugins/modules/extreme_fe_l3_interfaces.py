@@ -80,7 +80,8 @@ EXAMPLES = r"""
 
 # =========================================================================
 # Full playbook examples with prerequisites:
-# See examples/extreme_fe_l3_interfaces_examples.yml for complete playbooks
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
 # =========================================================================
 #
 # Prerequisites:
@@ -519,7 +520,7 @@ def get_loopback_info(loopbacks: Sequence[Dict[str, object]], loopback_id: int) 
 
 def put_loopback_addresses(connection: Connection, loopback_id: int, addresses: Set[str]) -> None:
     # Per the OpenAPI spec: "An empty request means that IP address configuration
-    # will be deleted for that loopback interface/VLAN."
+    # will be deleted for that loopback interface."
     # When the address set is empty, send {} instead of {"ipAddressList": []}
     # to properly delete the loopback interface.
     if not addresses:

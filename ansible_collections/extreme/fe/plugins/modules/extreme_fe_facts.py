@@ -55,7 +55,8 @@ EXAMPLES = r"""
 
 # =========================================================================
 # Full playbook examples:
-# See examples/extreme_fe_facts_examples.yml for complete playbooks
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
 # Note: This is a READ-ONLY module - no prerequisites required
 # =========================================================================
 
@@ -136,7 +137,7 @@ ansible_facts:
   returned: always
   type: dict
   contains:
-    extreme.fe.extreme_fe_facts:
+    extreme_fe_facts:
       description: Fact data grouped by subset name.
       type: dict
     extreme_fe_facts_network_resources:

@@ -73,7 +73,8 @@ EXAMPLES = r"""
 
 # =========================================================================
 # Full playbook examples with prerequisites:
-# See examples/extreme_fe_fabric_l2_examples.yml for complete playbooks
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
 # =========================================================================
 #
 # Prerequisites:

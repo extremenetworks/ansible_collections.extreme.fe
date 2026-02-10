@@ -49,7 +49,8 @@ EXAMPLES = r"""
 
 # =========================================================================
 # Full playbook examples:
-# See examples/extreme_fe_command_examples.yml for complete playbooks
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
 # =========================================================================
 
 # -------------------------------------------------------------------------

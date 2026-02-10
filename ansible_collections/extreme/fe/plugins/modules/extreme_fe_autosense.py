@@ -261,7 +261,8 @@ EXAMPLES = r"""
 
 # =========================================================================
 # Full playbook examples with prerequisites:
-# See examples/extreme_fe_autosense_examples.yml for complete playbooks
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
 # =========================================================================
 #
 # Prerequisites:
@@ -352,6 +353,7 @@ EXAMPLES = r"""
 - name: Collect auto-sense information for ports 1:1 and 1:2
   extreme.fe.extreme_fe_autosense:
     state: gathered
+    gather_state: true
     gather_filter:
       - "1:1"
       - "1:2"
