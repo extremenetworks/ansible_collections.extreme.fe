@@ -257,60 +257,107 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Merge auto-sense overrides for a single port
-    hosts: fe_dt_1_hosts
-    gather_facts: false
-    tasks:
-        - name: Enable auto-sense on access port 1:10 with a shorter wait interval
-            local.extreme_fe.extreme_fe_autosense:
-                state: merged
-                ports:
-                    - name: "1:10"
-                        enable: true
-                        wait_interval: 25
+# Task-level examples for ansible-doc:
 
-- name: Replace global Fabric Attach defaults
-    hosts: fe_dt_1_hosts
-    gather_facts: false
-    tasks:
-        - name: Enforce Fabric Attach credentials and LLDP preferences
-            local.extreme_fe.extreme_fe_autosense:
-                state: replaced
-                global_settings:
-                    fabric_attach:
-                        auth_key:
-                            is_encrypted: false
-                            value: "my-secret-key"
-                        msg_auth_enabled: true
-                    voice:
-                        dot1x_lldp_auth_enabled: true
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## Auto-sense is enabled by default on Fabric Engine switches
+# ## Verify Auto-sense status
+# # show auto-sense
+# # show interfaces gigabitEthernet auto-sense
+#
+# -------------------------------------------------------------------------
+# Task 1: Merge auto-sense port configuration
+# Description:
+#   - This example demonstrates how to enable and configure auto-sense on
+#     a specific port using the 'merged' state. The 'merged' state allows
+#     non-destructive updates, adding or modifying settings without removing
+#     existing configurations on other ports.
+# Prerequisites:
+#   - Target port must exist
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge auto-sense overrides for a single port"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enable auto-sense on port 1:15 with a shorter wait interval
+  extreme.fe.extreme_fe_autosense:
+    state: merged
+    ports:
+      - name: "1:15"
+        enable: true
+        wait_interval: 15
 
-- name: Remove auto-sense overrides from a set of ports
-    hosts: fe_dt_1_hosts
-    gather_facts: false
-    tasks:
-        - name: Reset custom overrides and disable auto-sense
-            local.extreme_fe.extreme_fe_autosense:
-                state: deleted
-                ports:
-                    - name: "1:5"
-                    - name: "1:6"
+# -------------------------------------------------------------------------
+# Task 2: Replace global Fabric Attach settings
+# Description:
+#   - This example shows how to enforce specific global Fabric Attach and
+#     voice settings using the 'replaced' state. Unlike 'merged', the
+#     'replaced' state ensures the configuration matches exactly what is
+#     defined, potentially removing settings not specified in the task.
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace global Fabric Attach defaults"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enforce Fabric Attach credentials and LLDP preferences
+  extreme.fe.extreme_fe_autosense:
+    state: replaced
+    global_settings:
+      fabric_attach:
+        auth_key:
+          is_encrypted: false
+          value: "my-secret-key"
+        msg_auth_enabled: true
+      voice:
+        dot1x_lldp_auth_enabled: true
 
-- name: Gather configuration and live auto-sense state
-    hosts: fe_dt_1_hosts
-    gather_facts: false
-    tasks:
-        - name: Collect auto-sense information for ports 1:1 and 1:2
-            local.extreme_fe.extreme_fe_autosense:
-                state: gathered
-                gather_filter:
-                    - "1:1"
-                    - "1:2"
-                gather_state: true
-            register: autosense_info
+# -------------------------------------------------------------------------
+# Task 3: Delete auto-sense port overrides
+# Description:
+#   - This example demonstrates how to remove auto-sense configurations from
+#     specific ports using the 'deleted' state. This resets the ports back
+#     to their default auto-sense behavior, clearing any custom overrides.
+# Prerequisites:
+#   - Target ports should have auto-sense configured
+# -------------------------------------------------------------------------
+# - name: "Task 3: Remove auto-sense overrides from a set of ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Reset custom overrides and disable auto-sense
+  extreme.fe.extreme_fe_autosense:
+    state: deleted
+    ports:
+      - name: "1:5"
+      - name: "1:6"
 
-        - ansible.builtin.debug:
-                var: autosense_info.ports_state
+# -------------------------------------------------------------------------
+# Task 4: Gather auto-sense configuration and state
+# Description:
+#   - This example demonstrates how to retrieve the current auto-sense
+#     configuration and live state from the switch using the 'gathered'
+#     state. This is a read-only operation useful for auditing port
+#     configurations or comparing settings across switches.
+# -------------------------------------------------------------------------
+# - name: "Task 4: Gather configuration and live auto-sense state"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect auto-sense information for ports 1:1 and 1:2
+  extreme.fe.extreme_fe_autosense:
+    state: gathered
+    gather_state: true
+    gather_filter:
+      - "1:1"
+      - "1:2"
+  register: autosense_info
 """
 
 RETURN = r"""
@@ -610,9 +657,55 @@ def _build_diff_from_module(
             current_value = current.get(rest_key)
             if not isinstance(current_value, dict):
                 current_value = {}
-            diff_value = _build_diff_from_module(desired_value, current_value, child_spec)
-            if diff_value:
-                payload[rest_key] = diff_value
+            # Special handling for authKey: API requires both isEncrypted and value
+            # We must send the complete object even if only one field changed
+            if rest_key == "authKey":
+                complete_authkey: Dict[str, Any] = {}
+                complete_authkey["isEncrypted"] = desired_value.get(
+                    "is_encrypted", current_value.get("isEncrypted", False)
+                )
+                complete_authkey["value"] = desired_value.get(
+                    "value", current_value.get("value", "")
+                )
+                # Check if anything actually changed
+                if (complete_authkey["isEncrypted"] != current_value.get("isEncrypted") or
+                        complete_authkey["value"] != current_value.get("value")):
+                    payload[rest_key] = complete_authkey
+            # Special handling for helloAuth: API requires key, keyId, and type together
+            # The nested key object also requires both isEncrypted and value
+            elif rest_key == "helloAuth":
+                complete_helloauth: Dict[str, Any] = {}
+                # Build the nested key object (requires isEncrypted and value together)
+                key_desired = desired_value.get("key", {})
+                key_current = current_value.get("key", {})
+                if key_desired or key_current:
+                    complete_key: Dict[str, Any] = {}
+                    complete_key["isEncrypted"] = key_desired.get(
+                        "is_encrypted", key_current.get("isEncrypted", False)
+                    )
+                    complete_key["value"] = key_desired.get(
+                        "value", key_current.get("value", "")
+                    )
+                    complete_helloauth["key"] = complete_key
+                # keyId field
+                complete_helloauth["keyId"] = desired_value.get(
+                    "key_id", current_value.get("keyId", 0)
+                )
+                # type field
+                complete_helloauth["type"] = desired_value.get(
+                    "type", current_value.get("type", "NONE")
+                )
+                # Check if anything actually changed
+                current_key = current_value.get("key", {})
+                if (complete_helloauth.get("key", {}).get("isEncrypted") != current_key.get("isEncrypted") or
+                        complete_helloauth.get("key", {}).get("value") != current_key.get("value") or
+                        complete_helloauth["keyId"] != current_value.get("keyId") or
+                        complete_helloauth["type"] != current_value.get("type")):
+                    payload[rest_key] = complete_helloauth
+            else:
+                diff_value = _build_diff_from_module(desired_value, current_value, child_spec)
+                if diff_value:
+                    payload[rest_key] = diff_value
         else:
             current_value = current.get(rest_key)
             if current_value != desired_value:
