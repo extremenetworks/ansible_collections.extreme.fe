@@ -74,59 +74,141 @@ author:
 """
 
 EXAMPLES = r"""
-- name: Merge PoE attributes on a single port
-  hosts: fe_dt_1_hosts
-  gather_facts: false
-  tasks:
-    - name: Ensure PoE enabled with a custom power limit
-      local.extreme_fe.extreme_fe_poe:
-        state: merged
-        config:
-          - port: "1:10"
-            enable: true
-            power_limit: 45000
-            priority: HIGH
+# Task-level examples for ansible-doc:
 
-- name: Replace PoE configuration on multiple ports
-  hosts: fe_dt_1_hosts
-  gather_facts: false
-  tasks:
-    - name: Enforce desired attributes on selected ports
-      local.extreme_fe.extreme_fe_poe:
-        state: replaced
-        config:
-          - port: "1:5"
-            enable: true
-            fast_poe: true
-          - port: "1:6"
-            enable: false
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## PoE power limits depend on the switch hardware and port classification:
+# ## Classification Types and Max Power:
+# #   - AF, AF_HIGH, PRE_AT: Max 15.4W (15400 mW)
+# #   - AT, PRE_BT (PoE+):   Max 30W (30000 mW)
+# #   - BT_TYPE3 (PoE++):    Max 60W (60000 mW)
+# #   - BT_TYPE4 (PoE++):    Max 90W (90000 mW)
+#
+# ## The power_limit value must be within the range supported by your hardware.
+# ## If you get "This PoE power limit is not available on this device", reduce
+# ## the power_limit to match your port's maximum capability.
+#
+# ## Range for VOSS: 3000-98000 mW (3W to 98W)
+#
+# ## Verify Configuration
+# # show poe-main-status
+# # show poe-port-status <port>
 
-- name: Override PoE configuration for all PoE-capable ports
-  hosts: fe_dt_1_hosts
-  gather_facts: false
-  tasks:
-    - name: Reset every PoE port to defaults except 1:10
-      local.extreme_fe.extreme_fe_poe:
-        state: overridden
-        config:
-          - port: "1:10"
-            enable: true
-            power_limit: 42000
+# -------------------------------------------------------------------------
+# Task 1: Merge PoE configuration on a port
+# Description:
+#   - Enable PoE on a port and set custom power limits
+#   - 'merged' state is non-destructive (adds/modifies without removing)
+# Note: power_limit is set to 30000 mW (30W) for PoE+ compatibility.
+#       Adjust based on your hardware capability.
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge PoE attributes on a single port"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Ensure PoE enabled with a custom power limit
+  extreme.fe.extreme_fe_poe:
+    state: merged
+    config:
+      - port: "1:10"
+        enable: true
+        power_limit: 30000
+        priority: HIGH
 
-- name: Gather PoE information for specific ports
-  hosts: fe_dt_1_hosts
-  gather_facts: false
-  tasks:
-    - name: Collect PoE runtime details
-      local.extreme_fe.extreme_fe_poe:
-        state: gathered
-        config:
-          - port: "1:5"
-          - port: "1:6"
-      register: poe_info
+# -------------------------------------------------------------------------
+# Task 2: Replace PoE configuration on multiple ports
+# Description:
+#   - Enforce specific PoE settings using 'replaced' state
+#   - All PoE attributes for specified ports will match exactly
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace PoE configuration on multiple ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enforce desired attributes on selected ports
+  extreme.fe.extreme_fe_poe:
+    state: replaced
+    config:
+      - port: "1:5"
+        enable: true
+        fast_poe: true
+      - port: "1:6"
+        enable: false
 
-    - ansible.builtin.debug:
-        var: poe_info.ports
+# -------------------------------------------------------------------------
+# Task 3: Override PoE configuration globally
+# Description:
+#   - 'overridden' state resets ALL PoE ports to defaults except those
+#     explicitly configured
+#
+# !! WARNING !!
+#   This will reset ALL PoE ports on the switch to their defaults!
+#   Only ports explicitly listed in config will retain custom settings.
+#   This may cause power interruption to connected PoE devices.
+#   Use with caution in production environments.
+#
+# Note: power_limit is set to 15400 mW (15.4W) for basic PoE compatibility.
+# -------------------------------------------------------------------------
+# - name: "Task 3: Override PoE configuration for all PoE-capable ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Reset every PoE port to defaults except 1:10
+  extreme.fe.extreme_fe_poe:
+    state: overridden
+    config:
+      - port: "1:10"
+        enable: true
+        power_limit: 15400
+
+# -------------------------------------------------------------------------
+# Task 4: Delete (reset) PoE configuration on specific ports
+# Description:
+#   - Reset PoE settings to defaults on specific ports
+#   - Unlike 'overridden', this only affects the specified ports
+# -------------------------------------------------------------------------
+# - name: "Task 4: Delete PoE configuration on specific ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Reset PoE settings to defaults on ports 1:5 and 1:6
+  extreme.fe.extreme_fe_poe:
+    state: deleted
+    config:
+      - port: "1:5"
+      - port: "1:6"
+
+# -------------------------------------------------------------------------
+# Task 5: Gather PoE configuration and status
+# Description:
+#   - Retrieve current PoE configuration and runtime status
+#   - Useful for monitoring power consumption and device status
+# -------------------------------------------------------------------------
+# - name: "Task 5: Gather PoE information for specific ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect PoE runtime details
+  extreme.fe.extreme_fe_poe:
+    state: gathered
+    config:
+      - port: "1:5"
+      - port: "1:6"
+      - port: "1:10"
+  register: poe_info
+
+- name: Display PoE status (clean format)
+  ansible.builtin.debug:
+    msg: "{{ poe_info.ports | to_nice_yaml }}"
 """
 
 RETURN = r"""

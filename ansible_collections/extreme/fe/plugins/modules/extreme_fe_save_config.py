@@ -40,22 +40,57 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Save configuration to the active config file
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Save running configuration
-      extreme_fe_save_config:
-        verbose: false
+# Task-level examples for ansible-doc:
 
-- name: Save configuration to a specific file with verbose mode
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Save running configuration as backup
-      extreme_fe_save_config:
-        name: config-backup.cfg
-        verbose: true
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under 'tasks:')
+# =========================================================================
+#
+# ## Notes:
+# # - When 'name' is not specified, saves to the active boot config file
+# # - When 'name' is specified, saves to that filename (useful for backups)
+# # - The 'verbose' option controls output detail level
+#
+# ## !! IMPORTANT !!
+# # The 'verbose' option and 'name' option are MUTUALLY EXCLUSIVE.
+#
+# ## Verify Configuration
+# # show boot config choice
+# # ls *.cfg
+
+# -------------------------------------------------------------------------
+# Task 1: Save configuration to active config file
+# Description:
+#   - Save the running configuration to the default active config file
+#   - Ensures configuration changes persist across switch reboots
+# -------------------------------------------------------------------------
+# - name: "Task 1: Save configuration to the active config file"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Save running configuration
+  extreme.fe.extreme_fe_save_config:
+    verbose: false
+
+# -------------------------------------------------------------------------
+# Task 2: Save configuration to a named backup file
+# Description:
+#   - Save the running configuration to a specific named file
+#   - Useful for creating backup copies before making changes
+# Note: 'verbose' must be false when using 'name' to specify a filename.
+# -------------------------------------------------------------------------
+# - name: "Task 2: Save configuration to a specific file"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Save running configuration as backup
+  extreme.fe.extreme_fe_save_config:
+    name: config-backup.cfg
+    verbose: false
 """
 
 RETURN = r"""

@@ -56,38 +56,23 @@ options:
           local_ip_address:
             description:
             - Local IP address for MLAG communication.
+            - Note: On VOSS, this is derived from the IST VLAN IP configuration.
             type: str
           local_vlan_id:
             description:
-            - Local VLAN ID for MLAG communication.
-            type: int
-          authentication_key:
-            description:
-            - Authentication key for MLAG peer.
-            type: str
-          hello_interval:
-            description:
-            - Hello interval for MLAG peer communication in seconds.
-            type: int
-          hello_timeout:
-            description:
-            - Hello timeout for MLAG peer communication in seconds.
+            - Local VLAN ID for MLAG/IST communication.
             type: int
           ports:
             description:
-            - List of MLAG ports for this peer.
+            - List of MLAG ports (MLT IDs) for this peer.
             type: list
             elements: dict
             suboptions:
               port_id:
                 description:
-                - Port identifier (LAG ID).
+                - Port identifier (MLT ID on VOSS).
                 type: str
                 required: true
-              mlag_id:
-                description:
-                - MLAG ID for the port.
-                type: int
       rsmlt:
         description:
         - RSMLT configuration.
@@ -147,57 +132,171 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Configure MLAG peers and ports
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Configure MLAG peer with ports
-      extreme_fe_mlag:
-        state: present
-        config:
-          peers:
-            - peer_id: "1"
-              peer_ip_address: "192.168.5.104"
-              local_ip_address: "192.168.5.101"
-              local_vlan_id: 100
-              hello_interval: 1000
-              hello_timeout: 5000
-              ports:
-                - port_id: "10"
-                  mlag_id: 10
-                - port_id: "11"
-                  mlag_id: 11
+# Task-level examples for ansible-doc:
 
-- name: Configure RSMLT instances
-  extreme_fe_mlag:
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under 'tasks:')
+# =========================================================================
+#
+# Prerequisites:
+#
+# !! IMPORTANT: IS-IS / SPBM Limitations !!
+# # When IS-IS (SPBM) is enabled, runtime MLAG changes are often restricted.
+# # MLAG peer configuration should be done BEFORE enabling IS-IS.
+# # To check:
+# show isis
+# show isis spbm
+# # To disable:
+# no router isis enable
+#
+# ## Create VLANs:
+# ## - VLAN 100: IST (Inter-Switch Trunk) VLAN for MLAG peer communication
+# ## - VLANs 200, 300: For RSMLT (cannot use IST VLAN for RSMLT)
+# # vlan create 100 name "IST-VLAN" type port-mstprstp 0
+# # vlan i-sid 100 10010
+# # vlan create 200 name "RSMLT-VLAN-200" type port-mstprstp 0
+# # vlan i-sid 200 20020
+# # vlan create 300 name "RSMLT-VLAN-300" type port-mstprstp 0
+# # vlan i-sid 300 30030
+#
+# ## Create MLTs for MLAG ports
+# # mlt 10
+# # mlt 11
+#
+# ## Configure IST VLAN with IP address (for MLAG peer communication)
+# # interface vlan 100
+# #   ip address 192.168.5.101/24
+# # exit
+#
+# ## Enable RSMLT on non-IST VLANs (must have IP addresses)
+# ## NOTE: RSMLT cannot be on an IST VLAN
+# # interface vlan 200
+# #   ip address 10.20.0.1/24
+# #   ip rsmlt
+# # exit
+# # interface vlan 300
+# #   ip address 10.30.0.1/24
+# #   ip rsmlt
+# # exit
+#
+# ## Verify Configuration
+# # show vlan i-sid
+# # show mlt
+# # show smlt mlt
+# # show ip rsmlt
+
+# -------------------------------------------------------------------------
+# Task 1: Configure MLAG peer relationship with ports
+# Description:
+#   - Configure an MLAG peer relationship with ISC ports
+#   - MLAG enables link aggregation across two physical switches
+# Prerequisites:
+#   - VLAN 100 must exist with i-sid for ISC
+#   - VLAN 100 must have an IP address for peer communication
+#   - IP connectivity between peer switches
+# Note: VOSS uses "Default" as the only valid peer_id
+# -------------------------------------------------------------------------
+# - name: "Task 1: Configure MLAG peers and ports"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Configure MLAG peer with ports
+  extreme.fe.extreme_fe_mlag:
+    state: present
+    config:
+      peers:
+        - peer_id: "Default"
+          peer_ip_address: "192.168.5.104"
+          local_vlan_id: 100
+          ports:
+            - port_id: "10"
+            - port_id: "11"
+
+# -------------------------------------------------------------------------
+# Task 2: Configure RSMLT (Routed Split Multi-Link Trunking)
+# Description:
+#   - Configure RSMLT instances on VLANs for Layer 3 gateway redundancy
+#   - Both switches can act as active gateways
+# Prerequisites:
+#   - VLANs 200, 300 must exist with i-sid and IP addresses
+#   - RSMLT must be enabled on VLANs (ip rsmlt)
+#   - MLAG peer relationship must be configured
+#   - NOTE: RSMLT cannot be on IST VLAN (100)
+# -------------------------------------------------------------------------
+# - name: "Task 2: Configure RSMLT instances"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Set up RSMLT on VLANs
+  extreme.fe.extreme_fe_mlag:
     state: present
     config:
       rsmlt:
         instances:
-          - vlan_id: 100
+          - vlan_id: 200
             enabled: true
             hold_up_timer: 60
             hold_down_timer: 30
-          - vlan_id: 200
+          - vlan_id: 300
             enabled: true
 
-- name: Gather all MLAG configuration
-  extreme_fe_mlag:
+# -------------------------------------------------------------------------
+# Task 3: Gather MLAG configuration
+# Description:
+#   - Retrieve current MLAG configuration including peers, ports,
+#     RSMLT instances, and operational state
+# -------------------------------------------------------------------------
+# - name: "Task 3: Gather all MLAG configuration"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect MLAG configuration
+  extreme.fe.extreme_fe_mlag:
     state: gathered
     gather_filter:
       include_ports: true
       include_rsmlt: true
       include_state: true
+  register: mlag_gathered
 
-- name: Delete specific MLAG peer
-  extreme_fe_mlag:
+# -------------------------------------------------------------------------
+# Task 4: Delete MLAG peer
+# Description:
+#   - Remove MLAG peer relationship (clears ports)
+# !! WARNING !!
+#   MLAG peer deletion via REST API may not be fully supported on VOSS.
+#   Module will clear ports and provide warning with CLI alternative.
+#   To complete deletion via CLI: "no virtual-ist peer-ip <ip_address>"
+# -------------------------------------------------------------------------
+# - name: "Task 4: Delete specific MLAG peer"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Remove MLAG peer (reset to defaults)
+  extreme.fe.extreme_fe_mlag:
     state: absent
     config:
       peers:
-        - peer_id: "1"
+        - peer_id: "Default"
 
-- name: Delete all MLAG configuration
-  extreme_fe_mlag:
+# -------------------------------------------------------------------------
+# Task 5: Delete all MLAG configuration
+# Description:
+#   - Remove all MLAG configuration including peers and RSMLT instances
+# !! WARNING !!
+#   This will clear all MLAG-related configuration.
+#   Use CLI for complete removal: "no virtual-ist peer-ip <ip_address>"
+# -------------------------------------------------------------------------
+# - name: "Task 5: Delete all MLAG configuration"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Remove all MLAG configuration
+  extreme.fe.extreme_fe_mlag:
     state: deleted
 """
 
@@ -340,12 +439,14 @@ class MlagModule:
         
         # Then apply new configuration
         if desired_config:
-            if 'peers' in desired_config:
-                for peer_config in desired_config['peers']:
-                    self._configure_peer(peer_config)
+            peers = desired_config.get('peers') or []
+            for peer_config in peers:
+                self._configure_peer(peer_config)
             
-            if 'rsmlt' in desired_config and 'instances' in desired_config['rsmlt']:
-                for rsmlt_config in desired_config['rsmlt']['instances']:
+            rsmlt = desired_config.get('rsmlt')
+            if rsmlt:
+                instances = rsmlt.get('instances') or []
+                for rsmlt_config in instances:
                     self._configure_rsmlt_instance(rsmlt_config)
 
         self.result['changed'] = True
@@ -364,9 +465,9 @@ class MlagModule:
             self._delete_all_configuration()
         else:
             # Delete specific configuration
-            if 'peers' in desired_config:
-                for peer_config in desired_config['peers']:
-                    self._delete_peer(peer_config['peer_id'])
+            peers = desired_config.get('peers') or []
+            for peer_config in peers:
+                self._delete_peer(peer_config['peer_id'])
 
         if self.result['commands']:
             self.result['changed'] = True
@@ -387,7 +488,8 @@ class MlagModule:
         
         if config:
             # Validate peers configuration if present
-            peers = config.get('peers', [])
+            # Use 'or []' to handle both missing keys and explicit None values
+            peers = config.get('peers') or []
             for peer in peers:
                 # Validate IP addresses if present
                 peer_ip = peer.get('peer_ip_address')
@@ -399,22 +501,12 @@ class MlagModule:
                 if local_ip:
                     if not self._is_valid_ip(local_ip):
                         self.module.fail_json(msg="local_ip_address is not a valid IP address: {}".format(local_ip))
-                
-                # Validate timer values if present
-                hello_interval = peer.get('hello_interval')
-                if hello_interval is not None:
-                    if not isinstance(hello_interval, int) or hello_interval < 100 or hello_interval > 30000:
-                        self.module.fail_json(msg="hello_interval must be an integer between 100 and 30000 milliseconds")
-                
-                hello_timeout = peer.get('hello_timeout')
-                if hello_timeout is not None:
-                    if not isinstance(hello_timeout, int) or hello_timeout < 1000 or hello_timeout > 60000:
-                        self.module.fail_json(msg="hello_timeout must be an integer between 1000 and 60000 milliseconds")
             
             # Validate RSMLT configuration if present
             rsmlt = config.get('rsmlt')
-            if rsmlt and 'instances' in rsmlt:
-                for instance in rsmlt['instances']:
+            if rsmlt:
+                instances = rsmlt.get('instances') or []
+                for instance in instances:
                     vlan_id = instance.get('vlan_id')
                     if vlan_id is not None:
                         if not isinstance(vlan_id, int) or vlan_id < 1 or vlan_id > 4094:
@@ -455,59 +547,71 @@ class MlagModule:
         try:
             # Gather peer configuration
             peers_response = self._send_request('GET', '/v0/configuration/mlag/peers')
+
+            # Fetch state payload once outside the loop and index by peerId
+            # This avoids N+1 API calls when iterating peers
+            peers_state_map: Dict[Any, Dict[str, Any]] = {}
+            try:
+                state_response = self._send_request('GET', '/v0/state/mlag/peers')
+                if state_response:
+                    for state_peer in state_response:
+                        state_peer_id = state_peer.get('peerId')
+                        if state_peer_id is not None:
+                            peers_state_map[state_peer_id] = state_peer
+            except Exception:
+                # Treat connection errors as "no state available"
+                pass
+
             if peers_response:
                 for peer in peers_response:
                     peer_id = peer.get('peerId')
                     if peer_ids_filter and peer_id not in peer_ids_filter:
                         continue
-                    
+
                     # Extract IP address from nested object structure
                     peer_ip_obj = peer.get('peerIpAddress', {})
                     peer_ip_address = peer_ip_obj.get('address') if peer_ip_obj else None
                     
+                    # Build peer_data - VOSS only returns subset of fields
+                    # Note: hello_interval, hello_timeout, authentication_key are EXOS-only
                     peer_data = {
                         'peer_id': peer_id,
                         'peer_ip_address': peer_ip_address,
-                        'local_ip_address': peer.get('localIpAddress'),  # May not exist in response
-                        'local_vlan_id': peer.get('vistVlanId'),  # Use actual field name
-                        'authentication_key': peer.get('authenticationKey'),
-                        'hello_interval': peer.get('helloInterval'),
-                        'hello_timeout': peer.get('helloTimeout')
+                        'local_vlan_id': peer.get('vistVlanId'),
                     }
-                    
+
                     # Gather port information if requested
                     if include_ports:
                         try:
                             ports_response = self._send_request('GET', f'/v0/configuration/mlag/peers/{peer_id}/ports')
                             if ports_response:
+                                # On VOSS, port_id (MLT ID) is the only identifier - mlag_id is EXOS-only
                                 peer_data['ports'] = [
-                                    {
-                                        'port_id': port.get('portId'),
-                                        'mlag_id': port.get('mlagId')
-                                    }
+                                    {'port_id': port.get('portId')}
                                     for port in ports_response
                                 ]
                             else:
                                 peer_data['ports'] = []
                         except Exception:
+                            # Treat errors as empty ports list
                             peer_data['ports'] = []
-                    
-                    # Gather state information if requested
-                    if include_state:
-                        try:
-                            state_response = self._send_request('GET', '/v0/state/mlag/peers')
-                            if state_response:
-                                for state_peer in state_response:
-                                    if state_peer.get('peerId') == peer_id:
-                                        peer_data['state'] = {
-                                            'checkpointing_state': state_peer.get('checkpointingState'),
-                                            'hello_state': state_peer.get('helloState'),
-                                            'counters': state_peer.get('counters', {})
-                                        }
-                                        break
-                        except Exception:
-                            pass
-                    
+
+                    # Use pre-fetched state to get local_ip_address (config endpoint doesn't return it on VOSS)
+                    # Add full state object only when include_state is true
+                    state_peer = peers_state_map.get(peer_id)
+                    if state_peer:
+                        # Extract local_ip_address from state (not available in config on VOSS)
+                        state_local_ip_obj = state_peer.get('localIpAddress', {})
+                        peer_data['local_ip_address'] = state_local_ip_obj.get('address') if state_local_ip_obj else None
+
+                        # Add detailed state info only if requested
+                        if include_state:
+                            peer_data['state'] = {
+                                'checkpointing_state': state_peer.get('checkpointingState'),
+                                'hello_state': state_peer.get('helloState'),
+                                'counters': state_peer.get('counters', {})
+                            }
+
                     facts['peers'].append(peer_data)
 
             # Gather RSMLT configuration if requested
@@ -518,35 +622,45 @@ class MlagModule:
                         rsmlt_list = rsmlt_response if isinstance(rsmlt_response, list) else [rsmlt_response]
                     else:
                         rsmlt_list = []
-                            
+
+                    # Fetch RSMLT state once outside the loop and index by vlanId
+                    # This avoids N+1 API calls when iterating VLAN configs
+                    rsmlt_state_map: Dict[Any, Dict[str, Any]] = {}
+                    if include_state:
+                        try:
+                            rsmlt_state_response = self._send_request('GET', '/v0/state/mlag/rsmlt')
+                            if rsmlt_state_response:
+                                for state_vlan in rsmlt_state_response:
+                                    state_vlan_id = state_vlan.get('vlanId')
+                                    if state_vlan_id is not None:
+                                        rsmlt_state_map[state_vlan_id] = state_vlan
+                        except Exception:
+                            # Treat errors as "no RSMLT state available"
+                            pass
+
                     for vlan_config in rsmlt_list:
-                                vlan_id = vlan_config.get('vlanId')
-                                rsmlt_instances = vlan_config.get('rsmltInstances', [])
-                                for instance in rsmlt_instances:
-                                    instance_data = {
-                                        'vlan_id': vlan_id,
-                                        'enabled': instance.get('enabled'),
-                                        'hold_up_timer': instance.get('holdUpTimer'),
-                                        'hold_down_timer': instance.get('holdDownTimer')
-                                    }
-                                    
-                                    # Add state information if requested
-                                    if include_state:
-                                        try:
-                                            state_response = self._send_request('GET', '/v0/state/mlag/rsmlt')
-                                            if state_response:
-                                                for state_vlan in state_response:
-                                                    if state_vlan.get('vlanId') == vlan_id:
-                                                        state_instances = state_vlan.get('rsmltInstances', [])
-                                                        for state_instance in state_instances:
-                                                            instance_data['operational_state'] = state_instance.get('operationalState')
-                                                            break
-                                                        break
-                                        except Exception:
-                                            pass
-                                    
-                                    facts['rsmlt']['instances'].append(instance_data)
+                        vlan_id = vlan_config.get('vlanId')
+                        rsmlt_instances = vlan_config.get('rsmltInstances', [])
+                        for instance in rsmlt_instances:
+                            instance_data = {
+                                'vlan_id': vlan_id,
+                                'enabled': instance.get('enabled'),
+                                'hold_up_timer': instance.get('holdUpTimer'),
+                                'hold_down_timer': instance.get('holdDownTimer')
+                            }
+
+                            # Add state information if requested (use pre-fetched state)
+                            if include_state:
+                                state_vlan = rsmlt_state_map.get(vlan_id)
+                                if state_vlan:
+                                    state_instances = state_vlan.get('rsmltInstances', [])
+                                    for state_instance in state_instances:
+                                        instance_data['operational_state'] = state_instance.get('operationalState')
+                                        break
+
+                            facts['rsmlt']['instances'].append(instance_data)
                 except Exception:
+                    # Treat errors as empty RSMLT config
                     pass
 
         except Exception as e:
@@ -562,7 +676,7 @@ class MlagModule:
         # Prepare peer configuration data
         peer_data = {}
         
-        # Map configuration to API structure
+        # Map configuration to API structure (VOSS-only fields)
         if 'peer_ip_address' in peer_config:
             peer_data['peerIpAddress'] = {
                 'address': peer_config['peer_ip_address'],
@@ -570,12 +684,6 @@ class MlagModule:
             }
         if 'local_vlan_id' in peer_config:
             peer_data['vistVlanId'] = peer_config['local_vlan_id']
-        if 'authentication_key' in peer_config:
-            peer_data['authenticationKey'] = peer_config['authentication_key']
-        if 'hello_interval' in peer_config:
-            peer_data['helloInterval'] = peer_config['hello_interval']
-        if 'hello_timeout' in peer_config:
-            peer_data['helloTimeout'] = peer_config['hello_timeout']
 
         # Always update the existing "Default" peer with PATCH
         response = self._send_request('PATCH', f'/v0/configuration/mlag/peers/{peer_id}', peer_data)
@@ -586,14 +694,13 @@ class MlagModule:
             self._configure_peer_ports(peer_id, peer_config['ports'])
 
     def _configure_peer_ports(self, peer_id: str, ports_config: List[Dict[str, Any]]) -> None:
-        """Configure MLAG ports for a peer."""
+        """Configure MLAG ports for a peer (MLT IDs on VOSS)."""
         ports_data = []
         for port_config in ports_config:
+            # On VOSS, only portId (MLT ID) is used - mlagId is EXOS-only
             port_data = {
                 'portId': port_config['port_id']
             }
-            if 'mlag_id' in port_config:
-                port_data['mlagId'] = port_config['mlag_id']
             ports_data.append(port_data)
 
         response = self._send_request('PUT', f'/v0/configuration/mlag/peers/{peer_id}/ports', ports_data)
@@ -613,9 +720,37 @@ class MlagModule:
         self.result['commands'].append(f"PATCH /v0/configuration/mlag/rsmlt/vlan/{vlan_id}")
 
     def _delete_peer(self, peer_id: str) -> None:
-        """Delete MLAG peer."""
-        response = self._send_request('DELETE', f'/v0/configuration/mlag/peers/{peer_id}')
-        self.result['commands'].append(f"DELETE /v0/configuration/mlag/peers/{peer_id}")
+        """Delete MLAG peer configuration.
+
+        On VOSS, the "Default" peer cannot be truly deleted via REST API.
+        Instead, we clear ports and mark as reset. Use CLI for full removal.
+        Note: VOSS only supports "Default" as peer_id - any other value is mapped to "Default".
+        """
+        # On VOSS, always use "Default" peer - any other peer_id is not supported
+        api_peer_id = "Default"
+        deleted_ports = False
+
+        # First, clear all ports by sending empty list
+        try:
+            self._send_request('PUT', f'/v0/configuration/mlag/peers/{api_peer_id}/ports', [])
+            self.result['commands'].append(f"PUT /v0/configuration/mlag/peers/{api_peer_id}/ports (clear)")
+            deleted_ports = True
+        except Exception:
+            pass  # Ports may not exist or endpoint not available
+
+        # On VOSS, DELETE and PATCH to /mlag/peers/{peer_id} may not be available
+        # The DELETE and PATCH endpoints are often not supported on VOSS firmware
+        # Just note that we cleared ports and provide CLI alternative
+        if deleted_ports:
+            self.result['warnings'] = self.result.get('warnings', [])
+            self.result['warnings'].append(
+                "MLAG ports cleared. To fully remove MLAG config on VOSS, use CLI: 'no virtual-ist peer-ip <ip>'"
+            )
+        else:
+            self.result['warnings'] = self.result.get('warnings', [])
+            self.result['warnings'].append(
+                "Could not delete MLAG configuration via REST API. On VOSS, use CLI: 'no virtual-ist peer-ip <ip>'"
+            )
 
     def _delete_all_configuration(self) -> None:
         """Delete all MLAG configuration."""
@@ -678,15 +813,11 @@ def main():
                         'peer_ip_address': {'type': 'str'},
                         'local_ip_address': {'type': 'str'},
                         'local_vlan_id': {'type': 'int'},
-                        'authentication_key': {'type': 'str'},
-                        'hello_interval': {'type': 'int'},
-                        'hello_timeout': {'type': 'int'},
                         'ports': {
                             'type': 'list',
                             'elements': 'dict',
                             'options': {
-                                'port_id': {'type': 'str', 'required': True},
-                                'mlag_id': {'type': 'int'}
+                                'port_id': {'type': 'str', 'required': True}
                             }
                         }
                     }
