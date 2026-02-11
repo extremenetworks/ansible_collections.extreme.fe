@@ -47,7 +47,8 @@
       extreme.fe.extreme_fe_l3_interfaces:
         state: deleted
         config:
-          - interface: "vlan{{ mlag_peer_vlan }}"
+          - type: vlan
+            vlan_id: "{{ mlag_peer_vlan }}"
       ignore_errors: true
 
     # Step 4: Delete LAGs created for MLAG
@@ -112,7 +113,7 @@
     # Step 7: Re-enable autosense on ports that were disabled for MLAG
     - name: Re-enable autosense on port 1:15
       extreme.fe.extreme_fe_autosense:
-        state: present
+        state: merged
         ports:
           - name: "1:15"
             enable: true
@@ -120,7 +121,7 @@
 
     - name: Re-enable autosense on port 1:4 (fe_dt_1 only)
       extreme.fe.extreme_fe_autosense:
-        state: present
+        state: merged
         ports:
           - name: "1:4"
             enable: true
@@ -129,7 +130,7 @@
 
     - name: Re-enable autosense on port 1:8 (fe_dt_4 only)
       extreme.fe.extreme_fe_autosense:
-        state: present
+        state: merged
         ports:
           - name: "1:8"
             enable: true

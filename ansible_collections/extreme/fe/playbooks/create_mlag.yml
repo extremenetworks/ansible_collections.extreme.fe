@@ -13,7 +13,6 @@
     inter_switch_lag_id: 15
     dual_homed_lag_id_1: 10  # LAG for dual-homed server on fe_dt_1
     dual_homed_lag_id_4: 11  # LAG for dual-homed server on fe_dt_4
-    dual_homed_mlag_id: 100  # MLAG ID for dual-homed server
 
   tasks:
     # Step 0: We need to disable the ISIS router
@@ -161,11 +160,8 @@
               peer_ip_address: "{{ mlag_peer_4_ip }}"
               local_ip_address: "{{ mlag_peer_1_ip }}"
               local_vlan_id: "{{ mlag_peer_vlan }}"
-              hello_interval: 1000
-              hello_timeout: 5000
               ports:
                 - port_id: "{{ dual_homed_lag_id_1 }}"
-                  mlag_id: "{{ dual_homed_mlag_id }}"
       when: inventory_hostname == 'fe_dt_1'
 
     - name: Configure MLAG peer on fe_dt_4
@@ -177,11 +173,8 @@
               peer_ip_address: "{{ mlag_peer_1_ip }}"
               local_ip_address: "{{ mlag_peer_4_ip }}"
               local_vlan_id: "{{ mlag_peer_vlan }}"
-              hello_interval: 1000
-              hello_timeout: 5000
               ports:
                 - port_id: "{{ dual_homed_lag_id_4 }}"
-                  mlag_id: "{{ dual_homed_mlag_id }}"
       when: inventory_hostname == 'fe_dt_4'
 
     # Step 9: Configure RSMLT for Layer 3 redundancy
