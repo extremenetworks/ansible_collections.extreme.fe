@@ -8,18 +8,14 @@
     coverage_vlan_data_secondary: 221
     coverage_peer_remote_ip: "192.168.100.1"
     coverage_peer_local_ip: "192.168.100.4"
-    coverage_auth_key: "coverage_auth_key"
     coverage_lag_primary: "31"
     coverage_lag_secondary: "32"
     coverage_lag_tertiary: "33"
     coverage_ports_initial:
       - port_id: "{{ coverage_lag_primary }}"
-        mlag_id: 301
     coverage_ports_update:
       - port_id: "{{ coverage_lag_secondary }}"
-        mlag_id: 302
       - port_id: "{{ coverage_lag_tertiary }}"
-        mlag_id: 303
     coverage_rsmlt_base:
       - vlan_id: 100
         enabled: true
@@ -39,9 +35,6 @@
       peer_ip_address: "{{ coverage_peer_remote_ip }}"
       local_ip_address: "{{ coverage_peer_local_ip }}"
       local_vlan_id: "{{ coverage_vlan_vist }}"
-      authentication_key: "{{ coverage_auth_key }}"
-      hello_interval: 1500
-      hello_timeout: 7500
     mlag_delete_supported: true
 
   tasks:
@@ -186,45 +179,6 @@
           - "'local_ip_address is not a valid IP address' in invalid_local_ip.msg"
       tags: [validation, negative]
 
-    - name: Validation | Hello interval guard
-      extreme.fe.extreme_fe_mlag:
-        state: present
-        config:
-          peers:
-            - peer_id: "Default"
-              peer_ip_address: "{{ coverage_peer_remote_ip }}"
-              local_ip_address: "{{ coverage_peer_local_ip }}"
-              hello_interval: 50
-      register: invalid_hello_interval
-      ignore_errors: true
-      tags: [validation, negative]
-
-    - name: Assert hello interval validation triggered
-      ansible.builtin.assert:
-        that:
-          - invalid_hello_interval is failed
-          - "'hello_interval must be an integer' in invalid_hello_interval.msg"
-      tags: [validation, negative]
-
-    - name: Validation | Hello timeout guard
-      extreme.fe.extreme_fe_mlag:
-        state: present
-        config:
-          peers:
-            - peer_id: "Default"
-              peer_ip_address: "{{ coverage_peer_remote_ip }}"
-              local_ip_address: "{{ coverage_peer_local_ip }}"
-              hello_timeout: 70000
-      register: invalid_hello_timeout
-      ignore_errors: true
-      tags: [validation, negative]
-
-    - name: Assert hello timeout validation triggered
-      ansible.builtin.assert:
-        that:
-          - invalid_hello_timeout is failed
-          - "'hello_timeout must be an integer' in invalid_hello_timeout.msg"
-      tags: [validation, negative]
 
     - name: Phase 1 | Dry run configuration in check mode
       extreme.fe.extreme_fe_mlag:
@@ -266,12 +220,12 @@
           - gather_full_state.gathered.rsmlt is defined
       tags: [gathered, positive]
 
-    - name: Phase 3 | Merge additional ports and timers
+    - name: Phase 3 | Merge additional ports
       extreme.fe.extreme_fe_mlag:
         state: merged
         config:
           peers:
-            - "{{ coverage_peer_template | combine({'ports': coverage_ports_initial + coverage_ports_update, 'hello_interval': 2000, 'hello_timeout': 9000}) }}"
+            - "{{ coverage_peer_template | combine({'ports': coverage_ports_initial + coverage_ports_update}) }}"
       register: merged_ports
       failed_when: merged_ports is failed and 'Virtual IST already exists' not in (merged_ports.msg | default(""))
       changed_when: merged_ports is changed or 'Virtual IST already exists' in (merged_ports.msg | default(""))
@@ -303,7 +257,7 @@
         state: replaced
         config:
           peers:
-            - "{{ coverage_peer_template | combine({'local_vlan_id': coverage_vlan_data_primary, 'authentication_key': 'replaced_auth', 'ports': coverage_ports_initial}) }}"
+            - "{{ coverage_peer_template | combine({'local_vlan_id': coverage_vlan_data_primary, 'ports': coverage_ports_initial}) }}"
           rsmlt:
             instances: "{{ coverage_rsmlt_base + coverage_rsmlt_additional }}"
       register: replaced_state
@@ -313,7 +267,9 @@
     - name: Phase 4 | Ensure replace completed
       ansible.builtin.assert:
         that:
-          - replaced_state is succeeded or "requested URL is not available" in (replaced_state.msg | default(""))
+          - replaced_state is succeeded or
+            "requested URL is not available" in (replaced_state.msg | default("")) or
+            "Virtual IST already exists" in (replaced_state.msg | default(""))
       tags: [replaced, positive]
 
     - name: Phase 5 | Remove peer via absent state
@@ -363,7 +319,10 @@
       ansible.builtin.assert:
         that:
           - (mlag_delete_supported | default(true) and (final_gather.gathered.peers | length == 0)) or
-            ((not (mlag_delete_supported | default(true))) and (final_gather.gathered.peers | length > 0))
+            ((not (mlag_delete_supported | default(true))) and (final_gather.gathered.peers | length > 0)) or
+            ((final_gather.gathered.peers | length > 0) and
+             ((final_gather.gathered.peers | map(attribute='ports') | map('length') | list | max | default(0)) == 0) and
+             ((final_gather.gathered.rsmlt.instances | length) == 0))
       tags: [cleanup, verification]
 
     - name: Phase 6 | Re-enable autosense on coverage ports

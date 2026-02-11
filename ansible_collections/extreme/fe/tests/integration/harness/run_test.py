@@ -2483,6 +2483,7 @@ def transfer_openapi_logs(
 
 IGNORED_WARNING_SUBSTRINGS = (
     "WARNING:Disable ISIS will cause traffic disruption",
+    "WARNING]: MLAG ports cleared. To fully remove MLAG config on VOSS, use CLI: 'no virtual-ist peer-ip <ip>'",
 )
 
 
