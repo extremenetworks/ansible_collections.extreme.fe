@@ -52,6 +52,12 @@ options:
     - Defaults to PORT_MSTP_RSTP when omitted.
     type: str
     default: PORT_MSTP_RSTP
+  i_sid:
+    description:
+    - I-SID (Service Instance Identifier) to associate with the VLAN.
+    - Required when adding SMLT LAGs to a VLAN in an SPB fabric.
+    - Range 1-15999999 for user-configurable values.
+    type: int
   stp_name:
     description:
     - Auto-bind STP instance name associated with the VLAN.
@@ -138,58 +144,122 @@ options:
 """
 
 EXAMPLES = r"""
-- name: Merge VLAN 20 with tagged membership
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Ensure VLAN 20 exists with core LAG membership
-            local.extreme_fe.extreme_fe_vlans:
-                state: merged
-                vlan_id: 20
-                vlan_name: Campus-20
-                vr_name: GlobalRouter
-                lag_interfaces:
-                    - name: "10"
-                        tag: tagged
+# Task-level examples for ansible-doc:
 
-- name: Replace VLAN 200 membership with a specific LAG
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Enforce tagged membership set
-            local.extreme_fe.extreme_fe_vlans:
-                state: replaced
-                vlan_id: 200
-                vr_name: GlobalRouter
-                lag_interfaces:
-                    - name: "10"
-                        tag: tagged
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under 'tasks:')
+# =========================================================================
+#
+# Prerequisites:
+#
+# ## LAG/MLT dependencies - create LAGs/MLTs before adding them to VLANs
+# ## (LAG = OpenAPI term, MLT = CLI term - they are the same thing)
+# # mlt 10 enable
+# # mlt 11 enable
+#
+# ## I-SID Requirement:
+# # When using SMLT LAGs/MLTs, VLANs MUST have an I-SID association
+# # BEFORE adding the LAG/MLT interfaces. The module supports
+# # setting i_sid directly, or you can create them via CLI.
+#
+# # Create the VLAN with I-SID:
+# # vlan create 200 name VLAN-200 type port-mstprstp 0
+# # vlan i-sid 200 20020
+#
+# ## Verify Configuration
+# # show vlan basic
+# # show vlan i-sid
+# # show mlt
 
-- name: Remove a LAG from VLAN 200 while preserving others
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Drop LAG 11 from VLAN 200
-            local.extreme_fe.extreme_fe_vlans:
-                state: merged
-                vlan_id: 200
-                vr_name: GlobalRouter
-                remove_lag_interfaces:
-                    - name: "11"
-                        tag: tagged
+# -------------------------------------------------------------------------
+# Task 1: Create or update VLAN with I-SID and LAG/MLT membership
+# Description:
+#   - Create a VLAN with I-SID and add LAG/MLT interfaces
+#   - 'merged' state is non-destructive (adds/modifies without removing)
+#   - i_sid parameter associates the VLAN with an I-SID for SPB fabric
+# Prerequisites:
+#   - LAG/MLT 10 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 1: Merge VLAN 20 with I-SID and tagged membership"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Ensure VLAN 20 exists with I-SID and core LAG/MLT membership
+  extreme.fe.extreme_fe_vlans:
+    state: merged
+    vlan_id: 20
+    vlan_name: Campus-20
+    i_sid: 2020
+    vr_name: GlobalRouter
+    lag_interfaces:
+      - name: "10"
+        tag: tagged
 
-- name: Gather VLAN 5 configuration snapshot
-    hosts: switches
-    gather_facts: false
-    tasks:
-        - name: Collect VLAN information
-            local.extreme_fe.extreme_fe_vlans:
-                state: gathered
-                gather_filter: [5]
-            register: vlan_info
+# -------------------------------------------------------------------------
+# Task 2: Replace VLAN membership with I-SID
+# Description:
+#   - Enforce specific LAG/MLT membership using 'replaced' state
+#   - All interface membership will match exactly what is defined
+#   - i_sid ensures the VLAN has proper SPB fabric association
+# Prerequisites:
+#   - LAG/MLT 10 must exist
+# -------------------------------------------------------------------------
+# - name: "Task 2: Replace VLAN 200 membership with a specific LAG/MLT"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Enforce tagged membership set with I-SID
+  extreme.fe.extreme_fe_vlans:
+    state: replaced
+    vlan_id: 200
+    i_sid: 20020
+    vr_name: GlobalRouter
+    lag_interfaces:
+      - name: "10"
+        tag: tagged
 
-        - ansible.builtin.debug:
-                var: vlan_info.vlans
+# -------------------------------------------------------------------------
+# Task 3: Remove specific LAG/MLT from VLAN
+# Description:
+#   - Remove a specific LAG/MLT from a VLAN while preserving others
+#   - 'remove_lag_interfaces' option is used with merged state
+# -------------------------------------------------------------------------
+# - name: "Task 3: Remove a LAG/MLT from VLAN 200"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Drop LAG/MLT 11 from VLAN 200
+  extreme.fe.extreme_fe_vlans:
+    state: merged
+    vlan_id: 200
+    vr_name: GlobalRouter
+    remove_lag_interfaces:
+      - name: "11"
+        tag: tagged
+
+# -------------------------------------------------------------------------
+# Task 4: Gather VLAN configuration
+# Description:
+#   - Retrieve current configuration for specific VLANs
+#   - gather_filter limits query to specific VLAN IDs
+# -------------------------------------------------------------------------
+# - name: "Task 4: Gather VLAN 20 configuration snapshot"
+#   hosts: switches
+#   gather_facts: false
+#   tasks:
+- name: Collect VLAN information
+  extreme.fe.extreme_fe_vlans:
+    state: gathered
+    gather_filter: [20]
+  register: vlan_info
+
+- name: Display VLAN configuration
+  ansible.builtin.debug:
+    var: vlan_info.vlans
 """
 
 RETURN = r"""
@@ -216,6 +286,7 @@ ARGUMENT_SPEC = {
     "vlan_id": {"type": "int"},
     "vlan_name": {"type": "str"},
     "vlan_type": {"type": "str", "default": "PORT_MSTP_RSTP"},
+    "i_sid": {"type": "int"},
     "stp_name": {"type": "str", "default": None},
     "vr_name": {"type": "str", "default": "GlobalRouter"},
     "gather_filter": {"type": "list", "elements": "int"},
@@ -720,6 +791,63 @@ def delete_vlan(connection: Connection, vr_name: str, vlan_id: int) -> None:
     connection.send_request(None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE")
 
 
+def _ensure_isid_list(payload: Optional[Any]) -> List[Dict[str, Any]]:
+    """Normalize API response to a list of dicts, handling various response formats."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        # Check common keys used by the API: "isids", "items", "data", "results"
+        for key in ("isids", "items", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        # If no known list key, treat the dict itself as a single entry
+        return [payload]
+    return []
+
+
+def _safe_int(value: Any) -> Optional[int]:
+    """Safely convert a value to int, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_vlan_isid(connection: Connection, vlan_id: int) -> Optional[int]:
+    """Get the I-SID associated with a VLAN, if any."""
+    try:
+        # Query all ISIDs and find the one for this VLAN
+        data = connection.send_request(None, path="/v0/configuration/spbm/l2/isid", method="GET")
+        isid_entries = _ensure_isid_list(data)
+        for isid_entry in isid_entries:
+            # Compare as ints to handle API returning platformVlanId as string
+            entry_vlan_id = _safe_int(isid_entry.get("platformVlanId"))
+            if entry_vlan_id == vlan_id:
+                return _safe_int(isid_entry.get("isid"))
+    except ConnectionError as exc:
+        # Only treat 404 (not found) as "no I-SID configured" and return None.
+        # Re-raise other connection errors (auth, permission, server errors) to avoid
+        # incorrect behavior like attempting to create duplicate I-SIDs.
+        exc_code = getattr(exc, "code", None)
+        if exc_code == 404:
+            return None
+        raise
+    return None
+
+
+def create_vlan_isid(connection: Connection, vlan_id: int, i_sid: int) -> None:
+    """Create an I-SID association for a VLAN (CVLAN type)."""
+    payload = {
+        "isidType": "CVLAN",
+        "isid": i_sid,
+        "platformVlanId": vlan_id,
+    }
+    connection.send_request(payload, path="/v0/configuration/spbm/l2/isid", method="POST")
+
+
 def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> Dict[str, object]:
     vlan_id = module.params.get("vlan_id")
     if vlan_id is None:
@@ -767,6 +895,29 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
             update_vlan(connection, vlan_id, update_payload)
             refresh_needed = True
 
+    # Handle I-SID configuration
+    i_sid = module.params.get("i_sid")
+    if i_sid is not None:
+        current_isid = get_vlan_isid(connection, vlan_id)
+        if current_isid is None:
+            # No I-SID exists, create it
+            changed = True
+            if not module.check_mode:
+                create_vlan_isid(connection, vlan_id, i_sid)
+            existing["i_sid"] = i_sid
+        elif current_isid == i_sid:
+            # I-SID already matches desired value, reflect actual device state
+            existing["i_sid"] = current_isid
+        else:
+            # I-SID exists but differs - fail with clear message
+            # The API doesn't support updating i-sid directly
+            raise FeVlansError(
+                f"VLAN {vlan_id} has I-SID {current_isid} configured but requested I-SID {i_sid}. "
+                "The API does not support updating I-SID directly. "
+                "Delete the existing I-SID first using extreme.fe.extreme_fe_fabric_l2 with state=deleted. "
+                "See the 'Delete existing ISID' step in examples/provision_vlan_service.yml for reference."
+            )
+
     additions, removals = _resolve_membership_operations(module, existing, state)
 
     membership_ops_requested = any(additions.values()) or any(removals.values())
@@ -787,7 +938,14 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
     if not module.check_mode and refresh_needed:
         refreshed = get_vlan_config(connection, vlan_id)
         if refreshed is not None:
+            # Preserve i_sid since get_vlan_config doesn't return it
+            preserved_isid = existing.get("i_sid")
             existing = refreshed
+            if preserved_isid is not None:
+                existing["i_sid"] = preserved_isid
+            elif i_sid is not None:
+                # Re-fetch i_sid after refresh if it was requested
+                existing["i_sid"] = get_vlan_isid(connection, vlan_id)
 
     return {"changed": changed, "vlan": existing}
 
