@@ -15,13 +15,13 @@ module: extreme_fe_l3_interfaces
 short_description: Manage Layer 3 interfaces on ExtremeNetworks Fabric Engine switches
 version_added: 1.2.0
 description:
-- Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport.
-- Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible ``ios_l3_interfaces`` and ``junos_l3_interfaces`` modules.
-- Updates rely on the Fabric Engine REST resources ``/v0/configuration/vlan/{vlan_id}/address`` and ``/v0/configuration/loopback/{id}`` as defined in ``nos-openapi-09-15-2025.yaml``.
+- Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport.
+- Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible C(ios_l3_interfaces) and C(junos_l3_interfaces) modules.
+- Updates rely on the Fabric Engine REST resources C(/v0/configuration/vlan/{vlan_id}/address) and C(/v0/configuration/loopback/{id}) as defined in C(nos-openapi-09-15-2025.yaml).
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
 - VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
 requirements:
 - ansible.netcommon
@@ -29,14 +29,14 @@ options:
   config:
     description:
     - List of Layer 3 interface definitions to manage.
-    - When omitted with ``state: gathered``, the module returns all VLAN and loopback interfaces that have IP addressing configured.
+    - When omitted with C(state=gathered), the module returns all VLAN and loopback interfaces that have IP addressing configured.
     type: list
     elements: dict
     suboptions:
       name:
         description:
-        - Interface identifier for readability, such as ``VLAN 20`` or ``Loopback 10``.
-        - When ``type`` is not supplied, the module attempts to infer the interface type and identifier from ``name``.
+        - Interface identifier for readability, such as C(VLAN 20) or C(Loopback 10).
+        - When C(type) is not supplied, the module attempts to infer the interface type and identifier from C(name).
         type: str
       type:
         description:
@@ -58,13 +58,13 @@ options:
       ipv4:
         description:
         - IPv4 addresses to manage on the interface.
-        - Accepts CIDR strings (for example ``10.0.1.1/24``) or dictionaries with ``address`` and ``prefix``/``mask``/``mask_length`` keys.
+        - Accepts CIDR strings (for example C(10.0.1.1/24)) or dictionaries with C(address) and C(prefix)/C(mask)/C(mask_length) keys.
         type: list
         elements: raw
       ipv6:
         description:
         - IPv6 addresses to manage on the interface.
-        - Accepts CIDR strings or dictionaries with ``address`` and ``prefix``/``mask_length`` keys.
+        - Accepts CIDR strings or dictionaries with C(address) and C(prefix)/C(mask_length) keys.
         type: list
         elements: raw
   state:
@@ -183,7 +183,7 @@ changed:
   returned: always
   type: bool
 interfaces:
-  description: Final Layer 3 interface configuration after the module ran (or gathered data when ``state: gathered``).
+  description: Final Layer 3 interface configuration after the module ran (or gathered data when C(state=gathered)).
   returned: always
   type: list
   elements: dict
