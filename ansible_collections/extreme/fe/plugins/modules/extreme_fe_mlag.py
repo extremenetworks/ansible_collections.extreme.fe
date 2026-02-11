@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils._text import to_text
+from ansible.module_utils.common.text.converters import to_text
 
 from typing import Any, Dict, List, Optional, Union
 
@@ -547,12 +547,27 @@ class MlagModule:
         try:
             # Gather peer configuration
             peers_response = self._send_request('GET', '/v0/configuration/mlag/peers')
+
+            # Fetch state payload once outside the loop and index by peerId
+            # This avoids N+1 API calls when iterating peers
+            peers_state_map: Dict[Any, Dict[str, Any]] = {}
+            try:
+                state_response = self._send_request('GET', '/v0/state/mlag/peers')
+                if state_response:
+                    for state_peer in state_response:
+                        state_peer_id = state_peer.get('peerId')
+                        if state_peer_id is not None:
+                            peers_state_map[state_peer_id] = state_peer
+            except Exception:
+                # Treat connection errors as "no state available"
+                pass
+
             if peers_response:
                 for peer in peers_response:
                     peer_id = peer.get('peerId')
                     if peer_ids_filter and peer_id not in peer_ids_filter:
                         continue
-                    
+
                     # Extract IP address from nested object structure
                     peer_ip_obj = peer.get('peerIpAddress', {})
                     peer_ip_address = peer_ip_obj.get('address') if peer_ip_obj else None
@@ -564,7 +579,7 @@ class MlagModule:
                         'peer_ip_address': peer_ip_address,
                         'local_vlan_id': peer.get('vistVlanId'),
                     }
-                    
+
                     # Gather port information if requested
                     if include_ports:
                         try:
@@ -578,30 +593,25 @@ class MlagModule:
                             else:
                                 peer_data['ports'] = []
                         except Exception:
+                            # Treat errors as empty ports list
                             peer_data['ports'] = []
-                    
-                    # Always fetch state for local_ip_address (config endpoint doesn't return it on VOSS)
-                    # Add full state object only when include_state is true
-                    try:
-                        state_response = self._send_request('GET', '/v0/state/mlag/peers')
-                        if state_response:
-                            for state_peer in state_response:
-                                if state_peer.get('peerId') == peer_id:
-                                    # Extract local_ip_address from state (not available in config on VOSS)
-                                    state_local_ip_obj = state_peer.get('localIpAddress', {})
-                                    peer_data['local_ip_address'] = state_local_ip_obj.get('address') if state_local_ip_obj else None
 
-                                    # Add detailed state info only if requested
-                                    if include_state:
-                                        peer_data['state'] = {
-                                            'checkpointing_state': state_peer.get('checkpointingState'),
-                                            'hello_state': state_peer.get('helloState'),
-                                            'counters': state_peer.get('counters', {})
-                                        }
-                                    break
-                    except Exception:
-                        pass
-                    
+                    # Use pre-fetched state to get local_ip_address (config endpoint doesn't return it on VOSS)
+                    # Add full state object only when include_state is true
+                    state_peer = peers_state_map.get(peer_id)
+                    if state_peer:
+                        # Extract local_ip_address from state (not available in config on VOSS)
+                        state_local_ip_obj = state_peer.get('localIpAddress', {})
+                        peer_data['local_ip_address'] = state_local_ip_obj.get('address') if state_local_ip_obj else None
+
+                        # Add detailed state info only if requested
+                        if include_state:
+                            peer_data['state'] = {
+                                'checkpointing_state': state_peer.get('checkpointingState'),
+                                'hello_state': state_peer.get('helloState'),
+                                'counters': state_peer.get('counters', {})
+                            }
+
                     facts['peers'].append(peer_data)
 
             # Gather RSMLT configuration if requested
@@ -612,35 +622,45 @@ class MlagModule:
                         rsmlt_list = rsmlt_response if isinstance(rsmlt_response, list) else [rsmlt_response]
                     else:
                         rsmlt_list = []
-                            
+
+                    # Fetch RSMLT state once outside the loop and index by vlanId
+                    # This avoids N+1 API calls when iterating VLAN configs
+                    rsmlt_state_map: Dict[Any, Dict[str, Any]] = {}
+                    if include_state:
+                        try:
+                            rsmlt_state_response = self._send_request('GET', '/v0/state/mlag/rsmlt')
+                            if rsmlt_state_response:
+                                for state_vlan in rsmlt_state_response:
+                                    state_vlan_id = state_vlan.get('vlanId')
+                                    if state_vlan_id is not None:
+                                        rsmlt_state_map[state_vlan_id] = state_vlan
+                        except Exception:
+                            # Treat errors as "no RSMLT state available"
+                            pass
+
                     for vlan_config in rsmlt_list:
-                                vlan_id = vlan_config.get('vlanId')
-                                rsmlt_instances = vlan_config.get('rsmltInstances', [])
-                                for instance in rsmlt_instances:
-                                    instance_data = {
-                                        'vlan_id': vlan_id,
-                                        'enabled': instance.get('enabled'),
-                                        'hold_up_timer': instance.get('holdUpTimer'),
-                                        'hold_down_timer': instance.get('holdDownTimer')
-                                    }
-                                    
-                                    # Add state information if requested
-                                    if include_state:
-                                        try:
-                                            state_response = self._send_request('GET', '/v0/state/mlag/rsmlt')
-                                            if state_response:
-                                                for state_vlan in state_response:
-                                                    if state_vlan.get('vlanId') == vlan_id:
-                                                        state_instances = state_vlan.get('rsmltInstances', [])
-                                                        for state_instance in state_instances:
-                                                            instance_data['operational_state'] = state_instance.get('operationalState')
-                                                            break
-                                                        break
-                                        except Exception:
-                                            pass
-                                    
-                                    facts['rsmlt']['instances'].append(instance_data)
+                        vlan_id = vlan_config.get('vlanId')
+                        rsmlt_instances = vlan_config.get('rsmltInstances', [])
+                        for instance in rsmlt_instances:
+                            instance_data = {
+                                'vlan_id': vlan_id,
+                                'enabled': instance.get('enabled'),
+                                'hold_up_timer': instance.get('holdUpTimer'),
+                                'hold_down_timer': instance.get('holdDownTimer')
+                            }
+
+                            # Add state information if requested (use pre-fetched state)
+                            if include_state:
+                                state_vlan = rsmlt_state_map.get(vlan_id)
+                                if state_vlan:
+                                    state_instances = state_vlan.get('rsmltInstances', [])
+                                    for state_instance in state_instances:
+                                        instance_data['operational_state'] = state_instance.get('operationalState')
+                                        break
+
+                            facts['rsmlt']['instances'].append(instance_data)
                 except Exception:
+                    # Treat errors as empty RSMLT config
                     pass
 
         except Exception as e:

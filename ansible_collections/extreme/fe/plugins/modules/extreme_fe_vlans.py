@@ -7,7 +7,7 @@ import copy
 
 from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils._text import to_text
+from ansible.module_utils.common.text.converters import to_text
 
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -806,7 +806,8 @@ def get_vlan_isid(connection: Connection, vlan_id: int) -> Optional[int]:
                 if isid_entry.get("platformVlanId") == vlan_id:
                     return isid_entry.get("isid")
     except ConnectionError:
-        pass
+        # Treat connection errors the same as "no I-SID found" and return None.
+        return None
     return None
 
 
@@ -871,14 +872,24 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
     i_sid = module.params.get("i_sid")
     if i_sid is not None:
         current_isid = get_vlan_isid(connection, vlan_id)
-        if current_isid != i_sid:
+        if current_isid is None:
+            # No I-SID exists, create it
             changed = True
             if not module.check_mode:
-                if current_isid is None:
-                    create_vlan_isid(connection, vlan_id, i_sid)
-                # Note: If i-sid already exists but differs, user must delete it first via CLI
-                # The API doesn't support updating i-sid directly
+                create_vlan_isid(connection, vlan_id, i_sid)
             existing["i_sid"] = i_sid
+        elif current_isid == i_sid:
+            # I-SID already matches desired value, reflect actual device state
+            existing["i_sid"] = current_isid
+        else:
+            # I-SID exists but differs - fail with clear message
+            # The API doesn't support updating i-sid directly
+            raise FeVlansError(
+                f"VLAN {vlan_id} has I-SID {current_isid} configured but requested I-SID {i_sid}. "
+                "The API does not support updating I-SID directly. "
+                "Delete the existing I-SID first using extreme.fe.extreme_fe_fabric_l2 with state=deleted. "
+                "See the 'Delete existing ISID' step in examples/provision_vlan_service.yml for reference."
+            )
 
     additions, removals = _resolve_membership_operations(module, existing, state)
 
@@ -900,7 +911,14 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
     if not module.check_mode and refresh_needed:
         refreshed = get_vlan_config(connection, vlan_id)
         if refreshed is not None:
+            # Preserve i_sid since get_vlan_config doesn't return it
+            preserved_isid = existing.get("i_sid")
             existing = refreshed
+            if preserved_isid is not None:
+                existing["i_sid"] = preserved_isid
+            elif i_sid is not None:
+                # Re-fetch i_sid after refresh if it was requested
+                existing["i_sid"] = get_vlan_isid(connection, vlan_id)
 
     return {"changed": changed, "vlan": existing}
 
