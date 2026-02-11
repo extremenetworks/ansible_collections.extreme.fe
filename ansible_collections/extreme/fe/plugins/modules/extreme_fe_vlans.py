@@ -791,23 +791,50 @@ def delete_vlan(connection: Connection, vr_name: str, vlan_id: int) -> None:
     connection.send_request(None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE")
 
 
+def _ensure_isid_list(payload: Optional[Any]) -> List[Dict[str, Any]]:
+    """Normalize API response to a list of dicts, handling various response formats."""
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if isinstance(payload, dict):
+        # Check common keys used by the API: "isids", "items", "data", "results"
+        for key in ("isids", "items", "data", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return [item for item in value if isinstance(item, dict)]
+        # If no known list key, treat the dict itself as a single entry
+        return [payload]
+    return []
+
+
+def _safe_int(value: Any) -> Optional[int]:
+    """Safely convert a value to int, returning None on failure."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def get_vlan_isid(connection: Connection, vlan_id: int) -> Optional[int]:
     """Get the I-SID associated with a VLAN, if any."""
     try:
         # Query all ISIDs and find the one for this VLAN
         data = connection.send_request(None, path="/v0/configuration/spbm/l2/isid", method="GET")
-        if isinstance(data, list):
-            for isid_entry in data:
-                if isid_entry.get("platformVlanId") == vlan_id:
-                    return isid_entry.get("isid")
-        elif isinstance(data, dict):
-            items = data.get("items", data.get("data", []))
-            for isid_entry in items:
-                if isid_entry.get("platformVlanId") == vlan_id:
-                    return isid_entry.get("isid")
-    except ConnectionError:
-        # Treat connection errors the same as "no I-SID found" and return None.
-        return None
+        isid_entries = _ensure_isid_list(data)
+        for isid_entry in isid_entries:
+            # Compare as ints to handle API returning platformVlanId as string
+            entry_vlan_id = _safe_int(isid_entry.get("platformVlanId"))
+            if entry_vlan_id == vlan_id:
+                return _safe_int(isid_entry.get("isid"))
+    except ConnectionError as exc:
+        # Only treat 404 (not found) as "no I-SID configured" and return None.
+        # Re-raise other connection errors (auth, permission, server errors) to avoid
+        # incorrect behavior like attempting to create duplicate I-SIDs.
+        exc_code = getattr(exc, "code", None)
+        if exc_code == 404:
+            return None
+        raise
     return None
 
 

@@ -208,7 +208,7 @@ EXAMPLES = r"""
 
 - name: Display PoE status (clean format)
   ansible.builtin.debug:
-    msg: "{{ poe_info.gathered | to_nice_yaml }}"
+    msg: "{{ poe_info.ports | to_nice_yaml }}"
 """
 
 RETURN = r"""
