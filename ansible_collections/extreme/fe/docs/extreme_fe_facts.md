@@ -4,7 +4,7 @@
 
 module: extreme_fe_facts
 short_description: Gather facts from ExtremeNetworks Fabric Engine switches
-version_added: 1.2.0
+version_added: 1.0.0
 description:
 - Collect state, hardware, interface, configuration, and neighbor facts from
   ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.

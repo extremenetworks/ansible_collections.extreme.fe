@@ -4,7 +4,7 @@
 
 module: extreme_fe_save_config
 short_description: Save the running configuration on ExtremeNetworks Fabric Engine switches
-version_added: 1.3.0
+version_added: 1.0.0
 description:
 - Save the current Fabric Engine (VOSS) running configuration to the active or specified
   configuration file via the custom ``extreme_fe`` HTTPAPI plugin.
