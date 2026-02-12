@@ -154,6 +154,8 @@ EXAMPLES = r"""
 # Full playbook examples with prerequisites:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # =========================================================================
 #
 # Prerequisites:
