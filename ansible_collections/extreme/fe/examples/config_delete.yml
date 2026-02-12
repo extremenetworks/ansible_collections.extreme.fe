@@ -1,0 +1,75 @@
+---
+# =============================================================================
+# Config File Cleanup - Remove Saved Configuration Files
+# =============================================================================
+#
+# What this does:
+#   Deletes a saved configuration file from the switch
+#
+# Use case:
+#   Clean up temporary or test configuration files
+#
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+#
+# Delete a specific config file (e.g., iot-config.cfg):
+#   ansible-playbook config_delete.yml -i inventory.ini -e config_name=iot-config.cfg
+#
+# Dry run (check mode) - see what would be deleted without making changes:
+#   ansible-playbook config_delete.yml -i inventory.ini -e config_name=test.cfg --check
+#
+# NOTE: config_name parameter is REQUIRED. Example: -e config_name=myconfig.cfg
+#
+# =============================================================================
+
+- name: Cleanup Config File
+  hosts: switches
+  gather_facts: false
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Step 1: Validate required parameter
+    # -------------------------------------------------------------------------
+    - name: "Step 1 - Validate config_name parameter"
+      ansible.builtin.assert:
+        that:
+          - config_name is defined
+        fail_msg:
+          - "ERROR: config_name parameter is required!"
+          - "Usage: ansible-playbook config_delete.yml -i inventory.ini -e config_name=CONFIG_FILE"
+          - "Example: ansible-playbook config_delete.yml -i inventory.ini -e config_name=myconfig.cfg"
+        success_msg: "Parameter validated - proceeding with cleanup"
+
+    # -------------------------------------------------------------------------
+    # Step 2: Show what will be removed
+    # -------------------------------------------------------------------------
+    - name: "Step 2 - Show cleanup target"
+      ansible.builtin.debug:
+        msg:
+          - "=== CONFIG CLEANUP ==="
+          - "Target config file: {{ config_name }}"
+
+    # -------------------------------------------------------------------------
+    # Step 3: Delete config file
+    # -------------------------------------------------------------------------
+    - name: "Step 3 - Delete config file {{ config_name }}"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - "delete \"{{ config_name }}\""
+      register: cleanup_config_result
+      ignore_errors: true
+
+    - name: "Step 3 - Show config file deletion result"
+      ansible.builtin.debug:
+        msg:
+          - "Config file {{ config_name }} deletion: {{ cleanup_config_result.changed | default(false) | ternary('SUCCESS', 'NOT FOUND or ERROR') }}"
+
+    # -------------------------------------------------------------------------
+    # Summary
+    # -------------------------------------------------------------------------
+    - name: "Cleanup Summary"
+      ansible.builtin.debug:
+        msg:
+          - "=== CONFIG CLEANUP COMPLETE ==="
+          - "Config {{ config_name }} deleted: {{ cleanup_config_result.changed | default(false) | ternary('✓ YES', '✗ NO') }}"
