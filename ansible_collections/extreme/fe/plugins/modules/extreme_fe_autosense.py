@@ -15,31 +15,31 @@ module: extreme_fe_autosense
 short_description: Manage Fabric Engine auto-sense settings and port behaviour
 version_added: 1.6.0
 description:
-    - Manage global auto-sense settings and per-port overrides on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.
+    - Manage global auto-sense settings and per-port overrides on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
     - Supports Fabric Attach profiles, voice and DiffServ parameters, multihost limits, onboarding defaults, and per-port auto-sense toggles and wait timers.
-    - Provides a gathered mode that reports the full configuration and live auto-sense port state from ``/v0/state/autosense/ports``.
+    - Provides a gathered mode that reports the full configuration and live auto-sense port state from C(/v0/state/autosense/ports).
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
-    - Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
-    - Port identifiers must use slot:port notation such as ``1:5``.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
+    - Port identifiers must use slot:port notation such as C(1:5).
 requirements:
     - ansible.netcommon
 options:
     state:
         description:
             - Desired module operation.
-            - ``merged`` applies the provided settings as an incremental merge.
-            - ``replaced`` makes the supplied values authoritative for the targeted resources.
-            - ``overridden`` replaces the running configuration with the supplied values and removes entries that are not provided.
-            - ``deleted`` removes the specified per-port overrides.
-            - ``gathered`` returns the current configuration (and optional state payloads) without making changes.
+            - C(merged) applies the provided settings as an incremental merge.
+            - C(replaced) makes the supplied values authoritative for the targeted resources.
+            - C(overridden) replaces the running configuration with the supplied values and removes entries that are not provided.
+            - C(deleted) removes the specified per-port overrides.
+            - C(gathered) returns the current configuration (and optional state payloads) without making changes.
         type: str
         choices: [merged, replaced, overridden, deleted, gathered]
         default: merged
     global_settings:
         description:
-            - Global auto-sense settings applied through ``/v0/configuration/autosense``.
+            - Global auto-sense settings applied through C(/v0/configuration/autosense).
         type: dict
         suboptions:
             access_diffserv_enabled:
@@ -48,7 +48,7 @@ options:
                 type: bool
             data_isid:
                 description:
-                    - Data I-SID assigned to auto-sense data roles. ``0`` clears the value.
+                    - Data I-SID assigned to auto-sense data roles. C(0) clears the value.
                 type: int
             dhcp_detection_enabled:
                 description:
@@ -109,7 +109,7 @@ options:
                                 choices: [AUTO, FORCE_AUTHORIZED]
                             isid:
                                 description:
-                                    - Fabric Attach camera I-SID. ``0`` clears the association.
+                                    - Fabric Attach camera I-SID. C(0) clears the association.
                                 type: int
                     ovs:
                         description:
@@ -118,7 +118,7 @@ options:
                         suboptions:
                             isid:
                                 description:
-                                    - Fabric Attach OVS I-SID. ``0`` clears the association.
+                                    - Fabric Attach OVS I-SID. C(0) clears the association.
                                 type: int
                             status:
                                 description:
@@ -136,7 +136,7 @@ options:
                                 type: int
                             mgmt_isid:
                                 description:
-                                    - Management I-SID used for proxy traffic. ``0`` clears the value.
+                                    - Management I-SID used for proxy traffic. C(0) clears the value.
                                 type: int
                             no_auth_isid:
                                 description:
@@ -149,7 +149,7 @@ options:
                         suboptions:
                             isid:
                                 description:
-                                    - WAP I-SID. ``0`` clears the association.
+                                    - WAP I-SID. C(0) clears the association.
                                 type: int
                             status:
                                 description:
@@ -198,7 +198,7 @@ options:
                         type: bool
             onboarding_isid:
                 description:
-                    - Onboarding I-SID used while auto-sense negotiations complete. ``0`` clears the value.
+                    - Onboarding I-SID used while auto-sense negotiations complete. C(0) clears the value.
                 type: int
             voice:
                 description:
@@ -215,7 +215,7 @@ options:
                         type: bool
                     isid:
                         description:
-                            - Voice I-SID used by auto-sense ports. ``0`` clears the association.
+                            - Voice I-SID used by auto-sense ports. C(0) clears the association.
                         type: int
             wait_interval:
                 description:
@@ -223,13 +223,13 @@ options:
                 type: int
     ports:
         description:
-            - Per-port auto-sense overrides applied through ``/v0/configuration/autosense/port/{port}``.
+            - Per-port auto-sense overrides applied through C(/v0/configuration/autosense/port/{port}).
         type: list
         elements: dict
         suboptions:
             name:
                 description:
-                    - Port identifier (slot:port notation such as ``1:5``).
+                    - Port identifier (slot:port notation such as C(1:5)).
                 type: str
                 required: true
             enable:
@@ -238,7 +238,7 @@ options:
                 type: bool
             nsi:
                 description:
-                    - Network service identifier (I-SID). ``0`` clears the association.
+                    - Network service identifier (I-SID). C(0) clears the association.
                 type: int
             wait_interval:
                 description:
@@ -251,7 +251,7 @@ options:
         elements: str
     gather_state:
         description:
-            - When true, include data from ``/v0/state/autosense/ports`` in the result.
+            - When true, include data from C(/v0/state/autosense/ports) in the result.
         type: bool
         default: false
 """
@@ -378,11 +378,11 @@ port_updates:
   returned: when port settings changed
   type: list
 port_removals:
-    description: Ports whose overrides were removed when using ``state: deleted`` or ``state: overridden``.
-    returned: when port overrides were cleared
-    type: list
+  description: Ports whose overrides were removed when using C(state=deleted) or C(state=overridden).
+  returned: when port overrides were cleared
+  type: list
 ports_state:
-  description: Auto-sense state payload returned from ``/v0/state/autosense/ports`` when requested.
+  description: Auto-sense state payload returned from C(/v0/state/autosense/ports) when requested.
   returned: when gather_state is true
   type: list
 """

@@ -18,32 +18,32 @@ short_description: Gather facts from ExtremeNetworks Fabric Engine switches
 version_added: 1.2.0
 description:
 - Collect state, hardware, interface, configuration, and neighbor facts from
-  ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.
+  ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Optionally gather structured network resource data for interfaces, VLANs, routing,
   and other subsystems to support idempotent automation plays.
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
 - Targets Fabric Engine (VOSS) platforms. Resources not available on Fabric Engine are
   skipped automatically.
 options:
   gather_subset:
     description:
-    - List of fact subsets to collect. Use ``all`` to gather every supported subset.
-      Prefix a subset with ``!`` to exclude it when ``all`` is specified.
-    - Supported subsets: ``default``, ``hardware``, ``interfaces``, ``config``, ``neighbors``.
+    - List of fact subsets to collect. Use C(all) to gather every supported subset.
+      Prefix a subset with C(!) to exclude it when C(all) is specified.
+    - "Supported subsets: C(default), C(hardware), C(interfaces), C(config), C(neighbors)."
     type: list
     elements: str
     default: [default]
   gather_network_resources:
     description:
-    - List of network resource names to collect. Use ``all`` to gather every supported
+    - List of network resource names to collect. Use C(all) to gather every supported
       resource. Resources that are unavailable on the device are ignored.
-    - Supported resources: ``interfaces``, ``l2_interfaces``, ``l3_interfaces``, ``vlans``,
-      ``lag_interfaces``, ``vrfs``, ``static_routes``, ``ospfv2``, ``vrrp``, ``lldp``, ``cdp``,
-      ``ntp``, ``dns``, ``snmp_server``, ``syslog``, ``anycast_gateway``, ``isid``.
+    - "Supported resources: C(interfaces), C(l2_interfaces), C(l3_interfaces), C(vlans),
+      C(lag_interfaces), C(vrfs), C(static_routes), C(ospfv2), C(vrrp), C(lldp), C(cdp),
+      C(ntp), C(dns), C(snmp_server), C(syslog), C(anycast_gateway), C(isid)."
     type: list
     elements: str
 requirements:
@@ -129,7 +129,7 @@ EXAMPLES = r"""
 
 RETURN = r"""
 changed:
-  description: Indicates whether any changes were made. Always ``false``.
+  description: Indicates whether any changes were made. Always C(false).
   returned: always
   type: bool
 ansible_facts:
