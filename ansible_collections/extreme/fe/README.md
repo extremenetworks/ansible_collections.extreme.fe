@@ -4,7 +4,7 @@
 
 The Ansible Extreme Networks Fabric Engine collection includes a variety of Ansible content to help automate the management of Extreme Networks Fabric Engine (VOSS) network switches.
 
-This collection has been tested against Fabric Engine VOSS 9.2.0.0.
+This collection has been tested against Fabric Engine VOSS 9.3.2.0.
 
 ## Communication
 
@@ -86,14 +86,14 @@ This collection includes [network resource modules](https://docs.ansible.com/ans
 
 ### Requirements
 
-- **Extreme Networks FabricEngine Switches:** With REST API enabled.
+- **Extreme Networks Fabric Engine Switches:** With REST API enabled.
 - **Network Connectivity:** Your Ansible control node must have network connectivity to the managed switches.
 
 ### Enable REST API on Switch
 
-Before using this Ansible collection, you must enable the REST API (OpenAPI) on your Extreme Networks FabricEngine switch.
+Before using this Ansible collection, you must enable the REST API (OpenAPI) on your Extreme Networks Fabric Engine switch.
 
-**⚠️ License Requirement:** The REST API (OpenAPI) feature requires an **EP1 (Endpoint Protection 1)** or **Premier** license on your FabricEngine switch. Without the appropriate license, the `openapi local-mgmt enable` command will not be available.
+**⚠️ License Requirement:** The REST API (OpenAPI) feature requires an **EP1 (Extreme Platform ONE)** or **Premier** license on your Fabric Engine switch. Without the appropriate license, the `openapi local-mgmt enable` command will not be available.
 
 #### Enable via CLI
 
@@ -168,9 +168,10 @@ For production use, **do not store passwords in plain text**. Use Ansible Vault:
 # Create encrypted password file
 ansible-vault create secrets.yml
 
-# Add your credentials (in the editor that opens)
-ansible_user: admin
-ansible_password: your_secure_password
+# Add your credentials in YAML format (in the editor that opens):
+# ---
+# ansible_user: "admin"
+# ansible_password: "your_secure_password"
 
 # Run playbook with vault and load variables from secrets.yml
 ansible-playbook -i inventory.ini playbook.yml -e @secrets.yml --ask-vault-pass
@@ -262,7 +263,7 @@ This collection follows the Ansible project's [Code of Conduct](https://docs.ans
 
 ## Release notes
 
-Release notes are available in the [CHANGELOG.md](https://github.com/extremenetworks/ansible_collections.extreme.fe/blob/main/CHANGELOG.md).
+Release notes are available in the [CHANGELOG.rst](https://github.com/extremenetworks/ansible_collections.extreme.fe/blob/main/CHANGELOG.rst).
 
 ## Roadmap
 

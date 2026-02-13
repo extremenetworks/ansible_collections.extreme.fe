@@ -14,7 +14,7 @@ from urllib.parse import quote
 DOCUMENTATION = r"""
 module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
-version_added: 1.3.0
+version_added: 1.0.0
 description:
 - Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom ``extreme_fe`` HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
@@ -105,39 +105,108 @@ return_values:
 """
 
 EXAMPLES = r"""
-- name: Ping an IPv4 host from GlobalRouter
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Run IPv4 ping
-      extreme_fe_ping:
-        host: 10.0.10.1
-        count: 5
-        datasize: 64
-        vrf: GlobalRouter
+# Task-level examples for ansible-doc:
 
-- name: Ping an IPv6 host from a management VLAN context
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Run IPv6 ping through mgmt VLAN
-      extreme_fe_ping:
-        host: 2001:db8:100::1
-        management_type: VLAN
-        timeout_interval: 10
-        transmission_interval: 2
+# =========================================================================
+# Full playbook examples with prerequisites:
+# To create a complete playbook, uncomment the lines starting with:
+#   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
+# =========================================================================
+#
+# Prerequisites:
+#
+# 1. The switches must have IP connectivity to the target:
+#    - Management IP configured on the switch
+#    - Routing configured if target is on a different subnet
+#    - VRF specified correctly (GlobalRouter for default VRF)
+#
+# 2. Inventory must have 'ansible_host' defined for each switch:
+#    # inventory.ini example:
+#    # [switches]
+#    # fe_sw_1 ansible_host=SWITCH_1_IP_ADDRESS
+#    # fe_sw_2 ansible_host=SWITCH_2_IP_ADDRESS
+#
+# 3. Target hosts must be reachable:
+#    - Firewalls allow ICMP traffic
+#    - Target device responds to ping
+#
+# 4. For VRF-specific pings:
+#    - VRF must exist on the switch
+#    - IP interface must be in the specified VRF
+#
+# 5. Timeout configuration:
+#    - The REST API ping operation blocks until completion
+#    - With count*timeout_interval seconds, the API may take longer
+#    - If you see "command timeout triggered", increase ansible_command_timeout
+#    - Example in inventory.ini:
+#    # [switches:vars]
+#    # ansible_command_timeout=120
+#
+## Verify connectivity manually:
+# ping <target_ip> vrf GlobalRouter
 
-- name: Ping using a specific egress interface
-  hosts: switches
-  gather_facts: false
-  tasks:
-    - name: Use port 1:5 as the source interface
-      extreme_fe_ping:
-        host: server01.example.com
-        interface:
-          type: GIGABITETHERNET
-          port: "1:5"
-        count: 3
+# -------------------------------------------------------------------------
+# Task 1: Ping peer switch from fe_sw_1 (via management interface)
+# Description:
+#   - This example demonstrates how to test network connectivity between
+#     switches using the ping module. The target IP is dynamically obtained
+#     from inventory hostvars, making the playbook portable across different
+#     environments. The ping is executed from fe_sw_1 to fe_sw_2 using the
+#     management interface (AUTO - automatically selects the appropriate interface).
+# -------------------------------------------------------------------------
+# - name: "Task 1: Ping peer switch fe_sw_2 from fe_sw_1 (via mgmt)"
+#   hosts: fe_sw_1
+#   gather_facts: false
+#   vars:
+#     # Target is the peer switch fe_sw_2 from inventory
+#     peer_switch_ip: "{{ hostvars['fe_sw_2']['ansible_host'] }}"
+#     ansible_command_timeout: 120
+#   tasks:
+- name: Run IPv4 ping to peer switch via management
+  extreme.fe.extreme_fe_ping:
+    host: "{{ peer_switch_ip }}"
+    count: 1
+    management_type: AUTO
+
+# -------------------------------------------------------------------------
+# Task 2: Ping peer switch from fe_sw_2 (reverse direction, via mgmt)
+# Description:
+#   - This example shows how to verify connectivity in the reverse direction,
+#     from fe_sw_2 back to fe_sw_1. This validates bidirectional communication
+#     between the switches using the management interface.
+# -------------------------------------------------------------------------
+# - name: "Task 2: Ping peer switch fe_sw_1 from fe_sw_2 (reverse direction)"
+#   hosts: fe_sw_2
+#   gather_facts: false
+#   vars:
+#     peer_switch_ip: "{{ hostvars['fe_sw_1']['ansible_host'] }}"
+#     ansible_command_timeout: 120
+#   tasks:
+- name: Run IPv4 ping to peer switch via management
+  extreme.fe.extreme_fe_ping:
+    host: "{{ peer_switch_ip }}"
+    count: 1
+    management_type: AUTO
+
+# -------------------------------------------------------------------------
+# Task 3: Ping gateway from switches (via mgmt)
+# Description:
+#   - This example demonstrates running a ping test to the default gateway
+#     via the management interface to verify basic upstream connectivity.
+# -------------------------------------------------------------------------
+# - name: "Task 3: Ping gateway from switches via management"
+#   hosts: switches
+#   gather_facts: false
+#   vars:
+#     ansible_command_timeout: 120
+#   tasks:
+- name: Ping default gateway via management
+  extreme.fe.extreme_fe_ping:
+    host: GATEWAY_IP_ADDRESS
+    count: 1
+    management_type: AUTO
 """
 
 RETURN = r"""

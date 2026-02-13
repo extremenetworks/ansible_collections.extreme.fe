@@ -1,6 +1,6 @@
-# Example Ansible Playbooks for Extreme Networks FabricEngine
+# Example Ansible Playbooks for Extreme Networks Fabric Engine
 
-This folder contains **example playbooks** demonstrating how to use the `extreme.fe` Ansible collection to automate Extreme Networks FabricEngine switches.
+This folder contains **example playbooks** demonstrating how to use the `extreme.fe` Ansible collection to automate Extreme Networks Fabric Engine switches.
 
 **NOTE:** These examples are intended for learning and testing purposes. Review and adapt them to your environment before production use.
 
@@ -12,8 +12,8 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 *   **Python:** Tested with:
                 - python version = 3.12.3
 *   **Ansible Collections:**
-    *   `extreme.fe` (Extreme Networks FabricEngine collection)
-*   **Extreme Networks FabricEngine Switches:** With REST API enabled.
+    *   `extreme.fe` (Extreme Networks Fabric Engine collection)
+*   **Extreme Networks Fabric Engine Switches:** With REST API enabled.
     *   See [Enable REST API on Switch](#enable-rest-api-on-switch) section below.
 *   **Network Connectivity:** Your Ansible control node must have network connectivity to the managed switches.
 
@@ -46,9 +46,9 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 
 ## Enable REST API on Switch
 
-Before using this Ansible collection, you must enable the REST API (OpenAPI) on your Extreme Networks FabricEngine switch.
+Before using this Ansible collection, you must enable the REST API (OpenAPI) on your Extreme Networks Fabric Engine switch.
 
-**⚠️ License Requirement:** The REST API (OpenAPI) feature requires an **EP1 (Endpoint Protection 1)** or **Premier** license on your FabricEngine switch. Without the appropriate license, the `openapi local-mgmt enable` command will not be available.
+**⚠️ License Requirement:** The REST API (OpenAPI) feature requires an **EP1 (Extreme Platform ONE)** or **Premier** license on your Fabric Engine switch. Without the appropriate license, the `openapi local-mgmt enable` command will not be available.
 
 ### Enable via CLI
 
@@ -89,7 +89,7 @@ If the REST API is working, you should receive a JSON response.
     pip install ansible
     ```
 
-2.  **Install the Extreme FabricEngine Collection:**
+2.  **Install the Extreme Fabric Engine Collection:**
 
     ```bash
     ansible-galaxy collection install extreme.fe
@@ -111,7 +111,7 @@ If the REST API is working, you should receive a JSON response.
 
 ### 1. Inventory File (`inventory.ini`)
 
-Modify the `inventory.ini` file to include your Extreme FabricEngine switches:
+Modify the `inventory.ini` file to include your Extreme Fabric Engine switches:
 
 ```ini
 [switches]
@@ -162,9 +162,10 @@ For production use, **do not store passwords in plain text**. Use Ansible Vault:
 # Create encrypted password file
 ansible-vault create secrets.yml
 
-# Add your credentials (in the editor that opens)
-ansible_user: admin
-ansible_password: your_secure_password
+# Add your credentials in YAML format (in the editor that opens):
+# ---
+# ansible_user: "admin"
+# ansible_password: "your_secure_password"
 
 # Run playbook with vault and load variables from secrets.yml
 ansible-playbook -i inventory.ini wap_poe_bounce.yml -e @secrets.yml --ask-vault-pass
@@ -580,7 +581,7 @@ you don't need to know what ISID was used. It also auto-detects the VR the VLAN 
 
 ### firmware_upgrade.yml - Firmware Upgrade
 
-This playbook performs a complete firmware upgrade on FabricEngine switches with version
+This playbook performs a complete firmware upgrade on Fabric Engine switches with version
 verification.
 
 **What it does:**
@@ -738,7 +739,7 @@ curl -k https://192.168.1.100:9443/rest/openapi
 
 ## Additional Resources
 
-*   [Extreme Networks FabricEngine Documentation](https://www.extremenetworks.com/support/documentation)
+*   [Extreme Networks Fabric Engine Documentation](https://www.extremenetworks.com/support/documentation)
 *   [Ansible Documentation](https://docs.ansible.com/)
 *   [Ansible Galaxy - extreme.fe Collection](https://galaxy.ansible.com/extreme/fe)
 
