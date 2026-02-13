@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 DOCUMENTATION = r"""
 module: extreme_fe_command
 short_description: Execute CLI commands on ExtremeNetworks Fabric Engine switches
-version_added: 1.2.0
+version_added: 1.0.0
 description:
 - Execute one or more CLI commands on ExtremeNetworks Fabric Engine (VOSS) switches using the
   custom ``extreme_fe`` HTTPAPI plugin.

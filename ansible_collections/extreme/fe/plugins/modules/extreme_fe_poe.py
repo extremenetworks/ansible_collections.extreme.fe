@@ -14,7 +14,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_poe
 short_description: Manage PoE settings on ExtremeNetworks Fabric Engine switches
-version_added: 1.4.0
+version_added: 1.0.0
 description:
   - Retrieve and configure Power over Ethernet (PoE) settings for copper ports on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.
   - Supports the standard Ansible network resource states to merge, replace, override, delete, or gather PoE configuration across PoE-capable ports.
