@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 DOCUMENTATION = r"""
 module: extreme_fe_l3_interfaces
 short_description: Manage Layer 3 interfaces on ExtremeNetworks Fabric Engine switches
-version_added: 1.2.0
+version_added: 1.0.0
 description:
 - Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport.
 - Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible ``ios_l3_interfaces`` and ``junos_l3_interfaces`` modules.

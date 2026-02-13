@@ -13,7 +13,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_interfaces
 short_description: Manage Ethernet interfaces on ExtremeNetworks Fabric Engine switches
-version_added: "1.1.0"
+version_added: "1.0.0"
 description:
     - Configure administrative state, global interface settings, and per-port attributes on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.
     - Supports enabling or disabling multiple ports, adjusting Fabric Engine global port flags, and tuning per-port features such as speed, duplex, Energy Efficient Ethernet, and Fabric Engine specific options.

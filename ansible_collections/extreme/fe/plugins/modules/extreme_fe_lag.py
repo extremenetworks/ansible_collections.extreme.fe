@@ -13,7 +13,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_lag
 short_description: Manage LAGs on ExtremeNetworks Fabric Engine switches
-version_added: "1.3.0"
+version_added: "1.0.0"
 description:
     - "Create and delete Link Aggregation Groups (LAGs) on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport."
     - "Update Fabric Engine specific LAG attributes such as friendly names, load balancing algorithms, and Fabric Engine LACP keys."
