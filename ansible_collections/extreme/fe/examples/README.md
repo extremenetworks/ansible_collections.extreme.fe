@@ -505,10 +505,10 @@ ansible-playbook -i inventory.ini vlan_delete.yml -e vlan_id=50 --check
 **Expected Output:**
 
 ```
-TASK [Step 2 - Show cleanup target] ******************************************
+TASK [Step 2 - Show delete target] *******************************************
 ok: [fe_sw_1] => {
     "msg": [
-        "=== VLAN CLEANUP ===",
+        "=== VLAN DELETE ===",
         "Target VLAN: 50",
         "Will also delete any ISID bound to this VLAN"
     ]
@@ -590,10 +590,10 @@ ansible-playbook -i inventory.ini config_delete.yml -e config_name=test.cfg --ch
 **Expected Output:**
 
 ```
-TASK [Step 2 - Show cleanup target] ******************************************
+TASK [Step 2 - Show delete target] *******************************************
 ok: [fe_sw_1] => {
     "msg": [
-        "=== CONFIG CLEANUP ===",
+        "=== CONFIG DELETE ===",
         "Target config file: iot-config.cfg"
     ]
 }
@@ -605,10 +605,10 @@ ok: [fe_sw_1] => {
     ]
 }
 
-TASK [Cleanup Summary] *******************************************************
+TASK [Delete Summary] ********************************************************
 ok: [fe_sw_1] => {
     "msg": [
-        "=== CONFIG CLEANUP COMPLETE ===",
+        "=== CONFIG DELETE COMPLETE ===",
         "Config iot-config.cfg deleted: ✓ YES"
     ]
 }

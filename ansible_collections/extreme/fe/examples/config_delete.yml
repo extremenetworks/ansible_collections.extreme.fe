@@ -39,7 +39,7 @@
           - "ERROR: config_name parameter is required!"
           - "Usage: ansible-playbook config_delete.yml -i inventory.ini -e config_name=CONFIG_FILE"
           - "Example: ansible-playbook config_delete.yml -i inventory.ini -e config_name=myconfig.cfg"
-        success_msg: "Parameter validated - proceeding with cleanup"
+        success_msg: "Parameter validated - proceeding with delete"
 
     # -------------------------------------------------------------------------
     # Step 2: Show what will be removed

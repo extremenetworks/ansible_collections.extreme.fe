@@ -28,7 +28,7 @@
 #
 # =============================================================================
 
-- name: Cleanup VLAN and ISID Resources
+- name: Delete VLAN and ISID Resources
   hosts: switches
   gather_facts: false
 
@@ -44,15 +44,15 @@
           - "ERROR: vlan_id parameter is required!"
           - "Usage: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=VLAN_ID"
           - "Example: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50"
-        success_msg: "Parameter validated - proceeding with cleanup"
+        success_msg: "Parameter validated - proceeding with delete"
 
     # -------------------------------------------------------------------------
     # Step 2: Show what will be removed
     # -------------------------------------------------------------------------
-    - name: "Step 2 - Show cleanup target"
+    - name: "Step 2 - Show delete target"
       ansible.builtin.debug:
         msg:
-          - "=== VLAN CLEANUP ==="
+          - "=== VLAN DELETE ==="
           - "Target VLAN: {{ vlan_id }}"
           - "Will also delete any ISID bound to this VLAN"
 
