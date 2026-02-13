@@ -378,9 +378,9 @@ port_updates:
   returned: when port settings changed
   type: list
 port_removals:
-    description: Ports whose overrides were removed when using C(state=deleted) or C(state=overridden).
-    returned: when port overrides were cleared
-    type: list
+  description: Ports whose overrides were removed when using C(state=deleted) or C(state=overridden).
+  returned: when port overrides were cleared
+  type: list
 ports_state:
   description: Auto-sense state payload returned from C(/v0/state/autosense/ports) when requested.
   returned: when gather_state is true

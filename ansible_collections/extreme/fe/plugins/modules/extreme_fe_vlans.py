@@ -73,74 +73,74 @@ options:
     - Limit gathered VLAN facts to these VLAN identifiers.
     type: list
     elements: int
-    lag_interfaces:
+  lag_interfaces:
+    description:
+    - LAG memberships to ensure present on the VLAN. Use C(tag) to choose tagged or untagged membership.
+    type: list
+    elements: dict
+    suboptions:
+      name:
         description:
-        - LAG memberships to ensure present on the VLAN. Use C(tag) to choose tagged or untagged membership.
-        type: list
-        elements: dict
-        suboptions:
-            name:
-                description:
-                - LAG identifier to manage. Use the numeric LAG ID as reported by the device.
-                type: str
-                required: true
-            tag:
-                description:
-                - Apply the LAG as a tagged or untagged VLAN member.
-                type: str
-                choices: [tagged, untagged]
-                default: tagged
-    remove_lag_interfaces:
+        - LAG identifier to manage. Use the numeric LAG ID as reported by the device.
+        type: str
+        required: true
+      tag:
         description:
-        - LAG memberships to remove from the VLAN when performing merge-style operations.
-        type: list
-        elements: dict
-        suboptions:
-            name:
-                description:
-                - LAG identifier to remove. Use the numeric LAG ID as reported by the device.
-                type: str
-                required: true
-            tag:
-                description:
-                - Membership type to remove (tagged or untagged).
-                type: str
-                choices: [tagged, untagged]
-                default: tagged
-    isis_logical_interfaces:
+        - Apply the LAG as a tagged or untagged VLAN member.
+        type: str
+        choices: [tagged, untagged]
+        default: tagged
+  remove_lag_interfaces:
+    description:
+    - LAG memberships to remove from the VLAN when performing merge-style operations.
+    type: list
+    elements: dict
+    suboptions:
+      name:
         description:
-        - ISIS logical interfaces to ensure present on the VLAN.
-        type: list
-        elements: dict
-        suboptions:
-            name:
-                description:
-                - Logical interface identifier (for example C(1) or C(10)).
-                type: str
-                required: true
-            tag:
-                description:
-                - Assign the logical interface as tagged or untagged within the VLAN.
-                type: str
-                choices: [tagged, untagged]
-                default: tagged
-    remove_isis_logical_interfaces:
+        - LAG identifier to remove. Use the numeric LAG ID as reported by the device.
+        type: str
+        required: true
+      tag:
         description:
-        - ISIS logical interface memberships to remove from the VLAN.
-        type: list
-        elements: dict
-        suboptions:
-            name:
-                description:
-                - Logical interface identifier to remove.
-                type: str
-                required: true
-            tag:
-                description:
-                - Membership type to remove (tagged or untagged).
-                type: str
-                choices: [tagged, untagged]
-                default: tagged
+        - Membership type to remove (tagged or untagged).
+        type: str
+        choices: [tagged, untagged]
+        default: tagged
+  isis_logical_interfaces:
+    description:
+    - ISIS logical interfaces to ensure present on the VLAN.
+    type: list
+    elements: dict
+    suboptions:
+      name:
+        description:
+        - Logical interface identifier (for example C(1) or C(10)).
+        type: str
+        required: true
+      tag:
+        description:
+        - Assign the logical interface as tagged or untagged within the VLAN.
+        type: str
+        choices: [tagged, untagged]
+        default: tagged
+  remove_isis_logical_interfaces:
+    description:
+    - ISIS logical interface memberships to remove from the VLAN.
+    type: list
+    elements: dict
+    suboptions:
+      name:
+        description:
+        - Logical interface identifier to remove.
+        type: str
+        required: true
+      tag:
+        description:
+        - Membership type to remove (tagged or untagged).
+        type: str
+        choices: [tagged, untagged]
+        default: tagged
 """
 
 EXAMPLES = r"""
