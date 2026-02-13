@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# Config File Cleanup - Remove Saved Configuration Files
+# Config File Delete - Remove Saved Configuration Files
 # =============================================================================
 #
 # What this does:
@@ -23,7 +23,7 @@
 #
 # =============================================================================
 
-- name: Cleanup Config File
+- name: Delete Config File
   hosts: switches
   gather_facts: false
 
@@ -44,10 +44,10 @@
     # -------------------------------------------------------------------------
     # Step 2: Show what will be removed
     # -------------------------------------------------------------------------
-    - name: "Step 2 - Show cleanup target"
+    - name: "Step 2 - Show delete target"
       ansible.builtin.debug:
         msg:
-          - "=== CONFIG CLEANUP ==="
+          - "=== CONFIG DELETE ==="
           - "Target config file: {{ config_name }}"
 
     # -------------------------------------------------------------------------
@@ -68,8 +68,8 @@
     # -------------------------------------------------------------------------
     # Summary
     # -------------------------------------------------------------------------
-    - name: "Cleanup Summary"
+    - name: "Delete Summary"
       ansible.builtin.debug:
         msg:
-          - "=== CONFIG CLEANUP COMPLETE ==="
+          - "=== CONFIG DELETE COMPLETE ==="
           - "Config {{ config_name }} deleted: {{ cleanup_config_result.changed | default(false) | ternary('✓ YES', '✗ NO') }}"

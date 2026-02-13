@@ -1,6 +1,6 @@
 ---
 # =============================================================================
-# VLAN + ISID Cleanup - Remove VLAN and Bound ISID Resources
+# VLAN + ISID Delete - Remove VLAN and Bound ISID Resources
 # =============================================================================
 #
 # What this does:

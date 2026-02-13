@@ -31,11 +31,11 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
     *   Smart ISID replacement (auto-deletes old ISID if changing)
     *   Save configuration to named files
 
-*   **VLAN Service Cleanup:**
-    *   Smart detection of what to delete based on parameters
-    *   Auto-find and delete the ISID bound to a VLAN
-    *   Delete VLANs based on the default or provided VLAN ID
-    *   Delete configuration files
+*   **VLAN Delete (vlan_delete):**
+    *   Delete VLANs and auto-find/delete bound ISID
+
+*   **Config Delete (config_delete):**
+    *   Delete configuration files from switch
 
 *   **Firmware Upgrade:**
     *   Check current firmware version
@@ -474,63 +474,47 @@ ok: [fe_sw_1] => {
 **Note:** If the VLAN already has a different ISID bound, the playbook will automatically
 delete the old ISID before creating the new one.
 
-### cleanup_vlan_service.yml - VLAN + ISID Cleanup
+### vlan_delete.yml - VLAN + ISID Delete
 
-This playbook removes resources created by `provision_vlan_service.yml`. It has smart behavior
-that auto-detects what to delete based on the parameters provided.
+This playbook removes a VLAN and its bound ISID. It automatically finds and deletes
+the ISID bound to the specified VLAN - you don't need to know what ISID was used.
 
-**Smart Behavior:**
-
-| Command                              | Behavior                                      |
-|--------------------------------------|-----------------------------------------------|
-| (no parameters)                      | Delete default VLAN 5 + ISID + config.cfg    |
-| `-e vlan_id=X`                       | Delete only VLAN X + ISID (no config)        |
-| `-e config_name=X`                   | Delete only config file X (no VLAN)           |
-| `-e vlan_id=X -e config_name=Y`      | Delete VLAN X + ISID + config Y              |
+**What it does:**
+1. Validates vlan_id parameter (required)
+2. Gathers VLAN info to find its configuration (VR, etc.)
+3. Finds the ISID bound to the VLAN (if any)
+4. Deletes the ISID bound to the VLAN (must be deleted before VLAN)
+5. Deletes the VLAN using its actual VR name
 
 **Parameters:**
 
-| Parameter     | Description                    | Default          | Example                  |
-|---------------|--------------------------------|------------------|--------------------------|
-| `vlan_id`     | VLAN ID to delete              | `5`              | `-e vlan_id=10`          |
-| `config_name` | Config file name to delete     | `config.cfg`     | `-e config_name=my.cfg`  |
+| Parameter  | Description       | Required | Example          |
+|------------|-------------------|----------|------------------|
+| `vlan_id`  | VLAN ID to delete | Yes      | `-e vlan_id=50`  |
 
 **Examples:**
 
 ```bash
-# Delete default VLAN (5) + ISID + default config (config.cfg)
-ansible-playbook -i inventory.ini cleanup_vlan_service.yml
-
-# Delete only specific VLAN (e.g., VLAN 50 and all ISID bound to it) - NO config
-ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e vlan_id=50
-
-# Delete only a specific config file - NO VLAN
-ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e config_name=iot-config.cfg
-
-# Delete specific VLAN + specific config file
-ansible-playbook -i inventory.ini cleanup_vlan_service.yml -e vlan_id=50 -e config_name=iot-config.cfg
+# Delete VLAN 50 and its bound ISID
+ansible-playbook -i inventory.ini vlan_delete.yml -e vlan_id=50
 
 # Dry run (check mode) - see what would be deleted without making changes
-ansible-playbook -i inventory.ini cleanup_vlan_service.yml --check
+ansible-playbook -i inventory.ini vlan_delete.yml -e vlan_id=50 --check
 ```
+
 **Expected Output:**
 
 ```
-TASK [Step 1 - Show cleanup mode] ********************************************
+TASK [Step 2 - Show cleanup target] ******************************************
 ok: [fe_sw_1] => {
     "msg": [
-        "=== CLEANUP MODE ===",
-        "Parameters detected:",
-        "  - vlan_id provided: YES (50)",
-        "  - config_name provided: NO",
-        "",
-        "Actions to perform:",
-        "  - Delete VLAN: YES - VLAN 50 and the bound ISID",
-        "  - Delete config: NO"
+        "=== VLAN CLEANUP ===",
+        "Target VLAN: 50",
+        "Will also delete any ISID bound to this VLAN"
     ]
 }
 
-TASK [Step 2 - Show VLAN info found] *****************************************
+TASK [Step 3 - Show VLAN info found] *****************************************
 ok: [fe_sw_1] => {
     "msg": [
         "VLAN 50 found: YES",
@@ -539,45 +523,96 @@ ok: [fe_sw_1] => {
     ]
 }
 
-TASK [Step 3 - Show ISID found] **********************************************
+TASK [Step 4 - Show ISID found] **********************************************
 ok: [fe_sw_1] => {
     "msg": [
         "ISID bound to VLAN 50: 5000"
     ]
 }
 
-TASK [Step 4 - Delete ISID 5000 (bound to VLAN 50)] **************************
+TASK [Step 5 - Delete ISID 5000 (bound to VLAN 50)] **************************
 changed: [fe_sw_1]
 
-TASK [Step 4 - Show ISID deletion result] ************************************
+TASK [Step 5 - Show ISID deletion result] ************************************
 ok: [fe_sw_1] => {
     "msg": [
         "ISID 5000 deletion: SUCCESS"
     ]
 }
 
-TASK [Step 5 - Delete VLAN 50 from VR GlobalRouter] **************************
+TASK [Step 6 - Delete VLAN 50 from VR GlobalRouter] **************************
 changed: [fe_sw_1]
 
-TASK [Step 5 - Show VLAN deletion result] ************************************
+TASK [Step 6 - Show VLAN deletion result] ************************************
 ok: [fe_sw_1] => {
     "msg": [
         "VLAN 50 deletion: SUCCESS"
     ]
 }
 
-TASK [Step 7 - Cleanup Summary] **********************************************
+TASK [Step 7 - Summary] ******************************************************
 ok: [fe_sw_1] => {
     "msg": [
-        "=== CLEANUP COMPLETE ===",
+        "=== VLAN DELETE COMPLETE ===",
         "VLAN 50 (VR: GlobalRouter) deleted: ✓ YES",
-        "ISID deleted: 5000",
-        "Config: not requested"
+        "ISID deleted: 5000"
     ]
 }
 ```
+
 **Note:** The playbook automatically finds and deletes the ISID bound to the specified VLAN,
 you don't need to know what ISID was used. It also auto-detects the VR the VLAN belongs to.
+
+### config_delete.yml - Config File Delete
+
+This playbook removes a saved configuration file from the switch.
+
+**What it does:**
+1. Validates config_name parameter (required)
+2. Deletes the specified configuration file
+
+**Parameters:**
+
+| Parameter     | Description              | Required | Example                      |
+|---------------|--------------------------|----------|------------------------------|
+| `config_name` | Config file name to delete | Yes      | `-e config_name=myconfig.cfg` |
+
+**Examples:**
+
+```bash
+# Delete a specific config file
+ansible-playbook -i inventory.ini config_delete.yml -e config_name=iot-config.cfg
+
+# Dry run (check mode) - see what would be deleted without making changes
+ansible-playbook -i inventory.ini config_delete.yml -e config_name=test.cfg --check
+```
+
+**Expected Output:**
+
+```
+TASK [Step 2 - Show cleanup target] ******************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "=== CONFIG CLEANUP ===",
+        "Target config file: iot-config.cfg"
+    ]
+}
+
+TASK [Step 3 - Show config file deletion result] *****************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "Config file iot-config.cfg deletion: SUCCESS"
+    ]
+}
+
+TASK [Cleanup Summary] *******************************************************
+ok: [fe_sw_1] => {
+    "msg": [
+        "=== CONFIG CLEANUP COMPLETE ===",
+        "Config iot-config.cfg deleted: ✓ YES"
+    ]
+}
+```
 
 ### firmware_upgrade.yml - Firmware Upgrade
 
