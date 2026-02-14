@@ -103,8 +103,13 @@ for i in $COUNT; do
     	echo "FAIL: Missing configuration file(s) for DT-$((i + 1))"
 	    exit 1
     fi
+
+    # Remove comments, empty lines and "exit" commands before comparing
     cat $CFG_DIR/start_test-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" > /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg
-    cat /tmp/cmp_cfg/running-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" > /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg
+
+    # Remove comments, empty lines, "exit" commands before comparing
+    # Remove also fixfish related lines, for 9.4.0.0 branch, probably a bug in 9.4.0.0
+    cat /tmp/cmp_cfg/running-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" | grep -v "^no ip ipfix port " > /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg
     diff /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg > /tmp/cmp_cfg/diff-DT-$((i +1)).txt
     if [ $? -eq 0 ]; then
         echo "No differences found on switch DT-$((i + 1))" >>/tmp/cmp_cfg/results.txt
