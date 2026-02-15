@@ -52,15 +52,15 @@ if prompt_install_gns3 ; then
   echo " Installing with GNS3 environment"
 
   # add "add-ub-route" to the sudoers file if not already present
-  echo "$USER ALL=(root) NOPASSWD: $$HARNESS_DIRTOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
+  echo "$USER ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
   sudo chmod 440 /etc/sudoers.d/add-ub-route
 
   # add "start" to the sudoers file if not already present
-  echo "$USER ALL=(root) NOPASSWD: $$HARNESS_DIR/start" | sudo tee /etc/sudoers.d/start
+  echo "$USER ALL=(root) NOPASSWD: $HARNESS_DIR/start" | sudo tee /etc/sudoers.d/start
   sudo chmod 440 /etc/sudoers.d/start
 
 # add "stop" to the sudoers file if not already present
-  echo "$USER ALL=(root) NOPASSWD: $$HARNESS_DIR/stop" | sudo tee /etc/sudoers.d/stop
+  echo "$USER ALL=(root) NOPASSWD: $HARNESS_DIR/stop" | sudo tee /etc/sudoers.d/stop
   sudo chmod 440 /etc/sudoers.d/stop
 
   # Ask the user for the project name, default is Ansible
