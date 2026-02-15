@@ -1,2 +1,4 @@
 *.qcow2
 voss-DT-*-M.tgz
+*.md5sum
+voss-*.cfg

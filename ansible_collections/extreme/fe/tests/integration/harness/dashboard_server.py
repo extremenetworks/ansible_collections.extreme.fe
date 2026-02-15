@@ -1197,6 +1197,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 return;
             }
             const current = firmwareState.current || '';
+            const hasCurrent = current.length > 0;
             const options = Array.isArray(firmwareState.options)
                 ? firmwareState.options.slice()
                 : [];
@@ -1214,11 +1215,14 @@ INDEX_HTML = """<!DOCTYPE html>
                 entries.unshift({ version: current, available: false });
             }
             if (!entries.length) {
-                firmwareSelect.innerHTML = '<option value="">No firmware found</option>';
+                firmwareSelect.innerHTML = '<option value="" selected>No firmware found</option>';
                 firmwareSelect.disabled = true;
                 return;
             }
-            const optionMarkup = entries
+            const placeholder = hasCurrent
+                ? ''
+                : '<option value="" selected disabled>Not installed</option>';
+            const optionMarkup = placeholder + entries
                 .map((entry) => {
                     const safe = escapeHtml(entry.version);
                     const isSelected = entry.version === current ? ' selected' : '';
@@ -2438,7 +2442,7 @@ DOCS_ROOT = BASE_DIR / "docs"
 DOC_PREFIX = "extreme_fe_"
 TOPOLOGY_CONFIG_PATH = BASE_DIR / "tests" / "integration" / "harness" / "cfg" / "gns3.cfg"
 GNS3_IMAGES_DIR = BASE_DIR / "tests" / "integration" / "harness" / "gns3_images"
-HGFS_GNS3_IMAGES_DIR = Path("/mnt/hgfs/gns3_images")
+HGFS_GNS3_IMAGES_DIR = Path("/mnt/hgfs")
 PROJECT_UUID_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "project_uuid"
 HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
 ADD_UB_ROUTE_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "add-ub-route"
@@ -3080,7 +3084,7 @@ def _discover_firmware_archives() -> dict[str, Path]:
                 continue
             archives[version] = path
     if HGFS_GNS3_IMAGES_DIR.exists():
-        for path in HGFS_GNS3_IMAGES_DIR.glob("voss-DT-*.tgz"):
+        for path in HGFS_GNS3_IMAGES_DIR.rglob("voss-DT-*.tgz"):
             version = _extract_firmware_version_from_tgz(path.name)
             if not version or version in archives:
                 continue
