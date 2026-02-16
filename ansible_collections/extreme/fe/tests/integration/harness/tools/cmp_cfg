@@ -109,7 +109,8 @@ for i in $COUNT; do
 
     # Remove comments, empty lines, "exit" commands before comparing
     # Remove also fixfish related lines, for 9.4.0.0 branch, probably a bug in 9.4.0.0
-    cat /tmp/cmp_cfg/running-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" | grep -v "^no ip ipfix port " > /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg
+    # Remove also auto-sense configuration that is set to the default vlalue, like "auto-sense wait-interval 35"
+    cat /tmp/cmp_cfg/running-DT-$((i +1)).cfg | grep -v "^#" | grep -v "^$" | grep -v "^exit" | grep -v "^no ip ipfix port " | grep -v "^auto-sense wait-interval 35" > /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg
     diff /tmp/cmp_cfg/d_start_test-DT-$((i +1)).cfg /tmp/cmp_cfg/d_running-DT-$((i +1)).cfg > /tmp/cmp_cfg/diff-DT-$((i +1)).txt
     if [ $? -eq 0 ]; then
         echo "No differences found on switch DT-$((i + 1))" >>/tmp/cmp_cfg/results.txt

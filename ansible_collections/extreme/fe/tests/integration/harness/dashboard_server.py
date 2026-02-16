@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Literal, Optional, Sequence
 from urllib.parse import urlparse, unquote
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -89,7 +89,7 @@ INDEX_HTML = """<!DOCTYPE html>
             background: rgba(52, 211, 153, 0.18);
         }
         .status-fail {
-            color: #f87171;
+            color: #cbd5f5;
             border-color: rgba(248, 113, 113, 0.5);
             background: rgba(248, 113, 113, 0.18);
         }
@@ -270,7 +270,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         main {
             flex: 1;
-            padding: 1.5rem;
+            padding: 0.75rem 1.5rem 1.5rem;
             display: flex;
             flex-direction: column;
         }
@@ -844,16 +844,21 @@ INDEX_HTML = """<!DOCTYPE html>
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }).then((response) => {
-                if (response.ok) {
-                    return;
+                if (!response.ok) {
+                    return response
+                        .json()
+                        .catch(() => ({ detail: response.statusText || 'Unknown error' }))
+                        .then((data) => {
+                            const detail = data && typeof data.detail === 'string' ? data.detail : 'Unknown error';
+                            throw new Error(detail);
+                        });
                 }
-                return response
-                    .json()
-                    .catch(() => ({ detail: response.statusText || 'Unknown error' }))
-                    .then((data) => {
-                        const detail = data && typeof data.detail === 'string' ? data.detail : 'Unknown error';
-                        throw new Error(detail);
-                    });
+                return response.json();
+            }).then((data) => {
+                if (!data || typeof data.url !== 'string') {
+                    throw new Error('Missing web shell URL');
+                }
+                window.open(data.url, '_blank', 'noopener');
             }).catch((error) => {
                 console.error('Failed to launch host shell', error);
                 alert('Failed to open host terminal: ' + (error && error.message ? error.message : error));
@@ -2448,6 +2453,11 @@ HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
 ADD_UB_ROUTE_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "add-ub-route"
 TERMINAL_CANDIDATES = ("xterm",)
 START_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "start"
+TTYD_PORT = 4010
+TTYD_BIND = "0.0.0.0"
+
+_ttyd_processes: dict[int, subprocess.Popen[str]] = {}
+_ttyd_lock = asyncio.Lock()
 
 
 def _resolve_terminal_command() -> str:
@@ -2469,31 +2479,26 @@ def _resolve_host_shell_script() -> Path:
     return script_path
 
 
-def _launch_host_shell(host: str, info: dict[str, Optional[str]]) -> None:
-    terminal = _resolve_terminal_command()
-    script_path = _resolve_host_shell_script()
-    target = str(info.get("target") or host).strip() or host
-    user = str(info.get("user")).strip() if info.get("user") else ""
-    password = info.get("password") or ""
-    env = os.environ.copy()
-    env["FE_TARGET_HOST"] = target
-    if user:
-        env["FE_TARGET_USER"] = user
-    if password:
-        env["FE_TARGET_PASSWORD"] = password
-    command = [
-        terminal,
-        "-T",
-        f"SSH {host}",
-        "-e",
-        str(script_path),
-        target,
-    ]
-    if user:
-        command.append(user)
-    if password:
-        command.append(password)
-    subprocess.Popen(command, env=env, cwd=str(BASE_DIR))
+def _resolve_ttyd_command() -> str:
+    path = shutil.which("ttyd")
+    if not path:
+        raise FileNotFoundError("ttyd executable not found in PATH")
+    return path
+
+
+def _build_ttyd_url(request: Request, port: int) -> str:
+    host_header = request.headers.get("host") or ""
+    hostname = host_header.split(":", 1)[0].strip() if host_header else ""
+    if not hostname:
+        hostname = _resolve_host_ip()
+    scheme = "https" if request.url.scheme == "https" else "http"
+    return f"{scheme}://{hostname}:{port}"
+
+
+def _allocate_ttyd_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((TTYD_BIND, 0))
+        return int(sock.getsockname()[1])
 
 
 def _format_component_label(component: str) -> str:
@@ -3093,13 +3098,24 @@ def _discover_firmware_archives() -> dict[str, Path]:
 
 
 def _read_current_firmware_version() -> Optional[str]:
-    link_path = GNS3_IMAGES_DIR / "voss-1.qcow2"
-    if not link_path.exists():
-        return None
-    try:
-        target = link_path.resolve(strict=True)
-    except (OSError, RuntimeError):
-        target = link_path
+    required_links = [
+        GNS3_IMAGES_DIR / "voss-1.qcow2",
+        GNS3_IMAGES_DIR / "voss-2.qcow2",
+        GNS3_IMAGES_DIR / "voss-4.qcow2",
+        GNS3_IMAGES_DIR / "voss-5.qcow2",
+    ]
+    resolved_targets: list[Path] = []
+    for link_path in required_links:
+        if not link_path.exists():
+            return None
+        try:
+            resolved = link_path.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        if not resolved.is_file():
+            return None
+        resolved_targets.append(resolved)
+    target = resolved_targets[0]
     version = _extract_firmware_version_from_qcow(target.name)
     if version:
         return version
@@ -4099,7 +4115,7 @@ host_monitor = HostReachabilityMonitor(manager)
 infra_monitor = InfrastructureMonitor(manager)
 
 
-async def _launch_host_shell(host: str) -> None:
+async def _launch_host_shell(host: str, request: Request) -> str:
     normalized = host.strip() if isinstance(host, str) else ""
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Host name is required")
@@ -4119,32 +4135,47 @@ async def _launch_host_shell(host: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Inventory for host '{normalized}' is missing ansible_password",
         )
-    script_path = HOST_SSH_SCRIPT
-    if not script_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"SSH helper script not found at {script_path}",
-        )
+    script_path = _resolve_host_shell_script()
     try:
-        command = _build_terminal_command(normalized, script_path, target, user, str(password))
+        ttyd_cmd = _resolve_ttyd_command()
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
-    loop = asyncio.get_running_loop()
+    env = os.environ.copy()
+    env["FE_TARGET_HOST"] = target
+    env["FE_TARGET_USER"] = user
+    env["FE_TARGET_PASSWORD"] = str(password)
 
-    def _spawn() -> None:
-        env = os.environ.copy()
-        subprocess.Popen(command, env=env)
-
-    try:
-        await loop.run_in_executor(None, _spawn)
-    except Exception as exc:  # pragma: no cover - defensive logging path
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to launch terminal for host '{normalized}': {exc}",
-        ) from exc
+    async with _ttyd_lock:
+        stale_ports = [port for port, proc in _ttyd_processes.items() if proc.poll() is not None]
+        for port in stale_ports:
+            _ttyd_processes.pop(port, None)
+        ttyd_port = _allocate_ttyd_port()
+        command = [
+            ttyd_cmd,
+            "-p",
+            str(ttyd_port),
+            "-i",
+            TTYD_BIND,
+            "-t",
+            f"titleFixed={normalized}",
+            "-W",
+            str(script_path),
+            target,
+            user,
+            str(password),
+        ]
+        try:
+            process = subprocess.Popen(command, env=env, cwd=str(BASE_DIR))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to launch web shell for host '{normalized}': {exc}",
+            ) from exc
+        _ttyd_processes[ttyd_port] = process
+    return _build_ttyd_url(request, ttyd_port)
 
 
 async def _refresh_host_monitor_from_settings(settings: Optional[dict[str, object]]) -> None:
@@ -4554,14 +4585,14 @@ async def update_gateway(payload: GatewayUpdateRequest) -> JSONResponse:
 
 
 @app.post("/host/shell", status_code=status.HTTP_202_ACCEPTED)
-async def open_host_shell(payload: HostShellRequest) -> JSONResponse:
+async def open_host_shell(payload: HostShellRequest, request: Request) -> JSONResponse:
     host = payload.host.strip() if isinstance(payload.host, str) else ""
-    await _launch_host_shell(host)
-    return JSONResponse({"status": "launching"})
+    url = await _launch_host_shell(host, request)
+    return JSONResponse({"status": "ok", "url": url})
 
 
 @app.get("/status")
-async def status() -> JSONResponse:
+async def dashboard_status() -> JSONResponse:
     run_state = await run_manager.get_status()
     return JSONResponse(run_state)
 

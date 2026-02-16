@@ -3,24 +3,42 @@
   hosts: gns3_network
   gather_facts: false
   tasks:
-    - name: 00.01 - Cleanup configuration
+
+    - name: 00.01 - I-SID cleanup
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ playbook_dir }}/../tests/integration/harness/tools/clean_isid.py
+          {{ inventory_hostname }}
+      register: isid_cleanup_result
+      failed_when: isid_cleanup_result.rc != 0
+
+    - name: 00.02 - VLAN cleanup
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ playbook_dir }}/../tests/integration/harness/tools/clean_vlan.py
+          {{ inventory_hostname }}{% if inventory_hostname == 'fe_dt_2' %} -s4040{% endif %}
+      register: vlan_cleanup_result
+      failed_when: vlan_cleanup_result.rc != 0
+
+    - name: 00.03 - Autosense cleanup
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ playbook_dir }}/../tests/integration/harness/tools/clean_autosense.py
+          {{ inventory_hostname }}{% if inventory_hostname == 'fe_dt_2' %} -s1:1{% endif %}
+      register: autosense_cleanup_result
+      failed_when: autosense_cleanup_result.rc != 0
+
+    - name: 01.00 - Cleanup configuration
       extreme.fe.extreme_fe_command:
         commands:
           - enable
           - terminal more disable
           - configure terminal
-          - interface gigabitEthernet 1/20-1/23
-          - auto-sense enable
           - interface gigabitEthernet 1/22
           - lacp key 1237
           - interface gigabitEthernet 1/20-1/23
           - no lacp enable
           - no lacp aggregation enable
-          - interface gigabitEthernet 1/4-1/15
-          - auto-sense enable
-          - interface gigabitEthernet 1/15
-          - default auto-sense wait-interval
-          - auto-sense enable
           - interface gigabitEthernet 1/1,1/10
           - default poe poe-limit
           - default poe poe-priority
@@ -35,23 +53,6 @@
           - no mlt 33
           - no mlt 34
           - no virtual-ist peer-ip
-          - no vlan 100
-          - no vlan 20
-          - no vlan 5
-          - no vlan 6
-          - no vlan 2
-          - no vlan 3
-          - no vlan 4
-          - no vlan 7
-          - no vlan 8
-          - no vlan 9
-          - no vlan 10
-          - no vlan 12
-          - no vlan 202
-          - no vlan 203
-          - no vlan 204
-          - no vlan 220
-          - no vlan 221
           - no i-sid name 100
           - no i-sid name 202
           - no i-sid name 203

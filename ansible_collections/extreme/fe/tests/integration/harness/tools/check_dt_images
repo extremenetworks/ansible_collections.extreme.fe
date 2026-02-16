@@ -5,11 +5,21 @@ REQ_IMAGES="voss-1.qcow2 voss-2.qcow2 voss-4.qcow2 voss-5.qcow2"
 for img in $REQ_IMAGES ; do
   if ! [ -f "$ANSIBLE/tests/integration/harness/gns3_images/$img" ]; then
     echo "Missing required QEMU image ($img) in the $ANSIBLE/tests/integration/harness/gns3_images/ directory."
-    echo "Please download it and place it there before running the test."
+    echo "Please click on the config button and select a Firmware to run on the Switch devices."
+    echo "If there are no Firmware options to choose from, you need to contact the Ansible team to obtain a Firmware release"
     exit 1
   fi
 done
 
-echo "Fabric Engine DT images found"
+# Determine the actual version of the firmware, so we can diplay it on the dashboard
+# The version is determined by the file name, which should be in the format 
+# "voss-1.qcow2 -> voss-1.DT.9.4.0.0int008.qcow2" since its a link
+# Extract the version number from the first image, since all images should be the same version
+# The version should look like something like this: 9.4.0.0int008
+f=`ls -l "$ANSIBLE/tests/integration/harness/gns3_images/voss-1.qcow2" | awk '{print $NF}'`
+v="${f#voss-1.DT.}"
+v="${v%.qcow2}"
+
+echo "Detected installed VOSS firmware version: $v" 
 
 exit 0

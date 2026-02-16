@@ -276,7 +276,7 @@ echo "*** Installing packages ***"
 echo "Installing Vmware tools"
 sudo apt install -y open-vm-tools
 
-sudo apt install -y git python3 python3-pip python3-venv expect fping
+sudo apt install -y git python3 python3-pip python3-venv expect fping ttyd
 
 #################################
 # Install ssh
