@@ -52,8 +52,16 @@ if prompt_install_gns3 ; then
   echo " Installing with GNS3 environment"
 
   # add "add-ub-route" to the sudoers file if not already present
-  echo "bjorn ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
+  echo "$USER ALL=(root) NOPASSWD: $TOOLS_DIR/add-ub-route" | sudo tee /etc/sudoers.d/add-ub-route
   sudo chmod 440 /etc/sudoers.d/add-ub-route
+
+  # add "start" to the sudoers file if not already present
+  echo "$USER ALL=(root) NOPASSWD: $HARNESS_DIR/start" | sudo tee /etc/sudoers.d/start
+  sudo chmod 440 /etc/sudoers.d/start
+
+# add "stop" to the sudoers file if not already present
+  echo "$USER ALL=(root) NOPASSWD: $HARNESS_DIR/stop" | sudo tee /etc/sudoers.d/stop
+  sudo chmod 440 /etc/sudoers.d/stop
 
   # Ask the user for the project name, default is Ansible
   project_response="Ansible"
@@ -268,7 +276,7 @@ echo "*** Installing packages ***"
 echo "Installing Vmware tools"
 sudo apt install -y open-vm-tools
 
-sudo apt install -y git python3 python3-pip python3-venv expect fping
+sudo apt install -y git python3 python3-pip python3-venv expect fping ttyd
 
 #################################
 # Install ssh

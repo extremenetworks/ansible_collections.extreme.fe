@@ -199,7 +199,6 @@
     - name: Display MLAG status
       debug:
         var: mlag_status.gathered
-        verbosity: 1
     # Step 11: Save configuration
     # (optional via extreme_fe_save_config once permitted)
     - name: Gather facts for timestamp
