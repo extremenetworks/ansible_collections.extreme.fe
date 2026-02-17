@@ -15,25 +15,25 @@ module: extreme_fe_interfaces
 short_description: Manage Ethernet interfaces on ExtremeNetworks Fabric Engine switches
 version_added: "1.0.0"
 description:
-    - Configure administrative state, global interface settings, and per-port attributes on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin.
+    - Configure administrative state, global interface settings, and per-port attributes on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
     - Supports enabling or disabling multiple ports, adjusting Fabric Engine global port flags, and tuning per-port features such as speed, duplex, Energy Efficient Ethernet, and Fabric Engine specific options.
-    - Provides standard Ansible network resource states including ``merged``, ``replaced``, ``overridden``, ``deleted``, and ``gathered``. The ``gathered`` state reads interface status from the high-version ``/v1/state/ports`` REST endpoints.
+    - Provides standard Ansible network resource states including C(merged), C(replaced), C(overridden), C(deleted), and C(gathered). The C(gathered) state reads interface status from the high-version C(/v1/state/ports) REST endpoints.
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
-    - Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
-    - Port names must use slot and port notation such as ``1:5``.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
+    - Port names must use slot and port notation such as C(1:5).
 requirements:
     - ansible.netcommon
 options:
     state:
         description:
             - Desired module operation.
-            - ``merged`` applies the supplied interface changes incrementally without removing unspecified configuration.
-            - ``replaced`` treats the supplied values as authoritative for the targeted interfaces.
-            - ``overridden`` enforces the supplied definitions and clears interface overrides that are not provided.
-            - ``deleted`` removes the supplied interface configuration, disabling the listed settings and port overrides.
-            - ``gathered`` returns interface state information without applying changes.
+            - C(merged) applies the supplied interface changes incrementally without removing unspecified configuration.
+            - C(replaced) treats the supplied values as authoritative for the targeted interfaces.
+            - C(overridden) enforces the supplied definitions and clears interface overrides that are not provided.
+            - C(deleted) removes the supplied interface configuration, disabling the listed settings and port overrides.
+            - C(gathered) returns interface state information without applying changes.
         type: str
         choices: [merged, replaced, overridden, deleted, gathered]
         default: merged
@@ -53,13 +53,13 @@ options:
                 choices: [DISABLE, LOW, HIGH, VIM]
     admin:
         description:
-            - Administrative enable/disable operations to apply across ports using the bulk ``/configuration/ports`` endpoint.
+            - Administrative enable/disable operations to apply across ports using the bulk C(/configuration/ports) endpoint.
         type: list
         elements: dict
         suboptions:
             name:
                 description:
-                    - Port identifier (slot:port notation such as ``1:5``).
+                    - Port identifier (slot:port notation such as C(1:5)).
                 type: str
                 required: true
             enabled:
@@ -69,13 +69,13 @@ options:
                 required: true
     ports:
         description:
-            - Per-port configuration settings applied through ``/configuration/ports/{port}``.
+            - Per-port configuration settings applied through C(/configuration/ports/{port}).
         type: list
         elements: dict
         suboptions:
             name:
                 description:
-                    - Port identifier (slot:port notation such as ``1:5``).
+                    - Port identifier (slot:port notation such as C(1:5)).
                 type: str
                 required: true
             enabled:
@@ -283,7 +283,7 @@ port_removals:
     type: list
     elements: dict
 ports_state:
-    description: Interface state details returned from the ``/v1/state/ports`` API.
+    description: Interface state details returned from the C(/v1/state/ports) API.
     returned: when state == gathered
     type: list
     elements: dict

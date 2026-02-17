@@ -24,11 +24,14 @@
   - File: dt2-add-ip-102-vlan20.yml
     ok: 2
     changed: 0
+
+# This playbook has a 35 sleep due to 5320 weird behavior on NNI with VLAN  
 - Name: L3-Ping 1.5 - Add ports 1:4 and 1:7 to VLAN 20
   Playbooks:
   - File: vlan20-add-p4-p7.yml
-    ok: 2
-    changed: 2
+    ok: 5
+    changed: 4
+    
 - Name: L3-Ping 1.6 - Ping from DT-1 to DT-2
   Playbooks:
   - File: ping-dt1-to-dt2.yml

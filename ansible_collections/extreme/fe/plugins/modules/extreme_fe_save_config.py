@@ -15,13 +15,13 @@ short_description: Save the running configuration on ExtremeNetworks Fabric Engi
 version_added: 1.0.0
 description:
 - Save the current Fabric Engine (VOSS) running configuration to the active or specified
-  configuration file via the custom ``extreme_fe`` HTTPAPI plugin.
+  configuration file via the custom C(extreme_fe) HTTPAPI plugin.
 - Supports optionally providing a filename and using Fabric Engine's verbose save option to
   persist both current and default configuration elements.
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
 - Applicable only to Fabric Engine (VOSS) devices.
 requirements:

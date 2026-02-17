@@ -16,14 +16,14 @@ module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
 version_added: 1.0.0
 description:
-- Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom ``extreme_fe`` HTTPAPI plugin.
+- Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
 - Returns detailed per-packet telemetry and fails when the switch reports any timeout or unsuccessful probe.
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
-- Service probe assisted pings are limited to IPv4 and instance ``1`` on Fabric Engine.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
+- Service probe assisted pings are limited to IPv4 and instance C(1) on Fabric Engine.
 requirements:
 - ansible.netcommon
 options:
@@ -55,7 +55,7 @@ options:
     type: int
   source_ip_address:
     description:
-    - Source IPv4/IPv6 address. Cannot be combined with ``management_type`` or service probe operations.
+    - Source IPv4/IPv6 address. Cannot be combined with C(management_type) or service probe operations.
     type: raw
   scope_id:
     description:
@@ -68,11 +68,11 @@ options:
     choices: [OOB, VLAN, CLIP, AUTO]
   vrf:
     description:
-    - VRF context to use. Use ``GlobalRouter`` for the default VRF.
+    - VRF context to use. Use C(GlobalRouter) for the default VRF.
     type: str
   interface:
     description:
-    - Explicit egress interface specification. Cannot be combined with ``management_type``.
+    - Explicit egress interface specification. Cannot be combined with C(management_type).
     type: dict
     suboptions:
       type:
@@ -83,15 +83,15 @@ options:
         required: true
       port:
         description:
-        - Interface name when ``type`` is ``GIGABITETHERNET`` (slot:port notation).
+        - Interface name when C(type) is C(GIGABITETHERNET) (slot:port notation).
         type: str
       tunnel_id:
         description:
-        - Tunnel identifier when ``type`` is ``TUNNEL``.
+        - Tunnel identifier when C(type) is C(TUNNEL).
         type: int
       vlan_id:
         description:
-        - VLAN identifier when ``type`` is ``VLAN``.
+        - VLAN identifier when C(type) is C(VLAN).
         type: int
   service_probe_instance:
     description:

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Literal, Optional, Sequence
 from urllib.parse import urlparse, unquote
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
@@ -89,7 +89,7 @@ INDEX_HTML = """<!DOCTYPE html>
             background: rgba(52, 211, 153, 0.18);
         }
         .status-fail {
-            color: #f87171;
+            color: #cbd5f5;
             border-color: rgba(248, 113, 113, 0.5);
             background: rgba(248, 113, 113, 0.18);
         }
@@ -163,6 +163,26 @@ INDEX_HTML = """<!DOCTYPE html>
             border: 1px solid rgba(148, 163, 184, 0.3);
             align-self: flex-end;
         }
+        .git-status {
+            font-size: 0.85rem;
+            letter-spacing: 0.02em;
+            padding: 0.45rem 1rem;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            background: rgba(15, 23, 42, 0.12);
+            color: #e2e8f0;
+            white-space: nowrap;
+        }
+        .git-status-ok {
+            color: #34d399;
+            border-color: rgba(52, 211, 153, 0.5);
+            background: rgba(52, 211, 153, 0.18);
+        }
+        .git-status-error {
+            color: #f87171;
+            border-color: rgba(248, 113, 113, 0.5);
+            background: rgba(248, 113, 113, 0.18);
+        }
         .connection-waiting {
             color: #fbbf24;
             border-color: rgba(251, 191, 36, 0.6);
@@ -183,6 +203,13 @@ INDEX_HTML = """<!DOCTYPE html>
             flex-direction: column;
             align-items: flex-end;
             gap: 0.75rem;
+        }
+        .header-status-row {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            flex-wrap: wrap;
         }
         .host-buttons-row {
             display: flex;
@@ -220,6 +247,11 @@ INDEX_HTML = """<!DOCTYPE html>
             background: rgba(250, 204, 21, 0.18);
             color: #facc15;
         }
+        .host-status-info {
+            border-color: rgba(96, 165, 250, 0.55);
+            background: rgba(96, 165, 250, 0.18);
+            color: #60a5fa;
+        }
         .host-status-down {
             border-color: rgba(248, 113, 113, 0.45);
             background: rgba(248, 113, 113, 0.18);
@@ -238,7 +270,7 @@ INDEX_HTML = """<!DOCTYPE html>
         }
         main {
             flex: 1;
-            padding: 1.5rem;
+            padding: 0.75rem 1.5rem 1.5rem;
             display: flex;
             flex-direction: column;
         }
@@ -349,6 +381,29 @@ INDEX_HTML = """<!DOCTYPE html>
             border-radius: 14px;
             background: rgba(15, 23, 42, 0.5);
             box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.4);
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 1200;
+        }
+        .modal-overlay[hidden] {
+            display: none;
+        }
+        .modal-card {
+            padding: 1.25rem 1.75rem;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            background: rgba(15, 23, 42, 0.95);
+            color: #e2e8f0;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            box-shadow: 0 16px 40px rgba(15, 23, 42, 0.4);
         }
         .config-block:first-of-type {
             margin-top: 0;
@@ -648,8 +703,9 @@ INDEX_HTML = """<!DOCTYPE html>
                 justify-content: flex-start;
                 justify-items: start;
             }
-            .header-right .connection-status {
+            .header-status-row {
                 align-self: flex-start;
+                justify-content: flex-start;
             }
         }
     </style>
@@ -668,7 +724,10 @@ INDEX_HTML = """<!DOCTYPE html>
             </div>
         </div>
         <div class="header-right">
-            <div id="connection-status" class="connection-status connection-waiting">Connecting…</div>
+            <div class="header-status-row">
+                <div id="git-status" class="git-status git-status-error">Git branch: N?A</div>
+                <div id="connection-status" class="connection-status connection-waiting">Connecting…</div>
+            </div>
             <div class="host-buttons-row">
                 <div id="infra-status-list" class="infra-status-list" hidden></div>
                 <div id="host-status-list" class="host-status-list" hidden></div>
@@ -690,6 +749,15 @@ INDEX_HTML = """<!DOCTYPE html>
                 <h3 class="config-subheader">Run Options</h3>
                 <div id="config-settings" class="config-options"></div>
             </div>
+            <div class="config-block">
+                <h3 class="config-subheader">Firmware Version</h3>
+                <div id="firmware-section" class="config-options">
+                    <div class="config-option">
+                        <span class="config-option-title">Firmware</span>
+                        <select id="firmware-select" name="firmware-version" aria-label="Firmware version" class="config-select"></select>
+                    </div>
+                </div>
+            </div>
         </section>
         <section id="docs-panel" class="docs-panel" hidden>
             <h2 class="docs-header">Documentation</h2>
@@ -706,12 +774,16 @@ INDEX_HTML = """<!DOCTYPE html>
     <footer>
         WebSocket endpoint: <code>ws://&lt;host&gt;:4000/ws</code>
     </footer>
+    <div id="firmware-install-overlay" class="modal-overlay" hidden>
+        <div class="modal-card">Installing firmware, please wait</div>
+    </div>
     <script>
     (function () {
         'use strict';
 
         const frame = document.getElementById('dashboard-frame');
         const placeholder = document.getElementById('placeholder');
+        const gitStatus = document.getElementById('git-status');
         const connectionStatus = document.getElementById('connection-status');
         const controlButton = document.getElementById('control-button');
         const statusIndicator = document.getElementById('run-status');
@@ -726,6 +798,8 @@ INDEX_HTML = """<!DOCTYPE html>
         const configSettingsContainer = document.getElementById('config-settings');
         const configClearButton = document.getElementById('config-clear');
         const configSelectAllButton = document.getElementById('config-select-all');
+        const firmwareSelect = document.getElementById('firmware-select');
+        const firmwareInstallOverlay = document.getElementById('firmware-install-overlay');
         const docsPanel = document.getElementById('docs-panel');
         const docsList = document.getElementById('docs-list');
         const docsBackButton = document.getElementById('docs-back');
@@ -737,6 +811,7 @@ INDEX_HTML = """<!DOCTYPE html>
         let inventoryOptions = [];
         let hostStatuses = [];
         let infraStatuses = [];
+        let firmwareState = { current: '', options: [] };
         let configSettings = {
             testCoverage: false,
             traceHttp: false,
@@ -769,16 +844,21 @@ INDEX_HTML = """<!DOCTYPE html>
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             }).then((response) => {
-                if (response.ok) {
-                    return;
+                if (!response.ok) {
+                    return response
+                        .json()
+                        .catch(() => ({ detail: response.statusText || 'Unknown error' }))
+                        .then((data) => {
+                            const detail = data && typeof data.detail === 'string' ? data.detail : 'Unknown error';
+                            throw new Error(detail);
+                        });
                 }
-                return response
-                    .json()
-                    .catch(() => ({ detail: response.statusText || 'Unknown error' }))
-                    .then((data) => {
-                        const detail = data && typeof data.detail === 'string' ? data.detail : 'Unknown error';
-                        throw new Error(detail);
-                    });
+                return response.json();
+            }).then((data) => {
+                if (!data || typeof data.url !== 'string') {
+                    throw new Error('Missing web shell URL');
+                }
+                window.open(data.url, '_blank', 'noopener');
             }).catch((error) => {
                 console.error('Failed to launch host shell', error);
                 alert('Failed to open host terminal: ' + (error && error.message ? error.message : error));
@@ -799,6 +879,39 @@ INDEX_HTML = """<!DOCTYPE html>
         function setConnectionStatus(text, cssClass) {
             connectionStatus.textContent = text;
             connectionStatus.className = 'connection-status ' + cssClass;
+        }
+
+        function setGitBranchStatus(branch) {
+            if (!gitStatus) {
+                return;
+            }
+            let label = 'N?A';
+            let cssClass = 'git-status-error';
+            if (typeof branch === 'string') {
+                const normalized = branch.trim();
+                if (normalized && normalized !== 'HEAD') {
+                    label = normalized;
+                    cssClass = 'git-status-ok';
+                }
+            }
+            gitStatus.textContent = 'Git branch: ' + label;
+            gitStatus.className = 'git-status ' + cssClass;
+        }
+
+        function refreshGitBranch() {
+            return fetch('/git/branch', { cache: 'no-store' })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error('Git branch fetch failed');
+                    }
+                    return response.json();
+                })
+                .then((data) => {
+                    setGitBranchStatus(data && data.branch ? data.branch : null);
+                })
+                .catch(() => {
+                    setGitBranchStatus(null);
+                });
         }
 
         function determineStatus() {
@@ -1057,6 +1170,112 @@ INDEX_HTML = """<!DOCTYPE html>
             return result;
         }
 
+        function normalizeFirmwareState(payload) {
+            const normalized = { current: '', options: [] };
+            if (!payload || typeof payload !== 'object') {
+                return normalized;
+            }
+            if (typeof payload.current === 'string') {
+                normalized.current = payload.current.trim();
+            }
+            if (Array.isArray(payload.options)) {
+                normalized.options = payload.options
+                    .filter((entry) => entry && typeof entry.version === 'string')
+                    .map((entry) => ({
+                        version: entry.version.trim(),
+                        available: Boolean(entry.available)
+                    }))
+                    .filter((entry) => entry.version.length > 0);
+            }
+            return normalized;
+        }
+
+        function showFirmwareOverlay(show) {
+            if (!firmwareInstallOverlay) {
+                return;
+            }
+            firmwareInstallOverlay.hidden = !show;
+        }
+
+        function renderFirmwareOptions() {
+            if (!firmwareSelect) {
+                return;
+            }
+            const current = firmwareState.current || '';
+            const hasCurrent = current.length > 0;
+            const options = Array.isArray(firmwareState.options)
+                ? firmwareState.options.slice()
+                : [];
+            options.sort((a, b) => a.version.localeCompare(b.version));
+            const seen = new Set();
+            const entries = [];
+            for (const entry of options) {
+                if (!entry.version || seen.has(entry.version)) {
+                    continue;
+                }
+                seen.add(entry.version);
+                entries.push(entry);
+            }
+            if (current && !seen.has(current)) {
+                entries.unshift({ version: current, available: false });
+            }
+            if (!entries.length) {
+                firmwareSelect.innerHTML = '<option value="" selected>No firmware found</option>';
+                firmwareSelect.disabled = true;
+                return;
+            }
+            const placeholder = hasCurrent
+                ? ''
+                : '<option value="" selected disabled>Not installed</option>';
+            const optionMarkup = placeholder + entries
+                .map((entry) => {
+                    const safe = escapeHtml(entry.version);
+                    const isSelected = entry.version === current ? ' selected' : '';
+                    const disabled = entry.available ? '' : ' disabled';
+                    return `<option value="${safe}"${isSelected}${disabled}>${safe}</option>`;
+                })
+                .join('');
+            firmwareSelect.innerHTML = optionMarkup;
+            firmwareSelect.disabled = false;
+        }
+
+        async function installFirmware(version) {
+            if (!version) {
+                return;
+            }
+            if (firmwareSelect) {
+                firmwareSelect.disabled = true;
+            }
+            showFirmwareOverlay(true);
+            try {
+                const response = await fetch('/firmware/install', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ version })
+                });
+                if (!response.ok) {
+                    let detail = '';
+                    try {
+                        const data = await response.json();
+                        detail = data.detail || '';
+                    } catch (_) {
+                        // ignore
+                    }
+                    throw new Error(detail || ('HTTP ' + response.status));
+                }
+                await fetchConfigOptions();
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                console.error('Failed to install firmware', err);
+                alert('Failed to install firmware: ' + message);
+            } finally {
+                showFirmwareOverlay(false);
+                if (firmwareSelect) {
+                    firmwareSelect.disabled = false;
+                }
+            }
+        }
+
         function normalizeHostStatuses(entries) {
             if (!Array.isArray(entries)) {
                 return [];
@@ -1075,7 +1294,9 @@ INDEX_HTML = """<!DOCTYPE html>
                 result.push({
                     host,
                     reachable: Boolean(entry.reachable),
-                    target: typeof entry.target === 'string' ? entry.target.trim() : ''
+                    target: typeof entry.target === 'string' ? entry.target.trim() : '',
+                    infoAvailable: Boolean(entry.info_available),
+                    info: entry.info && typeof entry.info === 'object' ? entry.info : null
                 });
             }
             result.sort((a, b) => a.host.localeCompare(b.host));
@@ -1096,10 +1317,28 @@ INDEX_HTML = """<!DOCTYPE html>
             for (const entry of hostStatuses) {
                 const badge = document.createElement('div');
                 const isUp = Boolean(entry.reachable);
-                badge.className = 'host-status-badge ' + (isUp ? 'host-status-up' : 'host-status-down');
+                let statusClass = 'host-status-down';
+                if (isUp && entry.infoAvailable) {
+                    statusClass = 'host-status-info';
+                } else if (isUp) {
+                    statusClass = 'host-status-up';
+                }
+                badge.className = 'host-status-badge ' + statusClass;
                 badge.textContent = entry.host;
+                const tooltipParts = [];
                 if (entry.target) {
-                    badge.title = entry.target;
+                    tooltipParts.push('IP: ' + entry.target);
+                }
+                if (entry.info && typeof entry.info === 'object') {
+                    const firmware = entry.info.firmwareVersion ?? 'N/A';
+                    const model = entry.info.modelName ?? 'N/A';
+                    const nosType = entry.info.nosType ?? 'N/A';
+                    tooltipParts.push('Firmware: ' + firmware);
+                    tooltipParts.push('Model: ' + model);
+                    tooltipParts.push('NOS: ' + nosType);
+                }
+                if (tooltipParts.length) {
+                    badge.title = tooltipParts.join('\\n');
                 }
                 badge.dataset.host = entry.host;
                 badge.setAttribute('role', 'button');
@@ -1383,6 +1622,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 });
             }
             renderSettingsOptions();
+            renderFirmwareOptions();
             updateBulkActionButtons();
         }
 
@@ -1396,6 +1636,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 configEntries = mapEntriesFromPayload(payload.entries);
                 configSettings = normalizeSettings(payload.settings);
                 inventoryOptions = normalizeInventoryOptions(payload.inventory_options);
+                firmwareState = normalizeFirmwareState(payload.firmware);
                 if (Array.isArray(payload.hosts)) {
                     applyHostStatusUpdate(normalizeHostStatuses(payload.hosts));
                 }
@@ -1411,6 +1652,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 configEntries = [];
                 configSettings = normalizeSettings(null);
                 inventoryOptions = [];
+                firmwareState = normalizeFirmwareState(null);
                 configUpdateQueued = false;
                 configUpdateInProgress = false;
                 if (configUpdateTimer !== null) {
@@ -1476,6 +1718,7 @@ INDEX_HTML = """<!DOCTYPE html>
                 }
                 if (data) {
                     inventoryOptions = normalizeInventoryOptions(data.inventory_options);
+                    firmwareState = normalizeFirmwareState(data.firmware);
                     if (Array.isArray(data.hosts)) {
                         applyHostStatusUpdate(normalizeHostStatuses(data.hosts));
                     }
@@ -1990,6 +2233,13 @@ INDEX_HTML = """<!DOCTYPE html>
             if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
                 return;
             }
+            if (target instanceof HTMLSelectElement && target.name === 'firmware-version') {
+                const selected = target.value;
+                if (selected && selected !== firmwareState.current) {
+                    void installFirmware(selected);
+                }
+                return;
+            }
             if (target instanceof HTMLInputElement && target.closest('.single-toggle')) {
                 updateSingleToggleLabel(target);
             }
@@ -2008,6 +2258,8 @@ INDEX_HTML = """<!DOCTYPE html>
             updateControlUI();
             updateStatusIndicator();
             updateCoverageButtonState(null);
+            refreshGitBranch();
+            window.setInterval(refreshGitBranch, 60000);
             await fetchStatus();
             await fetchLatest();
             connect();
@@ -2060,6 +2312,58 @@ def _render_index_html() -> str:
     title = _build_dashboard_title()
     escaped = html.escape(title)
     return INDEX_HTML.replace(DASHBOARD_TITLE_PLACEHOLDER, escaped)
+
+
+def _resolve_git_branch() -> Optional[str]:
+    git_cmd = shutil.which("git")
+    if not git_cmd:
+        return None
+    try:
+        result = subprocess.run(
+            [git_cmd, "-C", str(BASE_DIR), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return None
+    if result.returncode != 0:
+        return None
+    branch = (result.stdout or "").strip()
+    if not branch or branch == "HEAD":
+        return None
+    return branch
+
+
+def _system_info_path(host: str) -> Path:
+    normalized = host.strip() if isinstance(host, str) else ""
+    filename = f"{normalized}{SYSTEM_INFO_SUFFIX}"
+    return INVENTORY_ROOT / filename
+
+
+def _read_system_info(host: str) -> tuple[Optional[dict[str, str]], bool]:
+    path = _system_info_path(host)
+    if not path.is_file():
+        return None, False
+    try:
+        raw = path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return None, False
+    if not isinstance(payload, dict):
+        return None, False
+    firmware = str(payload.get("firmwareVersion") or "N/A")
+    model = str(payload.get("modelName") or "N/A")
+    nos_type = str(payload.get("nosType") or "N/A")
+    info = {
+        "firmwareVersion": firmware,
+        "modelName": model,
+        "nosType": nos_type,
+    }
+    info_available = all(value != "N/A" for value in info.values())
+    return info, info_available
+
+
 def _resolve_ansible_root() -> Path:
     env_path = os.environ.get("ANSIBLE")
     if env_path:
@@ -2089,6 +2393,8 @@ INCLUDE_PREFIX = "- include "
 INVENTORY_ROOT = BASE_DIR / "tests" / "integration" / "harness" / "cfg"
 SSH_HELPER_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "ssh_fe_dt.exp"
 HOST_SSH_SCRIPT = SSH_HELPER_SCRIPT
+SYSTEM_INFO_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "system_info.py"
+SYSTEM_INFO_SUFFIX = "-info.json"
 STATUS_PATTERN = re.compile(
     r'<div\s+class="summary-status">.*?<span\s+class="status-badge\s+status-(run|pass|fail)"',
     re.IGNORECASE | re.DOTALL,
@@ -2140,10 +2446,18 @@ _redirect_output_to_log()
 DOCS_ROOT = BASE_DIR / "docs"
 DOC_PREFIX = "extreme_fe_"
 TOPOLOGY_CONFIG_PATH = BASE_DIR / "tests" / "integration" / "harness" / "cfg" / "gns3.cfg"
+GNS3_IMAGES_DIR = BASE_DIR / "tests" / "integration" / "harness" / "gns3_images"
+HGFS_GNS3_IMAGES_DIR = Path("/mnt/hgfs")
 PROJECT_UUID_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "project_uuid"
 HOST_SHELL_SCRIPT = SSH_HELPER_SCRIPT
 ADD_UB_ROUTE_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "tools" / "add-ub-route"
 TERMINAL_CANDIDATES = ("xterm",)
+START_SCRIPT = BASE_DIR / "tests" / "integration" / "harness" / "start"
+TTYD_PORT = 4010
+TTYD_BIND = "0.0.0.0"
+
+_ttyd_processes: dict[int, subprocess.Popen[str]] = {}
+_ttyd_lock = asyncio.Lock()
 
 
 def _resolve_terminal_command() -> str:
@@ -2165,31 +2479,26 @@ def _resolve_host_shell_script() -> Path:
     return script_path
 
 
-def _launch_host_shell(host: str, info: dict[str, Optional[str]]) -> None:
-    terminal = _resolve_terminal_command()
-    script_path = _resolve_host_shell_script()
-    target = str(info.get("target") or host).strip() or host
-    user = str(info.get("user")).strip() if info.get("user") else ""
-    password = info.get("password") or ""
-    env = os.environ.copy()
-    env["FE_TARGET_HOST"] = target
-    if user:
-        env["FE_TARGET_USER"] = user
-    if password:
-        env["FE_TARGET_PASSWORD"] = password
-    command = [
-        terminal,
-        "-T",
-        f"SSH {host}",
-        "-e",
-        str(script_path),
-        target,
-    ]
-    if user:
-        command.append(user)
-    if password:
-        command.append(password)
-    subprocess.Popen(command, env=env, cwd=str(BASE_DIR))
+def _resolve_ttyd_command() -> str:
+    path = shutil.which("ttyd")
+    if not path:
+        raise FileNotFoundError("ttyd executable not found in PATH")
+    return path
+
+
+def _build_ttyd_url(request: Request, port: int) -> str:
+    host_header = request.headers.get("host") or ""
+    hostname = host_header.split(":", 1)[0].strip() if host_header else ""
+    if not hostname:
+        hostname = _resolve_host_ip()
+    scheme = "https" if request.url.scheme == "https" else "http"
+    return f"{scheme}://{hostname}:{port}"
+
+
+def _allocate_ttyd_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind((TTYD_BIND, 0))
+        return int(sock.getsockname()[1])
 
 
 def _format_component_label(component: str) -> str:
@@ -2755,11 +3064,113 @@ def read_run_options() -> dict[str, object]:
     }
 
 
+def _extract_firmware_version_from_qcow(filename: str) -> Optional[str]:
+    match = re.match(r"voss-1\.DT\.(?P<version>.+)\.qcow2$", filename, re.IGNORECASE)
+    if not match:
+        return None
+    version = match.group("version").strip()
+    return version or None
+
+
+def _extract_firmware_version_from_tgz(filename: str) -> Optional[str]:
+    match = re.match(r"voss-DT-(?P<version>.+?)-M\.tgz$", filename, re.IGNORECASE)
+    if not match:
+        return None
+    version = match.group("version").strip()
+    return version or None
+
+
+def _discover_firmware_archives() -> dict[str, Path]:
+    archives: dict[str, Path] = {}
+    if GNS3_IMAGES_DIR.exists():
+        for path in GNS3_IMAGES_DIR.glob("voss-DT-*.tgz"):
+            version = _extract_firmware_version_from_tgz(path.name)
+            if not version or version in archives:
+                continue
+            archives[version] = path
+    if HGFS_GNS3_IMAGES_DIR.exists():
+        for path in HGFS_GNS3_IMAGES_DIR.rglob("voss-DT-*.tgz"):
+            version = _extract_firmware_version_from_tgz(path.name)
+            if not version or version in archives:
+                continue
+            archives[version] = path
+    return archives
+
+
+def _read_current_firmware_version() -> Optional[str]:
+    required_links = [
+        GNS3_IMAGES_DIR / "voss-1.qcow2",
+        GNS3_IMAGES_DIR / "voss-2.qcow2",
+        GNS3_IMAGES_DIR / "voss-4.qcow2",
+        GNS3_IMAGES_DIR / "voss-5.qcow2",
+    ]
+    resolved_targets: list[Path] = []
+    for link_path in required_links:
+        if not link_path.exists():
+            return None
+        try:
+            resolved = link_path.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        if not resolved.is_file():
+            return None
+        resolved_targets.append(resolved)
+    target = resolved_targets[0]
+    version = _extract_firmware_version_from_qcow(target.name)
+    if version:
+        return version
+    return _extract_firmware_version_from_tgz(target.name)
+
+
+def _gather_firmware_state() -> dict[str, object]:
+    current = _read_current_firmware_version() or ""
+    archives = _discover_firmware_archives()
+    options = [
+        {"version": version, "available": True}
+        for version in sorted(archives.keys())
+    ]
+    if current and current not in archives:
+        options.insert(0, {"version": current, "available": False})
+    return {"current": current, "options": options}
+
+
+def _install_firmware_archive(version: str) -> None:
+    archives = _discover_firmware_archives()
+    archive = archives.get(version)
+    if archive is None:
+        raise FileNotFoundError(f"Firmware archive not found for version {version}")
+    if START_SCRIPT.is_file():
+        if not os.access(START_SCRIPT, os.X_OK):
+            raise PermissionError(f"Start script is not executable: {START_SCRIPT}")
+        result = subprocess.run(
+            [str(START_SCRIPT), "gns3server"],
+            cwd=str(START_SCRIPT.parent),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        output = (result.stdout or "").strip()
+        error_output = (result.stderr or "").strip()
+        if output:
+            print(f"[firmware] gns3 restart output: {output}")
+        if error_output:
+            print(f"[firmware] gns3 restart error: {error_output}")
+    subprocess.run(
+        ["tar", "-xzf", str(archive)],
+        cwd=str(GNS3_IMAGES_DIR),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 def gather_config_state() -> dict[str, object]:
     return {
         "entries": gather_config_entries(),
         "settings": read_run_options(),
         "inventory_options": discover_inventory_options(),
+        "firmware": _gather_firmware_state(),
     }
 
 
@@ -2995,6 +3406,10 @@ class ConfigOpenRequest(BaseModel):
     filename: str
 
 
+class FirmwareInstallRequest(BaseModel):
+    version: str
+
+
 class HostShellRequest(BaseModel):
     host: str
 
@@ -3108,14 +3523,19 @@ class ConnectionManager:
         return self._coverage_entry
 
     def _host_status_payload(self) -> list[dict[str, object]]:
-        return [
-            {
-                "host": host,
-                "reachable": bool(status),
-                "target": self._host_targets.get(host),
-            }
-            for host, status in sorted(self._host_status.items(), key=lambda item: item[0].lower())
-        ]
+        payload: list[dict[str, object]] = []
+        for host, status in sorted(self._host_status.items(), key=lambda item: item[0].lower()):
+            info, info_available = _read_system_info(host)
+            payload.append(
+                {
+                    "host": host,
+                    "reachable": bool(status),
+                    "target": self._host_targets.get(host),
+                    "info": info,
+                    "info_available": info_available,
+                }
+            )
+        return payload
 
     def get_host_status_snapshot(self) -> list[dict[str, object]]:
         return self._host_status_payload()
@@ -3341,6 +3761,23 @@ def _determine_ping_timeouts() -> list[int]:
     return timeouts
 
 
+def _run_system_info_script(host: str, target: str) -> None:
+    if not SYSTEM_INFO_SCRIPT.is_file():
+        return
+    command = [sys.executable, str(SYSTEM_INFO_SCRIPT), host, target]
+    try:
+        subprocess.run(
+            command,
+            cwd=str(SYSTEM_INFO_SCRIPT.parent),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception:
+        return
+
+
 class HostReachabilityMonitor:
     """Continuously monitor reachability of inventory hosts via fping."""
 
@@ -3348,12 +3785,18 @@ class HostReachabilityMonitor:
         self._manager = manager
         self._interval = max(0.5, float(interval))
         self._lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._inventory: Optional[Path] = None
         self._fping_path: Optional[str] = shutil.which("fping")
         self._stopped = False
         self._host_targets: dict[str, str] = {}
         self._ping_timeouts = _determine_ping_timeouts()
+        self._failure_counts: dict[str, int] = {}
+        self._info_available: dict[str, bool] = {}
+        self._info_in_progress: set[str] = set()
+        self._max_failures = 5
+        self._last_reachable: dict[str, bool] = {}
 
     async def set_inventory(self, inventory_path: Optional[Path]) -> None:
         if self._stopped:
@@ -3422,6 +3865,11 @@ class HostReachabilityMonitor:
         if not hosts:
             return
         self._host_targets = {entry["host"]: entry["target"] for entry in hosts}
+        async with self._state_lock:
+            self._failure_counts = {entry["host"]: 0 for entry in hosts}
+            self._info_available = {entry["host"]: False for entry in hosts}
+            self._info_in_progress.clear()
+            self._last_reachable = {entry["host"]: False for entry in hosts}
         for entry in hosts:
             host = entry["host"]
             target = entry["target"]
@@ -3442,7 +3890,7 @@ class HostReachabilityMonitor:
             while True:
                 try:
                     reachable = await self._ping_host(target)
-                    await self._manager.update_host_status(host, reachable)
+                    await self._handle_ping_result(host, target, reachable)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -3454,6 +3902,39 @@ class HostReachabilityMonitor:
                     raise
         except asyncio.CancelledError:
             return
+
+    async def _handle_ping_result(self, host: str, target: str, reachable: bool) -> None:
+        should_refresh_info = False
+        async with self._state_lock:
+            if reachable:
+                self._failure_counts[host] = 0
+                self._last_reachable[host] = True
+                await self._manager.update_host_status(host, True)
+                if not self._info_available.get(host, False) and host not in self._info_in_progress:
+                    self._info_in_progress.add(host)
+                    should_refresh_info = True
+            else:
+                current_failures = self._failure_counts.get(host, 0) + 1
+                self._failure_counts[host] = current_failures
+                if current_failures >= self._max_failures:
+                    self._last_reachable[host] = False
+                    self._info_available[host] = False
+                    self._info_in_progress.discard(host)
+                    await self._manager.update_host_status(host, False)
+        if should_refresh_info:
+            asyncio.create_task(self._refresh_system_info(host, target))
+
+    async def _refresh_system_info(self, host: str, target: str) -> None:
+        try:
+            print(f"[system-info] Refreshing {host} ({target})")
+            await asyncio.to_thread(_run_system_info_script, host, target)
+            info, info_available = _read_system_info(host)
+            async with self._state_lock:
+                self._info_available[host] = info_available
+        finally:
+            async with self._state_lock:
+                self._info_in_progress.discard(host)
+            await self._manager.broadcast_host_statuses()
 
     async def _ping_host(self, target: str) -> bool:
         fping_cmd = self._fping_path or shutil.which("fping")
@@ -3634,7 +4115,7 @@ host_monitor = HostReachabilityMonitor(manager)
 infra_monitor = InfrastructureMonitor(manager)
 
 
-async def _launch_host_shell(host: str) -> None:
+async def _launch_host_shell(host: str, request: Request) -> str:
     normalized = host.strip() if isinstance(host, str) else ""
     if not normalized:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Host name is required")
@@ -3654,32 +4135,47 @@ async def _launch_host_shell(host: str) -> None:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Inventory for host '{normalized}' is missing ansible_password",
         )
-    script_path = HOST_SSH_SCRIPT
-    if not script_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"SSH helper script not found at {script_path}",
-        )
+    script_path = _resolve_host_shell_script()
     try:
-        command = _build_terminal_command(normalized, script_path, target, user, str(password))
+        ttyd_cmd = _resolve_ttyd_command()
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
         ) from exc
-    loop = asyncio.get_running_loop()
+    env = os.environ.copy()
+    env["FE_TARGET_HOST"] = target
+    env["FE_TARGET_USER"] = user
+    env["FE_TARGET_PASSWORD"] = str(password)
 
-    def _spawn() -> None:
-        env = os.environ.copy()
-        subprocess.Popen(command, env=env)
-
-    try:
-        await loop.run_in_executor(None, _spawn)
-    except Exception as exc:  # pragma: no cover - defensive logging path
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to launch terminal for host '{normalized}': {exc}",
-        ) from exc
+    async with _ttyd_lock:
+        stale_ports = [port for port, proc in _ttyd_processes.items() if proc.poll() is not None]
+        for port in stale_ports:
+            _ttyd_processes.pop(port, None)
+        ttyd_port = _allocate_ttyd_port()
+        command = [
+            ttyd_cmd,
+            "-p",
+            str(ttyd_port),
+            "-i",
+            TTYD_BIND,
+            "-t",
+            f"titleFixed={normalized}",
+            "-W",
+            str(script_path),
+            target,
+            user,
+            str(password),
+        ]
+        try:
+            process = subprocess.Popen(command, env=env, cwd=str(BASE_DIR))
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to launch web shell for host '{normalized}': {exc}",
+            ) from exc
+        _ttyd_processes[ttyd_port] = process
+    return _build_ttyd_url(request, ttyd_port)
 
 
 async def _refresh_host_monitor_from_settings(settings: Optional[dict[str, object]]) -> None:
@@ -4038,6 +4534,23 @@ async def open_config_file(payload: ConfigOpenRequest) -> JSONResponse:
     return JSONResponse({"status": "ok"})
 
 
+@app.post("/firmware/install")
+async def install_firmware(payload: FirmwareInstallRequest) -> JSONResponse:
+    version = payload.version.strip()
+    if not version:
+        raise HTTPException(status_code=400, detail="version is required")
+    try:
+        await asyncio.to_thread(_install_firmware_archive, version)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or str(exc)).strip()
+        raise HTTPException(status_code=500, detail=detail or "firmware install failed") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to install firmware: {exc}") from exc
+    return JSONResponse({"status": "ok", "firmware": _gather_firmware_state()})
+
+
 @app.post("/infra/gateway")
 async def update_gateway(payload: GatewayUpdateRequest) -> JSONResponse:
     gateway_ip = payload.gateway_ip.strip() if isinstance(payload.gateway_ip, str) else ""
@@ -4072,16 +4585,22 @@ async def update_gateway(payload: GatewayUpdateRequest) -> JSONResponse:
 
 
 @app.post("/host/shell", status_code=status.HTTP_202_ACCEPTED)
-async def open_host_shell(payload: HostShellRequest) -> JSONResponse:
+async def open_host_shell(payload: HostShellRequest, request: Request) -> JSONResponse:
     host = payload.host.strip() if isinstance(payload.host, str) else ""
-    await _launch_host_shell(host)
-    return JSONResponse({"status": "launching"})
+    url = await _launch_host_shell(host, request)
+    return JSONResponse({"status": "ok", "url": url})
 
 
 @app.get("/status")
-async def status() -> JSONResponse:
+async def dashboard_status() -> JSONResponse:
     run_state = await run_manager.get_status()
     return JSONResponse(run_state)
+
+
+@app.get("/git/branch")
+async def git_branch() -> JSONResponse:
+    branch = await asyncio.to_thread(_resolve_git_branch)
+    return JSONResponse({"branch": branch})
 
 
 @app.post("/control")

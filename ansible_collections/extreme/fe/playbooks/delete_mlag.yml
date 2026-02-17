@@ -31,7 +31,6 @@
     - name: Display current MLAG configuration
       debug:
         var: current_mlag_config.gathered
-        verbosity: 1
       when:
         - current_mlag_config is defined
         - current_mlag_config.gathered is defined
@@ -93,7 +92,6 @@
     - name: Display final MLAG configuration (should be empty)
       debug:
         var: final_mlag_config.gathered
-        verbosity: 1
       when:
         - final_mlag_config is defined
         - final_mlag_config.gathered is defined

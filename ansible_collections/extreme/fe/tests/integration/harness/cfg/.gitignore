@@ -1,3 +1,5 @@
 gns3.cfg
 inventory.ini
 test.yml
+fe_dt_?-info.json
+fe_dt_?-APItoken.cfg

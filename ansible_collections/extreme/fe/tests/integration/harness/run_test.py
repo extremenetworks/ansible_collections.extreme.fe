@@ -1021,7 +1021,7 @@ class Dashboard:
         }}
         body {{
             margin: 0;
-            padding: 2rem;
+            padding: 1rem 2rem 2rem;
             font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #0f172a, #111827); 
             color: #e2e8f0;
@@ -1051,20 +1051,25 @@ class Dashboard:
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
         }}
         .summary-section {{
-            position: relative;
-            overflow: visible;
+            margin-top: 0;
         }}
         .summary-fixed {{
             position: sticky;
-            top: 0;
-            z-index: 20;
-            margin: -1.75rem -1.75rem 1.5rem;
-            padding: 1.75rem;
-            border-radius: 16px 16px 12px 12px;
+            top: 0.75rem;
+            z-index: 30;
+            margin: 0 0 1.25rem;
+            padding: 1.25rem 1.5rem;
+            border-radius: 16px;
             background: rgba(15, 23, 42, 0.88);
             backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+            border: 1px solid rgba(148, 163, 184, 0.25);
             box-shadow: 0 18px 45px rgba(15, 23, 42, 0.35);
+            transition: box-shadow 0.2s ease, backdrop-filter 0.2s ease, background 0.2s ease;
+        }}
+        .summary-fixed.is-sticky {{
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(14px);
+            box-shadow: 0 22px 55px rgba(15, 23, 42, 0.5);
         }}
         .summary-body {{
             display: flex;
@@ -1077,7 +1082,7 @@ class Dashboard:
             justify-content: space-between;
             align-items: center;
             gap: 1rem;
-            margin-top: 1.25rem;
+            margin-top: 0;
         }}
         .status-badge {{
             display: inline-flex;
@@ -1298,7 +1303,7 @@ class Dashboard:
         }}
         .status-pill.fail {{
             background: rgba(248, 113, 113, 0.18);
-            color: #f87171;
+            color: #cbd5f5;
         }}
         .status-pill.run {{
             background: rgba(251, 191, 36, 0.18);
@@ -1340,10 +1345,10 @@ class Dashboard:
         }}
         @media (max-width: 720px) {{
             body {{
-                padding: 1.25rem;
+                padding: 0.75rem 1.25rem 1.25rem;
             }}
             .summary-fixed {{
-                margin: -1.25rem -1.25rem 1.25rem;
+                margin: 0 0 1.25rem;
                 padding: 1.25rem;
             }}
             .bar-label {{
@@ -1359,45 +1364,45 @@ class Dashboard:
 </head>
 <body>
     <main>
-        <section class="summary-section">
-            <div class="summary-fixed">
-                <div class="summary-status">
-                <span class="status-badge {status_badge_class}">{self.status}</span>
-                <div class="summary-meta">
-                    <div><strong>Start:</strong> {start_display}</div>
-                    <div><strong>Duration:</strong> {duration_display}</div>
-                    <div><strong>Last update:</strong> {last_updated_display}</div>
+        <div class="summary-fixed">
+            <div class="summary-status">
+            <span class="status-badge {status_badge_class}">{self.status}</span>
+            <div class="summary-meta">
+                <div><strong>Start:</strong> {start_display}</div>
+                <div><strong>Duration:</strong> {duration_display}</div>
+                <div><strong>Last update:</strong> {last_updated_display}</div>
+            </div>
+            </div>
+            <div class="metric-grid">
+                <div class="metric">
+                    <span class="label">Tests run</span>
+                    <span class="value">{tests_total_display}</span>
                 </div>
+                <div class="metric">
+                    <span class="label">Passed</span>
+                    <span class="value">{tests_passed}</span>
                 </div>
-                <div class="metric-grid">
-                    <div class="metric">
-                        <span class="label">Tests run</span>
-                        <span class="value">{tests_total_display}</span>
-                    </div>
-                    <div class="metric">
-                        <span class="label">Passed</span>
-                        <span class="value">{tests_passed}</span>
-                    </div>
-                    <div class="metric">
-                        <span class="label">Failed</span>
-                        <span class="value">{tests_failed}</span>
-                    </div>
-                    <div class="metric{coverage_metric_class}">
-                        <span class="label">Coverage</span>
-                        <span class="value">{coverage_display}</span>
-                    </div>
+                <div class="metric">
+                    <span class="label">Failed</span>
+                    <span class="value">{tests_failed}</span>
                 </div>
-                <div class="overall-progress">
-                    <div class="progress-label">Test progress</div>
-                    <div class="progress-track">
-                        <div class="progress-fill" style="width: {progress_percent:.1f}%;"></div>
-                    </div>
-                    <div class="progress-summary">
-                        <span>{progress_completion_display} complete</span>
-                        <span>{progress_percent_display}</span>
-                    </div>
+                <div class="metric{coverage_metric_class}">
+                    <span class="label">Coverage</span>
+                    <span class="value">{coverage_display}</span>
                 </div>
             </div>
+            <div class="overall-progress">
+                <div class="progress-label">Test progress</div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: {progress_percent:.1f}%;"></div>
+                </div>
+                <div class="progress-summary">
+                    <span>{progress_completion_display} complete</span>
+                    <span>{progress_percent_display}</span>
+                </div>
+            </div>
+        </div>
+        <section class="summary-section">
             <div class="summary-body">
                 <div class="config-info">
                     <div><strong>Config file:</strong> {summary_link_html}</div>
@@ -1433,6 +1438,19 @@ class Dashboard:
             }}, 800);
         }});
     }});
+
+    const summaryFixed = document.querySelector('.summary-fixed');
+    if (summaryFixed) {{
+        const updateStickyState = function() {{
+            const topValue = window.getComputedStyle(summaryFixed).top || '0px';
+            const topOffset = parseFloat(topValue) || 0;
+            const rect = summaryFixed.getBoundingClientRect();
+            summaryFixed.classList.toggle('is-sticky', rect.top <= topOffset + 1);
+        }};
+        updateStickyState();
+        window.addEventListener('scroll', updateStickyState, {{ passive: true }});
+        window.addEventListener('resize', updateStickyState);
+    }}
     </script>
 </body>
 </html>

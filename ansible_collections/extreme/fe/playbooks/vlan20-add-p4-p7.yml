@@ -4,6 +4,17 @@
   gather_facts: false
 
   tasks:
+    - name: Set port 1:7 admin down
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - terminal more disable
+          - configure terminal
+          - interface gigabitEthernet 1/7
+          - shutdown
+          - exit
+        continue_on_failure: false
+
     - name: Configure interface 1:4 for VLAN 20 access
       extreme.fe.extreme_fe_l2_interfaces:
         interface: PORT:1:4
@@ -19,3 +30,19 @@
         untagged_vlan: 20
         tagged_vlans: []
         state: replaced
+
+    - name: Set port 1:7 admin up
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - terminal more disable
+          - configure terminal
+          - interface gigabitEthernet 1/7
+          - no shutdown
+          - exit
+        continue_on_failure: false
+
+    # Wait for 35 seconds due to 5320 DT weird behavior on NNI with VLAN
+    - name: Wait 35 seconds on each host
+      ansible.builtin.command: sleep 35
+      changed_when: false

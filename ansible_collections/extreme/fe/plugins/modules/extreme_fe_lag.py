@@ -15,26 +15,26 @@ module: extreme_fe_lag
 short_description: Manage LAGs on ExtremeNetworks Fabric Engine switches
 version_added: "1.0.0"
 description:
-    - "Create and delete Link Aggregation Groups (LAGs) on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport."
+    - "Create and delete Link Aggregation Groups (LAGs) on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport."
     - "Update Fabric Engine specific LAG attributes such as friendly names, load balancing algorithms, and Fabric Engine LACP keys."
     - "Add or remove member ports through the Fabric Engine LAG REST endpoints while propagating device errors back to Ansible."
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
-    - "Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project."
+    - "Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project."
     - "Only Fabric Engine (VOSS) LAG attributes and endpoints are used; Switch Engine (EXOS) parameters are intentionally unsupported."
-    - "Fabric Engine does not support patching an existing LAG's aggregation mode; delete and recreate the LAG to modify ``mode``."
+    - "Fabric Engine does not support patching an existing LAG's aggregation mode; delete and recreate the LAG to modify C(mode)."
 requirements:
     - ansible.netcommon
 options:
     state:
         description:
             - Desired LAG operation.
-            - "``merged`` creates the target LAG when missing and merges the supplied attributes and member ports."
-            - "``replaced`` enforces the supplied member list and attributes for the target LAG, removing unstated members."
-            - "``overridden`` clears member overrides that are not provided and applies the supplied attribute values (an empty ``member_ports`` list removes all members)."
-            - "``deleted`` removes the specified LAG entirely or prunes the provided members when ``member_ports`` or ``remove_member_ports`` is supplied."
-            - "``gathered`` returns the current LAG configuration without applying changes."
+            - "C(merged) creates the target LAG when missing and merges the supplied attributes and member ports."
+            - "C(replaced) enforces the supplied member list and attributes for the target LAG, removing unstated members."
+            - "C(overridden) clears member overrides that are not provided and applies the supplied attribute values (an empty C(member_ports) list removes all members)."
+            - "C(deleted) removes the specified LAG entirely or prunes the provided members when C(member_ports) or C(remove_member_ports) is supplied."
+            - "C(gathered) returns the current LAG configuration without applying changes."
         type: str
         choices: [merged, replaced, overridden, deleted, gathered]
         default: merged
@@ -64,25 +64,25 @@ options:
     member_ports:
         description:
             - "List of member ports that participate in the LAG."
-            - "With ``state: merged`` missing members are added while existing members remain unless ``purge_member_ports`` is true."
-            - "With ``state: replaced`` or ``state: overridden`` the provided ports become authoritative; unspecified members are removed and an empty list clears all members."
-            - "With ``state: deleted`` the provided ports are removed from the LAG without deleting the LAG itself."
+            - "With C(state=merged) missing members are added while existing members remain unless C(purge_member_ports) is true."
+            - "With C(state=replaced) or C(state=overridden) the provided ports become authoritative; unspecified members are removed and an empty list clears all members."
+            - "With C(state=deleted) the provided ports are removed from the LAG without deleting the LAG itself."
         type: list
         elements: str
     add_member_ports:
         description:
-            - "Incremental list of member ports to add to the LAG when ``state: merged``."
+            - "Incremental list of member ports to add to the LAG when C(state=merged)."
         type: list
         elements: str
     remove_member_ports:
         description:
-            - "Incremental list of member ports to remove from the LAG when ``state: merged`` or ``state: deleted``."
+            - "Incremental list of member ports to remove from the LAG when C(state=merged) or C(state=deleted)."
         type: list
         elements: str
     purge_member_ports:
         description:
-            - "Remove member ports that are not present in ``member_ports`` (only evaluated when ``state: merged``)."
-            - "Requires ``member_ports`` when set to true."
+            - "Remove member ports that are not present in C(member_ports) (only evaluated when C(state=merged))."
+            - "Requires C(member_ports) when set to true."
         type: bool
         default: false
     gather_filter:
@@ -221,7 +221,7 @@ member_removals:
     type: list
     elements: str
 lags:
-    description: "List of LAG configuration dictionaries retrieved when ``state: gathered``."
+    description: "List of LAG configuration dictionaries retrieved when C(state=gathered)."
     returned: when state == gathered
     type: list
     elements: dict

@@ -14,14 +14,14 @@ module: extreme_fe_mlag
 short_description: Manage MLAG on ExtremeNetworks Fabric Engine switches
 version_added: 1.0.0
 description:
-- Manage Multi-switch Link Aggregation (MLAG) configuration on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport.
+- Manage Multi-switch Link Aggregation (MLAG) configuration on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport.
 - Configure MLAG peers, ports, and RSMLT (Routed Split Multi-Link Trunking) instances.
 - Supports both configuration and state retrieval operations for comprehensive MLAG management.
 - Handles error propagation from device REST API endpoints back to Ansible.
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
 - Fabric Engine (VOSS) specific functionality; Switch Engine (EXOS) features are limited.
 - RSMLT operations are Fabric Engine specific.
 requirements:
@@ -56,7 +56,7 @@ options:
           local_ip_address:
             description:
             - Local IP address for MLAG communication.
-            - Note: On VOSS, this is derived from the IST VLAN IP configuration.
+            - On VOSS, this is derived from the IST VLAN IP configuration.
             type: str
           local_vlan_id:
             description:
@@ -677,12 +677,15 @@ class MlagModule:
         peer_data = {}
         
         # Map configuration to API structure (VOSS-only fields)
-        if 'peer_ip_address' in peer_config:
+        # Note: Check for non-None values (not just key existence) to allow
+        # incremental configuration where only some fields are specified.
+        # Ansible's argument spec adds all keys with None values by default.
+        if peer_config.get('peer_ip_address') is not None:
             peer_data['peerIpAddress'] = {
                 'address': peer_config['peer_ip_address'],
                 'ipAddressType': 'IPv4'
             }
-        if 'local_vlan_id' in peer_config:
+        if peer_config.get('local_vlan_id') is not None:
             peer_data['vistVlanId'] = peer_config['local_vlan_id']
 
         # Always update the existing "Default" peer with PATCH
