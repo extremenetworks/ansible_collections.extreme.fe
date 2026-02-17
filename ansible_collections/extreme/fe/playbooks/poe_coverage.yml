@@ -1,9 +1,9 @@
 ---
 - name: Exercise extreme_fe_poe module behaviours
-  hosts: fe_dt_1_hosts
+  hosts: switches
   gather_facts: false
   vars:
-    coverage_power_limit: 45000
+    coverage_power_limit: 10000
   tasks:
     - name: Gather PoE data for all available ports
       extreme.fe.extreme_fe_poe:
@@ -113,7 +113,7 @@
     - name: Stash replacement defaults for assertions
       ansible.builtin.set_fact:
         coverage_default_power: >-
-          {{ poe_replaced.ports[0].capability.capabilities.poeMaxPower }}
+          {{ poe_replaced.ports[0].capability.capabilities.poeMaxPower | int }}
       changed_when: false
 
     - name: Validate replacement removed extra attributes
@@ -121,8 +121,8 @@
         that:
           - poe_replaced.changed | bool
           - >-
-            poe_replaced.ports[0].differences.powerLimit.after ==
-            coverage_default_power
+            poe_replaced.ports[0].differences.powerLimit.after | int ==
+            coverage_default_power | int
           - poe_replaced.ports[0].differences.priority.after == 'LOW'
 
     - name: Override configuration to keep only the first port managed
