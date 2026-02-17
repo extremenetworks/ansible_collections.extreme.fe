@@ -13,7 +13,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_lag
 short_description: Manage LAGs on ExtremeNetworks Fabric Engine switches
-version_added: "1.3.0"
+version_added: "1.0.0"
 description:
     - "Create and delete Link Aggregation Groups (LAGs) on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport."
     - "Update Fabric Engine specific LAG attributes such as friendly names, load balancing algorithms, and Fabric Engine LACP keys."
@@ -99,6 +99,8 @@ EXAMPLES = r"""
 # Full playbook examples with prerequisites:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # =========================================================================
 #
 # Prerequisites:
@@ -120,6 +122,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 1: Create or update LAG with member ports
+# Description:
+#   - This example demonstrates how to create or update a LAG with member
+#     ports using 'merged' state. Additional ports can be added incrementally.
 # -------------------------------------------------------------------------
 # - name: "Task 1: Merge configuration for Fabric Engine LAG 10"
 #   hosts: switches
@@ -140,6 +145,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 2: Merge LAG with purge option
+# Description:
+#   - This example shows how to enforce LAG membership while removing
+#     any ports not specified in member_ports using purge_member_ports.
 # -------------------------------------------------------------------------
 # - name: "Task 2: Merge LAG 11 and purge unspecified members"
 #   hosts: switches
@@ -156,6 +164,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 3: Replace LAG membership
+# Description:
+#   - This example demonstrates how to replace LAG membership entirely
+#     using 'replaced' state, removing unlisted ports automatically.
 # -------------------------------------------------------------------------
 # - name: "Task 3: Replace membership for Fabric Engine LAG 10"
 #   hosts: switches
@@ -171,6 +182,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 4: Override LAG and clear all members
+# Description:
+#   - This example shows how to use 'overridden' state to remove all
+#     existing member ports while keeping the LAG definition intact.
 # -------------------------------------------------------------------------
 # - name: "Task 4: Override LAG 20 and clear existing members"
 #   hosts: switches

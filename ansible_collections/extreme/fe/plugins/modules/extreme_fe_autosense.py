@@ -13,7 +13,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_autosense
 short_description: Manage Fabric Engine auto-sense settings and port behaviour
-version_added: 1.6.0
+version_added: 1.0.0
 description:
     - Manage global auto-sense settings and per-port overrides on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
     - Supports Fabric Attach profiles, voice and DiffServ parameters, multihost limits, onboarding defaults, and per-port auto-sense toggles and wait timers.
@@ -263,6 +263,8 @@ EXAMPLES = r"""
 # Full playbook examples with prerequisites:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # =========================================================================
 #
 # Prerequisites:

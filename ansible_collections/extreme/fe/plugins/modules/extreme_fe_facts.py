@@ -15,7 +15,7 @@ import re
 DOCUMENTATION = r"""
 module: extreme_fe_facts
 short_description: Gather facts from ExtremeNetworks Fabric Engine switches
-version_added: 1.2.0
+version_added: 1.0.0
 description:
 - Collect state, hardware, interface, configuration, and neighbor facts from
   ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
@@ -57,6 +57,8 @@ EXAMPLES = r"""
 # Full playbook examples:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # Note: This is a READ-ONLY module - no prerequisites required
 # =========================================================================
 

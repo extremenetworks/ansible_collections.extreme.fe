@@ -14,7 +14,7 @@ from urllib.parse import quote
 DOCUMENTATION = r"""
 module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
-version_added: 1.3.0
+version_added: 1.0.0
 description:
 - Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
@@ -191,12 +191,12 @@ EXAMPLES = r"""
     management_type: AUTO
 
 # -------------------------------------------------------------------------
-# Task 3: Ping gateway from fe_sw_1 (via mgmt)
+# Task 3: Ping gateway from switches (via mgmt)
 # Description:
 #   - This example demonstrates running a ping test to the default gateway
 #     via the management interface to verify basic upstream connectivity.
 # -------------------------------------------------------------------------
-# - name: "Task 3: Ping gateway from fe_sw_1 via management"
+# - name: "Task 3: Ping gateway from switches via management"
 #   hosts: switches
 #   gather_facts: false
 #   vars:

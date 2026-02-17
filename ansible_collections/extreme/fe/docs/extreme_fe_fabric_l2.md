@@ -4,7 +4,7 @@
 
 module: extreme_fe_fabric_l2
 short_description: Manage Fabric Engine ISIDs on ExtremeNetworks switches
-version_added: '1.1.0'
+version_added: '1.0.0'
 description:
     - "Manage Layer 2 ISIDs (service instance identifiers) on ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI plugin."
     - Supports provisioning CVLAN-backed ISIDs, updating friendly names, gathering existing definitions, and removing bindings.
