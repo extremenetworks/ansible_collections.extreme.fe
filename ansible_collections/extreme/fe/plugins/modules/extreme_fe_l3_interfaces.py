@@ -13,7 +13,7 @@ from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 DOCUMENTATION = r"""
 module: extreme_fe_l3_interfaces
 short_description: Manage Layer 3 interfaces on ExtremeNetworks Fabric Engine switches
-version_added: 1.2.0
+version_added: 1.0.0
 description:
 - Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport.
 - Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible C(ios_l3_interfaces) and C(junos_l3_interfaces) modules.
@@ -82,6 +82,8 @@ EXAMPLES = r"""
 # Full playbook examples with prerequisites:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # =========================================================================
 #
 # Prerequisites:
@@ -117,6 +119,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 1: Merge IPv4 address on VLAN interface
+# Description:
+#   - This example demonstrates how to add an IPv4 address to a VLAN
+#     interface using the 'merged' state. Existing addresses are preserved.
 # -------------------------------------------------------------------------
 # - name: "Task 1: Merge IPv4 address on VLAN 20"
 #   hosts: switches
@@ -134,6 +139,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 2: Replace interface addresses with IPv4 and IPv6
+# Description:
+#   - This example shows how to replace all addresses on a VLAN interface
+#     with a new set of IPv4 and IPv6 addresses using 'replaced' state.
 # -------------------------------------------------------------------------
 # - name: "Task 2: Replace IPv4 and IPv6 addresses on VLAN 200"
 #   hosts: switches
@@ -152,6 +160,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 3: Delete all addresses from loopback interface
+# Description:
+#   - This example demonstrates how to remove all IP addresses from a
+#     loopback interface using the 'deleted' state.
 # -------------------------------------------------------------------------
 # - name: "Task 3: Remove all addressing from loopback 5"
 #   hosts: switches
@@ -166,6 +177,9 @@ EXAMPLES = r"""
 
 # -------------------------------------------------------------------------
 # Task 4: Gather Layer 3 interface configuration
+# Description:
+#   - This example shows how to collect current Layer 3 interface
+#     configuration using 'gathered' state without making changes.
 # -------------------------------------------------------------------------
 # - name: "Task 4: Gather configured Layer 3 interfaces"
 #   hosts: switches

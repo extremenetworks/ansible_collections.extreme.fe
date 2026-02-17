@@ -13,7 +13,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_interfaces
 short_description: Manage Ethernet interfaces on ExtremeNetworks Fabric Engine switches
-version_added: "1.1.0"
+version_added: "1.0.0"
 description:
     - Configure administrative state, global interface settings, and per-port attributes on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
     - Supports enabling or disabling multiple ports, adjusting Fabric Engine global port flags, and tuning per-port features such as speed, duplex, Energy Efficient Ethernet, and Fabric Engine specific options.
@@ -154,6 +154,8 @@ EXAMPLES = r"""
 # Full playbook examples with prerequisites:
 # To create a complete playbook, uncomment the lines starting with:
 #   '# - name:', '# hosts:', '# gather_facts:', and '# tasks:'
+# After uncommenting, realign indentation to conform to YAML format
+# (playbook level at col 0, tasks indented under tasks:)
 # =========================================================================
 #
 # Prerequisites:

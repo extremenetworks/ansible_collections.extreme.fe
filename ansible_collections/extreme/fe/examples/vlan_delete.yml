@@ -1,0 +1,140 @@
+---
+# =============================================================================
+# VLAN + ISID Delete - Remove VLAN and Bound ISID Resources
+# =============================================================================
+#
+# What this does:
+#   Removes VLAN and ISID resources:
+#   1. Gather the VLAN info to find its actual configuration (VR, etc.)
+#   2. Find the ISID bound to the VLAN (if any)
+#   3. Delete the ISID bound to the VLAN (must be deleted before VLAN)
+#   4. Delete VLAN using its actual VR name
+#
+# NOTE: This playbook automatically finds and deletes the ISID bound to the
+#       specified VLAN - you don't need to know what ISID was used.
+#       It also auto-detects the VR the VLAN belongs to.
+#
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+#
+# Delete VLAN 50 and its bound ISID:
+#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50
+#
+# Dry run (check mode) - see what would be deleted without making changes:
+#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50 --check
+#
+# NOTE: vlan_id parameter is REQUIRED. Example: -e vlan_id=50
+#
+# =============================================================================
+
+- name: Delete VLAN and ISID Resources
+  hosts: switches
+  gather_facts: false
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Step 1: Validate required parameter
+    # -------------------------------------------------------------------------
+    - name: "Step 1 - Validate vlan_id parameter"
+      ansible.builtin.assert:
+        that:
+          - vlan_id is defined
+        fail_msg:
+          - "ERROR: vlan_id parameter is required!"
+          - "Usage: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=VLAN_ID"
+          - "Example: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50"
+        success_msg: "Parameter validated - proceeding with delete"
+
+    # -------------------------------------------------------------------------
+    # Step 2: Show what will be removed
+    # -------------------------------------------------------------------------
+    - name: "Step 2 - Show delete target"
+      ansible.builtin.debug:
+        msg:
+          - "=== VLAN DELETE ==="
+          - "Target VLAN: {{ vlan_id }}"
+          - "Will also delete any ISID bound to this VLAN"
+
+    # -------------------------------------------------------------------------
+    # Step 3: Gather VLAN info to get its actual VR name
+    # -------------------------------------------------------------------------
+    - name: "Step 3 - Gather current VLAN information"
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+      register: vlans_info
+
+    - name: "Step 3 - Find VLAN {{ vlan_id }} configuration"
+      ansible.builtin.set_fact:
+        _existing_vlan: "{{ vlans_info.vlans | default([]) | selectattr('id', 'defined') | selectattr('id', 'equalto', vlan_id | int) | list | first | default({}) }}"
+
+    - name: "Step 3 - Get VLAN VR name"
+      ansible.builtin.set_fact:
+        _vlan_vr_name: "{{ _existing_vlan.vrName | default('GlobalRouter') }}"
+
+    - name: "Step 3 - Show VLAN info found"
+      ansible.builtin.debug:
+        msg:
+          - "VLAN {{ vlan_id }} found: {{ (_existing_vlan | length > 0) | ternary('YES', 'NO') }}"
+          - "VLAN Name: {{ _existing_vlan.name | default('N/A') }}"
+          - "VLAN VR: {{ _vlan_vr_name | default('N/A') }}"
+
+    # -------------------------------------------------------------------------
+    # Step 4: Find the ISID bound to the VLAN
+    # -------------------------------------------------------------------------
+    - name: "Step 4 - Gather current ISID information"
+      extreme.fe.extreme_fe_fabric_l2:
+        state: gathered
+      register: isid_info
+
+    - name: "Step 4 - Find ISID bound to VLAN {{ vlan_id }}"
+      ansible.builtin.set_fact:
+        isid_to_delete: "{{ (isid_info.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
+
+    - name: "Step 4 - Show ISID found"
+      ansible.builtin.debug:
+        msg:
+          - "ISID bound to VLAN {{ vlan_id }}: {{ (isid_to_delete | int > 0) | ternary(isid_to_delete, 'None found') }}"
+
+    # -------------------------------------------------------------------------
+    # Step 5: Delete the ISID bound to the VLAN (must delete before VLAN)
+    # -------------------------------------------------------------------------
+    - name: "Step 5 - Delete ISID {{ isid_to_delete }} (bound to VLAN {{ vlan_id }})"
+      extreme.fe.extreme_fe_fabric_l2:
+        isid: "{{ isid_to_delete | int }}"
+        state: deleted
+      register: cleanup_isid_result
+      when: isid_to_delete | int > 0
+      ignore_errors: true
+
+    - name: "Step 5 - Show ISID deletion result"
+      ansible.builtin.debug:
+        msg:
+          - "ISID {{ isid_to_delete }} deletion: {{ cleanup_isid_result.changed | default(false) | ternary('SUCCESS', (isid_to_delete | int > 0) | ternary('ERROR', 'NO ISID BOUND')) }}"
+
+    # -------------------------------------------------------------------------
+    # Step 6: Delete VLAN (using actual VR name)
+    # -------------------------------------------------------------------------
+    - name: "Step 6 - Delete VLAN {{ vlan_id }} from VR {{ _vlan_vr_name }}"
+      extreme.fe.extreme_fe_vlans:
+        vlan_id: "{{ vlan_id }}"
+        vr_name: "{{ _vlan_vr_name }}"
+        state: deleted
+      register: cleanup_vlan_result
+      when: _existing_vlan | length > 0
+      ignore_errors: true
+
+    - name: "Step 6 - Show VLAN deletion result"
+      ansible.builtin.debug:
+        msg:
+          - "VLAN {{ vlan_id }} deletion: {{ cleanup_vlan_result.changed | default(false) | ternary('SUCCESS', (_existing_vlan | length > 0) | ternary('ERROR', 'VLAN NOT FOUND')) }}"
+
+    # -------------------------------------------------------------------------
+    # Step 7: Summary
+    # -------------------------------------------------------------------------
+    - name: "Step 7 - Summary"
+      ansible.builtin.debug:
+        msg:
+          - "=== VLAN DELETE COMPLETE ==="
+          - "VLAN {{ vlan_id }} (VR: {{ _vlan_vr_name | default('N/A') }}) deleted: {{ cleanup_vlan_result.changed | default(false) | ternary('✓ YES', '✗ NO') }}"
+          - "ISID deleted: {{ (isid_to_delete | default(0) | int > 0) | ternary(isid_to_delete, 'none bound') }}"

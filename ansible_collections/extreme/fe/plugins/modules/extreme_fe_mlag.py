@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 DOCUMENTATION = r"""
 module: extreme_fe_mlag
 short_description: Manage MLAG on ExtremeNetworks Fabric Engine switches
-version_added: 1.4.0
+version_added: 1.0.0
 description:
 - Manage Multi-switch Link Aggregation (MLAG) configuration on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport.
 - Configure MLAG peers, ports, and RSMLT (Routed Split Multi-Link Trunking) instances.
