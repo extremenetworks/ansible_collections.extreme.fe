@@ -677,12 +677,15 @@ class MlagModule:
         peer_data = {}
         
         # Map configuration to API structure (VOSS-only fields)
-        if 'peer_ip_address' in peer_config:
+        # Note: Check for non-None values (not just key existence) to allow
+        # incremental configuration where only some fields are specified.
+        # Ansible's argument spec adds all keys with None values by default.
+        if peer_config.get('peer_ip_address') is not None:
             peer_data['peerIpAddress'] = {
                 'address': peer_config['peer_ip_address'],
                 'ipAddressType': 'IPv4'
             }
-        if 'local_vlan_id' in peer_config:
+        if peer_config.get('local_vlan_id') is not None:
             peer_data['vistVlanId'] = peer_config['local_vlan_id']
 
         # Always update the existing "Default" peer with PATCH

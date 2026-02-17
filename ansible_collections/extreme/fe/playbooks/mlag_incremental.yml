@@ -1,0 +1,296 @@
+---
+# =============================================================================
+# Test MLAG Incremental Configuration
+# =============================================================================
+#
+# This playbook tests the fix for the None-value issue in MLAG configuration.
+# It verifies that:
+#   1. A Peer IP Set without specifying local_vlan_id (incremental config) can be sent,
+# although both values are required on Fabric Engine, the module should allow partial
+# updates without sending None for unspecified fields.
+#   2. Local VLAN ID Set without specifying peer_ip_address (incremental config) can be sent,
+# although both values are required on Fabric Engine, the module should allow partial
+# updates.
+#   3. Both can be set together (full config)
+#
+# Issue tested: Module was failing with HTTP 400 error when only some peer
+# parameters were specified, because it sent None values for unspecified fields.
+#
+# The playbook configures:
+#
+# Peer IP: 192.168.140.2
+# Local VLAN ID: 4000
+# Peer ID: Default
+#
+# =============================================================================
+# USAGE
+# =============================================================================
+#
+# Run single test:
+#   ansible-playbook mlag_incremental.yml -i inventory.ini -e test=peer_ip_only
+#   ansible-playbook mlag_incremental.yml -i inventory.ini -e test=vlan_only
+#   ansible-playbook mlag_incremental.yml -i inventory.ini -e test=full
+#
+# Run all tests (default):
+#   ansible-playbook mlag_incremental.yml -i inventory.ini
+#
+# Check mode (dry run):
+#   ansible-playbook mlag_incremental.yml -i inventory.ini --check
+#
+# =============================================================================
+# PREREQUISITES
+# =============================================================================
+#
+# Before running this playbook, both switches must be configured for MLAG/SMLT.
+#
+# EXPLANATION:
+# - IST (Inter-Switch Trunk) VLAN 4000 is used for MLAG peer communication
+# - Both switches need IP addresses on IST VLAN to communicate
+# - The i-sid must be the same on both switches (40040)
+# - Physical IST port(s) must be added to VLAN 4000 on both switches
+# - Switch 2 needs virtual-ist peer-ip configured manually
+# - The playbook will configure Switch 1's virtual-ist settings
+#
+# Replace port 1/1 with your actual IST port(s).
+#
+# =============================================================================
+# SWITCH 1 CONFIGURATION
+# =============================================================================
+#
+# vlan create 4000 name "IST-VLAN" type port-mstprstp 0
+# vlan i-sid 4000 40040
+# interface vlan 4000
+# ip address 192.168.140.1/24
+# exit
+#router isis
+# spbm 1
+# spbm 1 nick-name 0.00.01
+# spbm 1 b-vid 4051-4052 primary 4051
+# exit
+# vlan create 4051 type spbm-bvlan
+# vlan create 4052 type spbm-bvlan
+#
+# router isis
+# spbm 1 smlt-peer-system-id <"System ID" for "show isis" on peer>
+# spbm 1 smlt-virtual-bmac <new one same format as "System ID">
+#
+# interface gigabitEthernet 1/1
+# isis
+# isis spbm 1
+# isis enable
+# exit
+# 
+# =============================================================================
+# SWITCH 2 CONFIGURATION
+# =============================================================================
+#
+# vlan create 4000 name "IST-VLAN" type port-mstprstp 0
+# vlan i-sid 4000 40040
+# interface vlan 4000
+# ip address 192.168.140.2/24
+# exit
+# vlan members add 4000 1/1
+# virtual-ist peer-ip 192.168.140.1 vlan 4000
+# router isis
+# spbm 1
+# spbm 1 nick-name 0.00.02
+# spbm 1 b-vid 4051-4052 primary 4051
+# exit
+# vlan create 4051 type spbm-bvlan
+# vlan create 4052 type spbm-bvlan
+#
+# router isis
+# spbm 1 smlt-peer-system-id 4088.2fe6.9884
+# spbm 1 smlt-virtual-bmac 4088.2fe6.9400
+# router isis enable
+#
+# interface gigabitEthernet 1/1
+# isis
+# isis spbm 1
+# isis enable
+# exit
+#
+# =============================================================================
+# VERIFY (on both switches)
+# =============================================================================
+#
+# ping 192.168.140.1
+# ping 192.168.140.2
+# show virtual-ist
+# show smlt
+#
+# =============================================================================
+# IS-IS / SPBM NOTE
+# =============================================================================
+#
+# When IS-IS (SPBM) is enabled, MLAG changes may be restricted.
+# Disable IS-IS if needed: no router isis enable
+# Re-enable after: router isis ; enable ; exit
+#
+# =============================================================================
+# CLI COMMANDS TO VERIFY
+# =============================================================================
+#
+# Before running playbook (verify prerequisites):
+#   show vlan basic               - Verify IST VLAN exists
+#   show vlan i-sid              - Verify i-sid association
+#   show ip interface vlan 4000  - Verify IP address on IST VLAN
+#   show isis                    - Check IS-IS status
+#   show isis adjacencies        - Verify IS-IS adjacency with peer
+#   show virtual-ist              - Verify virtual IST peer IP on Switch 2
+#
+# =============================================================================
+
+- name: Test MLAG Incremental Configuration Fix
+  hosts: switches
+  gather_facts: false
+
+  vars:
+    test: all  # Options: peer_ip_only, vlan_only, full, all
+    test_peer_ip: "192.168.140.2"
+    test_vlan_id: 4000
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Initial: Gather current MLAG configuration
+    # -------------------------------------------------------------------------
+    - name: "Initial - Gather MLAG configuration"
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+      register: initial_mlag
+
+    - name: "Initial - Show current MLAG configuration"
+      ansible.builtin.debug:
+        msg:
+          - "=== INITIAL MLAG CONFIGURATION ==="
+          - "Peers: {{ initial_mlag.gathered.peers | default([]) }}"
+          - "RSMLT: {{ initial_mlag.gathered.rsmlt | default({}) }}"
+
+    #-------------------------------------------------------------------------
+    # Test 1: Configure peer IP address only (no local_vlan_id)
+    # Before fix: Failed with "None is not of type 'integer' - 'vistVlanId'"
+    # -------------------------------------------------------------------------
+    - name: "Test 1 - Configure MLAG peer IP only (without local_vlan_id)"
+      block:
+        - name: "Test 1 - Set peer_ip_address only"
+          extreme.fe.extreme_fe_mlag:
+            state: present
+            config:
+              peers:
+                - peer_id: "Default"
+                  peer_ip_address: "{{ test_peer_ip }}"
+          register: peer_ip_result
+
+        - name: "Test 1 - Show result"
+          ansible.builtin.debug:
+            msg:
+              - "✓ Test 1 PASSED: peer_ip_address set without specifying local_vlan_id"
+              - "Changed: {{ peer_ip_result.changed }}"
+              - "Commands: {{ peer_ip_result.commands | default([]) }}"
+
+        - name: "Test 1 - Gather MLAG after peer_ip change"
+          extreme.fe.extreme_fe_mlag:
+            state: gathered
+          register: after_test1
+
+        - name: "Test 1 - Show MLAG configuration after change"
+          ansible.builtin.debug:
+            msg:
+              - "=== MLAG AFTER TEST 1 (peer_ip_only) ==="
+              - "Peers: {{ after_test1.gathered.peers | default([]) }}"
+      when: test == 'peer_ip_only' or test == 'all'
+
+    # -------------------------------------------------------------------------
+    # Test 2: Configure local VLAN ID only (no peer_ip_address)
+    # Before fix: Failed with "address: None is not valid - 'peerIpAddress'"
+    # -------------------------------------------------------------------------
+    - name: "Test 2 - Configure MLAG local VLAN only (without peer_ip_address)"
+      block:
+        - name: "Test 2 - Set local_vlan_id only"
+          extreme.fe.extreme_fe_mlag:
+            state: present
+            config:
+              peers:
+                - peer_id: "Default"
+                  local_vlan_id: "{{ test_vlan_id }}"
+          register: vlan_result
+
+        - name: "Test 2 - Show result"
+          ansible.builtin.debug:
+            msg:
+              - "✓ Test 2 PASSED: local_vlan_id set without specifying peer_ip_address"
+              - "Changed: {{ vlan_result.changed }}"
+              - "Commands: {{ vlan_result.commands | default([]) }}"
+
+        - name: "Test 2 - Gather MLAG after vlan_id change"
+          extreme.fe.extreme_fe_mlag:
+            state: gathered
+          register: after_test2
+
+        - name: "Test 2 - Show MLAG configuration after change"
+          ansible.builtin.debug:
+            msg:
+              - "=== MLAG AFTER TEST 2 (vlan_only) ==="
+              - "Peers: {{ after_test2.gathered.peers | default([]) }}"
+      when: test == 'vlan_only' or test == 'all'
+
+    # -------------------------------------------------------------------------
+    # Test 3: Configure both peer IP and local VLAN (full config)
+    # -------------------------------------------------------------------------
+    - name: "Test 3 - Configure MLAG with both peer_ip and local_vlan"
+      block:
+        - name: "Test 3 - Set both peer_ip_address and local_vlan_id"
+          extreme.fe.extreme_fe_mlag:
+            state: present
+            config:
+              peers:
+                - peer_id: "Default"
+                  peer_ip_address: "{{ test_peer_ip }}"
+                  local_vlan_id: "{{ test_vlan_id }}"
+          register: full_result
+
+        - name: "Test 3 - Show result"
+          ansible.builtin.debug:
+            msg:
+              - "✓ Test 3 PASSED: Both peer_ip_address and local_vlan_id set"
+              - "Changed: {{ full_result.changed }}"
+              - "Commands: {{ full_result.commands | default([]) }}"
+
+        - name: "Test 3 - Gather MLAG after full config"
+          extreme.fe.extreme_fe_mlag:
+            state: gathered
+          register: after_test3
+
+        - name: "Test 3 - Show MLAG configuration after change"
+          ansible.builtin.debug:
+            msg:
+              - "=== MLAG AFTER TEST 3 (full) ==="
+              - "Peers: {{ after_test3.gathered.peers | default([]) }}"
+      when: test == 'full' or test == 'all'
+
+    # -------------------------------------------------------------------------
+    # Final: Gather and show final state
+    # -------------------------------------------------------------------------
+    - name: "Final - Gather MLAG configuration"
+      extreme.fe.extreme_fe_mlag:
+        state: gathered
+      register: final_mlag
+
+    - name: "Final - Show final MLAG configuration"
+      ansible.builtin.debug:
+        msg:
+          - "=== FINAL MLAG CONFIGURATION ==="
+          - "Peers: {{ final_mlag.gathered.peers | default([]) }}"
+          - "RSMLT: {{ final_mlag.gathered.rsmlt | default({}) }}"
+
+    # -------------------------------------------------------------------------
+    # Summary
+    # -------------------------------------------------------------------------
+    - name: "Test Summary"
+      ansible.builtin.debug:
+        msg:
+          - "=== MLAG INCREMENTAL CONFIG TEST COMPLETE ==="
+          - "Test mode: {{ test }}"
+          - "All executed tests passed without HTTP 400 errors"
+          - ""
+          - "Fix verified: Module now only sends non-None values to API"
