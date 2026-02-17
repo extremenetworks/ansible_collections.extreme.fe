@@ -7,7 +7,6 @@ This folder contains **example playbooks** demonstrating how to use the `extreme
 ## Requirements
 
 *   **Ansible:** Tested with:
-                - ansible [core 2.17.14]
                 - ansible [core 2.20.2]
 *   **Python:** Tested with:
                 - python version = 3.12.3

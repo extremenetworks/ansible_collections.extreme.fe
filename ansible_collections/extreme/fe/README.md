@@ -4,18 +4,12 @@ The Ansible Extreme Networks Fabric Engine collection includes a variety of Ansi
 
 This collection has been tested against Fabric Engine VOSS 9.3.2.0.
 
-## Communication
-
-- Join the [Ansible Forum Network Working Group](https://forum.ansible.com/g/network-wg)
-- For issues, open a ticket on [GitHub Issues](https://github.com/extremenetworks/ansible_collections.extreme.fe/issues)
-
 ## Ansible version compatibility
 
-This collection has been tested against the following Ansible versions:
+This collection has been tested against the following Ansible version:
 
 | Ansible Version        | Status |
 |------------------------|--------|
-| ansible [core 2.17.14] | Tested |
 | ansible [core 2.20.2]  | Tested |
 
 ### Python version compatibility
@@ -245,15 +239,9 @@ You can call modules by their Fully Qualified Collection Namespace (FQCN), such 
 - [Ansible Using collections](https://docs.ansible.com/ansible/latest/user_guide/collections_using.html) for more details.
 - [Ansible Network Resource Modules](https://docs.ansible.com/ansible/latest/network/user_guide/network_resource_modules.html)
 
-## Contributing to this collection
-
-We welcome community contributions to this collection. If you find problems, please open an issue or create a PR against the [Extreme Fabric Engine collection repository](https://github.com/extremenetworks/ansible_collections.extreme.fe).
-
-See [Contributing to Ansible-maintained collections](https://docs.ansible.com/ansible/devel/community/contributing_maintained_collections.html#contributing-maintained-collections) for complete details.
-
 ## Support
 
-For support, please contact [Extreme Networks Support](https://www.extremenetworks.com/support) or open an issue on the [GitHub repository](https://github.com/extremenetworks/ansible_collections.extreme.fe/issues).
+For support, please contact [Extreme Networks Support](https://www.extremenetworks.com/support).
 
 ### Code of Conduct
 
@@ -261,12 +249,7 @@ This collection follows the Ansible project's [Code of Conduct](https://docs.ans
 
 ## Release notes
 
-Release notes are available in the [CHANGELOG.rst](https://github.com/extremenetworks/ansible_collections.extreme.fe/blob/main/CHANGELOG.rst).
-
-## Roadmap
-
-<!-- Add information about planned features and improvements here -->
-
+Release notes are available in the CHANGELOG.rst.
 ## More information
 
 - [Ansible network resources](https://docs.ansible.com/ansible/latest/network/getting_started/network_resources.html)
@@ -274,9 +257,3 @@ Release notes are available in the [CHANGELOG.rst](https://github.com/extremenet
 - [Ansible User guide](https://docs.ansible.com/ansible/latest/user_guide/index.html)
 - [Ansible Developer guide](https://docs.ansible.com/ansible/latest/dev_guide/index.html)
 - [Extreme Networks](https://www.extremenetworks.com/)
-
-## Licensing
-
-GNU General Public License v3.0 or later.
-
-See [LICENSE](https://www.gnu.org/licenses/gpl-3.0.txt) to see the full text.
