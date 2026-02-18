@@ -19,6 +19,7 @@ build_ignore:
   - .vscode
   - .idea
   - dist
+  - roles/vlans
   - "*.tar.gz"
 tags:
   - networking
