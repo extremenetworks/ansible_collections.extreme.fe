@@ -115,8 +115,17 @@ responses:
       type: list
       elements: str
     status_code:
-      description: HTTP-style status code reported for the CLI command.
+      description: HTTP-style status code reported for the CLI command (200, 400, or 409).
       type: int
+    warning:
+      description: Warning message when the device returned status 400 but produced valid CLI output.
+      type: str
+      returned: when status_code is 400 with valid output
+cli_warnings:
+  description: List of commands that returned status 400 with valid CLI output, treated as successful with warning.
+  returned: when any command produces a 400 with output
+  type: list
+  elements: dict
 metadata:
   description: Aggregated success, failure, and skip counters reported by the device (if any).
   returned: when provided by the device
@@ -200,6 +209,7 @@ def _normalize_response(
 
     normalized: List[Dict[str, object]] = []
     failures: List[Dict[str, object]] = []
+    warnings: List[Dict[str, object]] = []
 
     for idx, entry in enumerate(data):
         if not isinstance(entry, dict):
@@ -211,13 +221,30 @@ def _normalize_response(
         status = entry.get("statusCode")
         output = entry.get("cliOutput")
         output_lines = _output_to_lines(output)
+        has_output = bool(output_lines and any(line.strip() for line in output_lines))
         normalized_entry: Dict[str, object] = {
             "command": command,
             "status_code": status,
             "output": output_lines,
         }
         normalized.append(normalized_entry)
-        if status != 200:
+        if status == 200:
+            pass
+        elif status == 400 and has_output:
+            # Device returned 400 but produced valid CLI output (e.g. show sys-info).
+            # Treat as a warning rather than a failure.
+            normalized_entry["warning"] = (
+                "Device returned status 400 but produced CLI output; "
+                "treating as successful with warning"
+            )
+            warnings.append({
+                "index": idx,
+                "command": command,
+                "status_code": status,
+                "output": output_lines,
+            })
+        else:
+            # 409 (conflict), 400 without output, or any other non-200 status
             failures.append({
                 "index": idx,
                 "command": command,
@@ -229,10 +256,12 @@ def _normalize_response(
     if failures:
         raise FeCommandError(
             "One or more CLI commands failed",
-            details={"failures": failures, "metadata": metadata},
+            details={"failures": failures, "cli_warnings": warnings, "metadata": metadata},
         )
 
     result: Dict[str, object] = {"responses": normalized}
+    if warnings:
+        result["cli_warnings"] = warnings
     if metadata is not None:
         result["metadata"] = metadata
     return result

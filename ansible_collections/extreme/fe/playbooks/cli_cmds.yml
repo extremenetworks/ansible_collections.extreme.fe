@@ -1,9 +1,28 @@
 ---
-- name: Execute enable/exit toggles using extreme_fe_command
-  hosts: gns3_network
+# =============================================================================
+# CLI Command Module Tests
+# =============================================================================
+#
+# Purpose:
+#   Tests the extreme_fe_command module including:
+#     - Basic CLI command execution
+#     - Commands that return status 400 with valid output (e.g. show sys-info)
+#     - continue_on_failure behavior
+#
+# How to run:
+#   ansible-playbook cli_cmds.yml -i inventory.ini
+#
+# =============================================================================
+
+- name: CLI Command Module Tests
+  hosts: switches
   gather_facts: false
+
   tasks:
-    - name: Send CLI commands to switch
+    # =========================================================================
+    # Test 1: Basic CLI commands (should always succeed)
+    # =========================================================================
+    - name: "Test 1 - Basic CLI commands"
       extreme.fe.extreme_fe_command:
         commands:
           - enable
@@ -12,3 +31,90 @@
           - configure terminal
           - exit
         continue_on_failure: false
+      register: basic_result
+
+    - name: "Test 1 - Display basic CLI result"
+      ansible.builtin.debug:
+        msg: "Commands executed: {{ basic_result.responses | length }}, All status 200"
+
+    # =========================================================================
+    # Test 2: show sys-info (returns status 400 with valid output)
+    #         This was previously failing - should now succeed with warning
+    # =========================================================================
+    - name: "Test 2 - Execute show sys-info (status 400 with output fix)"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - show sys-info
+      register: sysinfo_result
+
+    - name: "Test 2 - Display show sys-info result"
+      ansible.builtin.debug:
+        msg:
+          - "Command: {{ sysinfo_result.responses[1].command }}"
+          - "Status code: {{ sysinfo_result.responses[1].status_code }}"
+          - "Has output: {{ (sysinfo_result.responses[1].output | length) > 0 }}"
+          - "Warning: {{ sysinfo_result.responses[1].warning | default('none') }}"
+          - "Warnings count: {{ sysinfo_result.cli_warnings | default([]) | length }}"
+
+    - name: "Test 2 - Verify show sys-info produced output despite status 400"
+      ansible.builtin.assert:
+        that:
+          - sysinfo_result.responses[1].output | length > 0
+        success_msg: "PASS - show sys-info returned output successfully"
+        fail_msg: "FAIL - show sys-info did not return expected output"
+
+    # =========================================================================
+    # Test 3: Multiple show commands including sys-info
+    # =========================================================================
+    - name: "Test 3 - Multiple show commands with sys-info"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - terminal more disable
+          - show vlan basic
+          - show sys-info
+          - show interfaces gigabitEthernet name
+        continue_on_failure: true
+      register: multi_result
+
+    - name: "Test 3 - Display per-command results"
+      ansible.builtin.debug:
+        msg: "{{ item.command }} → status={{ item.status_code }}, lines={{ item.output | length }}, warning={{ item.warning | default('none') }}"
+      loop: "{{ multi_result.responses }}"
+      loop_control:
+        label: "{{ item.command }}"
+
+    # =========================================================================
+    # Test 4: continue_on_failure with an invalid command
+    # =========================================================================
+    - name: "Test 4 - Invalid command with continue_on_failure"
+      extreme.fe.extreme_fe_command:
+        commands:
+          - enable
+          - show this-does-not-exist-xyz
+          - show vlan basic
+        continue_on_failure: true
+      register: invalid_result
+      ignore_errors: true
+
+    - name: "Test 4 - Display invalid command result"
+      ansible.builtin.debug:
+        msg:
+          - "Failed: {{ invalid_result.failed | default(false) }}"
+          - "Message: {{ invalid_result.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+    - name: "Summary - Report test results"
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "  CLI Command Module Test Results"
+          - "============================================"
+          - "Test 1 (basic commands):      {{ 'PASS' if not basic_result.failed | default(false) else 'FAIL' }}"
+          - "Test 2 (show sys-info):       {{ 'PASS' if not sysinfo_result.failed | default(false) else 'FAIL' }}"
+          - "Test 3 (multi show + sysinfo):{{ 'PASS' if not multi_result.failed | default(false) else 'FAIL' }}"
+          - "Test 4 (invalid cmd):         {{ invalid_result.msg | default('OK') }}"
+          - "============================================"
