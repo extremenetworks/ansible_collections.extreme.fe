@@ -1,48 +1,190 @@
 ---
-- name: Manage PoE settings on Fabric Engine ports
-  hosts: fe_dt_1_hosts
+# =============================================================================
+# PoE Module Test Playbook
+# =============================================================================
+#
+# Purpose:
+#   Comprehensive PoE module testing covering:
+#     - Graceful handling on non-PoE devices (gathered returns empty, merge/delete fail clearly)
+#     - Full configuration lifecycle (gather → configure → disable → re-enable → validate)
+#
+# How to run:
+#   Basic:            ansible-playbook poe.yml -i inventory.ini
+#   Override port:    ansible-playbook poe.yml -i inventory.ini -e target_port=1:5
+#
+# =============================================================================
+
+- name: PoE Module - Graceful Handling and Configuration Tests
+  hosts: switches
   gather_facts: false
+
   vars:
-    target_port: "1:10"
+    target_port: "1:1"
+
   tasks:
-    - name: Gather current PoE information for target port
+    # =========================================================================
+    # Test 1: state=gathered (all ports) - should succeed on ANY device
+    # =========================================================================
+    - name: "Test 1 - Gather PoE state (should succeed on any device)"
+      extreme.fe.extreme_fe_poe:
+        state: gathered
+      register: poe_gathered
+
+    - name: "Test 1 - Display gathered result"
+      ansible.builtin.debug:
+        msg:
+          - "Changed: {{ poe_gathered.changed }}"
+          - "Ports found: {{ poe_gathered.ports | length }}"
+          - "Message: {{ poe_gathered.msg | default('(no message - device has PoE ports)') }}"
+
+    - name: "Test 1 - Verify changed is false"
+      ansible.builtin.assert:
+        that:
+          - not poe_gathered.changed
+        fail_msg: "gathered state should never report changed=true"
+        success_msg: "PASS - gathered returned changed=false"
+
+    - name: "Test 1 - Display PoE-capable ports"
+      ansible.builtin.debug:
+        msg: >-
+          PoE-capable ports: {{ poe_gathered.ports | default([]) | map(attribute='port') | list | join(', ') | default('None') }}
+      when: poe_gathered.ports | default([]) | length > 0
+
+    - name: "Test 1 - No PoE-capable ports"
+      ansible.builtin.debug:
+        msg: "This switch has no PoE-capable ports."
+      when: poe_gathered.ports | default([]) | length == 0
+
+    # =========================================================================
+    # Test 2: state=gathered (specific port) - graceful on non-PoE
+    # =========================================================================
+    - name: "Test 2 - Gather PoE state for port {{ target_port }}"
       extreme.fe.extreme_fe_poe:
         state: gathered
         config:
           - port: "{{ target_port }}"
-      register: poe_initial
+      register: poe_gathered_port
+      ignore_errors: true
 
-    - name: Ensure PoE features enabled with custom parameters
+    - name: "Test 2 - Display result"
+      ansible.builtin.debug:
+        msg:
+          - "Success: {{ not poe_gathered_port.failed | default(false) }}"
+          - "Ports: {{ poe_gathered_port.ports | default([]) | length }}"
+          - "Message: {{ poe_gathered_port.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Test 3: state=merged (enable with full params)
+    # =========================================================================
+    - name: "Test 3 - Merge PoE config with full parameters on {{ target_port }}"
       extreme.fe.extreme_fe_poe:
         state: merged
         config:
           - port: "{{ target_port }}"
             enable: true
-            power_limit: 42000
+            power_limit: 10000
             priority: HIGH
             fast_poe: true
             perpetual_poe: true
       register: poe_configured
+      ignore_errors: true
 
-    - name: Disable PoE on target port
+    - name: "Test 3 - Display merged result"
+      ansible.builtin.debug:
+        msg:
+          - "Failed: {{ poe_configured.failed | default(false) }}"
+          - "Changed: {{ poe_configured.changed | default('N/A') }}"
+          - "Message: {{ poe_configured.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Test 4: state=merged (disable PoE)
+    # =========================================================================
+    - name: "Test 4 - Disable PoE on {{ target_port }}"
       extreme.fe.extreme_fe_poe:
         state: merged
         config:
           - port: "{{ target_port }}"
             enable: false
       register: poe_disabled
+      ignore_errors: true
 
-    - name: Re-enable PoE on target port
+    - name: "Test 4 - Display disable result"
+      ansible.builtin.debug:
+        msg:
+          - "Failed: {{ poe_disabled.failed | default(false) }}"
+          - "Changed: {{ poe_disabled.changed | default('N/A') }}"
+          - "Message: {{ poe_disabled.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Test 5: state=merged (re-enable PoE) + assertion
+    # =========================================================================
+    - name: "Test 5 - Re-enable PoE on {{ target_port }}"
       extreme.fe.extreme_fe_poe:
         state: merged
         config:
           - port: "{{ target_port }}"
             enable: true
       register: poe_reenabled
+      ignore_errors: true
 
-    - name: Validate PoE re-enabled state
+    - name: "Test 5 - Validate PoE re-enabled state"
       ansible.builtin.assert:
         that:
           - poe_reenabled.changed | bool
           - poe_reenabled.ports[0].current.enable | bool
         success_msg: "PoE power successfully re-enabled on {{ target_port }}"
+      when: not (poe_reenabled.failed | default(false))
+
+    - name: "Test 5 - Display re-enable result"
+      ansible.builtin.debug:
+        msg:
+          - "Failed: {{ poe_reenabled.failed | default(false) }}"
+          - "Changed: {{ poe_reenabled.changed | default('N/A') }}"
+          - "Message: {{ poe_reenabled.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Test 6: state=deleted (reset port to defaults)
+    # =========================================================================
+    - name: "Test 6 - Delete PoE config on {{ target_port }} (reset to defaults)"
+      extreme.fe.extreme_fe_poe:
+        state: deleted
+        config:
+          - port: "{{ target_port }}"
+      register: poe_deleted
+      ignore_errors: true
+
+    - name: "Test 6 - Display deleted result"
+      ansible.builtin.debug:
+        msg:
+          - "Failed: {{ poe_deleted.failed | default(false) }}"
+          - "Changed: {{ poe_deleted.changed | default('N/A') }}"
+          - "Message: {{ poe_deleted.msg | default('(none)') }}"
+
+    # =========================================================================
+    # Summary
+    # =========================================================================
+    - name: "Summary - Report test results"
+      vars:
+        has_poe: "{{ (poe_gathered.ports | default([]) | length) > 0 }}"
+        port_data: "{{ poe_gathered_port.ports | default([]) | first | default({}) }}"
+        port_caps: "{{ port_data.capability.capabilities | default({}) }}"
+        port_is_poe: "{{ port_caps.poe | default(false) or port_caps.poeMaxPower is defined or port_caps.poeMaxClassification is defined }}"
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "  PoE Module Test Results"
+          - "  Port tested: {{ target_port }}"
+          - "============================================"
+          - "Test 1 (gathered all):          {{ 'PASS' if not poe_gathered.failed | default(false) else 'FAIL' }}"
+          - "Test 2 (gathered {{ target_port }}):    {{ 'PASS' if not poe_gathered_port.failed | default(false) else 'INFO - port may not exist' }}"
+          - "Test 3 (merged full params):    {{ 'FAIL - ' ~ poe_configured.msg if poe_configured.failed | default(false) else 'PASS' }}"
+          - "Test 4 (merged disable):        {{ 'FAIL - ' ~ poe_disabled.msg if poe_disabled.failed | default(false) else 'PASS' }}"
+          - "Test 5 (merged re-enable):      {{ 'FAIL - ' ~ poe_reenabled.msg if poe_reenabled.failed | default(false) else 'PASS' }}"
+          - "Test 6 (deleted):               {{ 'FAIL - ' ~ poe_deleted.msg if poe_deleted.failed | default(false) else 'PASS' }}"
+          - "============================================"
+          - ""
+          - "NOTE: This switch {{ 'HAS' if has_poe else 'DOES NOT HAVE' }} PoE-capable ports."
+          - "      Port {{ target_port }} PoE capable: {{ 'YES' if port_is_poe else 'NO' }}"
+          - "      Max power:            {{ port_caps.poeMaxPower | default('N/A') }} mW"
+          - "      Max classification:   {{ port_caps.poeMaxClassification | default('N/A') }}"
+          - "      {{ poe_gathered.msg | default('') }}"

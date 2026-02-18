@@ -512,6 +512,12 @@ def main() -> None:
 
     poe_capabilities = {port: info for port, info in capabilities.items() if _poe_capable(info)}
     if not poe_capabilities:
+        if state == STATE_GATHERED:
+            module.exit_json(
+                changed=False,
+                ports=[],
+                msg="Device does not have PoE-capable ports. No PoE data to gather.",
+            )
         module.fail_json(msg="Device does not report any PoE-capable ports via capabilities endpoint")
 
     try:
