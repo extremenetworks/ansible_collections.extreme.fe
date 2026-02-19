@@ -2,8 +2,9 @@
 - name: POE 1.0 - Functional workflow
   Playbooks:
   - File: poe.yml
-    ok: 5
-    changed: 3
+    ok: 16
+    changed: 4
+    skipped: 1
 - name: POE 1.1 - Coverage scenarios
   Playbooks:
   - File: poe_coverage.yml

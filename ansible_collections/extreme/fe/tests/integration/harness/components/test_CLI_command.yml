@@ -2,8 +2,8 @@
 - Name: CLI 1.0 - Run CLI command
   Playbooks:
   - File: cli_cmds.yml
-    ok: 1
-    changed: 1
+    ok: 10
+    changed: 4
 - Name: CLI 1.5 - Validate CLI guardrails
   Script:
     File: tests/integration/harness/tools/exercise_extreme_fe_command_validation.py
@@ -12,8 +12,8 @@
   Playbooks:
   - File: command_coverage.yml
     ok: 5
-    changed: 2
-    ignored: 1
+    changed: 3
+    ignored: 0
 - Name: CLI 3.0 - Check configuration
   Script:
     File: tests/integration/harness/tools/cmp_cfg
