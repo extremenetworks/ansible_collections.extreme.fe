@@ -24,7 +24,7 @@ build_ignore:
 tags:
   - networking
   - extreme
-  - fabric engine
+  - fabric_engine
 repository: https://github.com/extremenetworks/ansible_collections.extreme.fe
 documentation: https://github.com/extremenetworks/ansible_collections.extreme.fe
 homepage: https://github.com/extremenetworks/ansible_collections.extreme.fe
