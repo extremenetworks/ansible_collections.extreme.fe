@@ -31,6 +31,9 @@ jobs:
           yamllint -c ansible_collections/extreme/fe/.yamllint.yml -f standard ansible_collections/extreme/fe/galaxy.yml
 
       - name: Ansible Lint
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}
+          ANSIBLE_COLLECTIONS_PATHS: ${{ github.workspace }}
         run: |
           cd ansible_collections/extreme/fe && ansible-lint || (echo "ansible-lint failed" && exit 1)
 

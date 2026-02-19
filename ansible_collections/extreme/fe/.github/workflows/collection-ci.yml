@@ -84,7 +84,7 @@ jobs:
               data = yaml.safe_load(f)
 
           errors = []
-          
+
           # Required fields
           required = ['namespace', 'name', 'version', 'authors', 'description']
           for field in required:
@@ -205,6 +205,9 @@ jobs:
         run: pip install ansible-lint ansible-core
 
       - name: Run ansible-lint
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}
+          ANSIBLE_COLLECTIONS_PATHS: ${{ github.workspace }}
         run: ansible-lint --config-file .ansible-lint
         working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
         continue-on-error: true
@@ -343,14 +346,6 @@ jobs:
         run: ansible-galaxy collection build --force
         working-directory: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}
 
-      # TODO: Uncomment when Ansible Galaxy account is set up
-      # - name: Upload collection artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: collection-artifact
-      #     path: ansible_collections/${{ env.COLLECTION_NAMESPACE }}/${{ env.COLLECTION_NAME }}/*.tar.gz
-      #     retention-days: 30
-
   # ===========================================================================
   # Job 10: Integration Summary
   # ===========================================================================
@@ -372,10 +367,10 @@ jobs:
           echo "Ansible Lint Status: ${{ needs.ansible-lint.result }}"
           echo "Unit Tests Status: ${{ needs.unit-tests.result }}"
           echo ""
-          
+
           if [ "${{ needs.build.result }}" != "success" ]; then
             echo "❌ Build failed or was skipped"
             exit 1
           fi
-          
+
           echo "✅ CI Pipeline completed successfully"
