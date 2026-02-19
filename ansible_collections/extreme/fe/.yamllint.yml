@@ -69,4 +69,5 @@ ignore: |
   .venv/
   venv/
   tests/output/
+  tests/
   changelogs/
