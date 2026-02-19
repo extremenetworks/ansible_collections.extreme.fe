@@ -1,6 +1,6 @@
 ---
 - name: Exercise extreme_fe_poe module behaviours
-  hosts: switches
+  hosts: fe_dt_1_hosts
   gather_facts: false
   vars:
     coverage_power_limit: 10000

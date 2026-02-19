@@ -15,7 +15,7 @@
 # =============================================================================
 
 - name: PoE Module - Graceful Handling and Configuration Tests
-  hosts: switches
+  hosts: fe_dt_1_hosts
   gather_facts: false
 
   vars:

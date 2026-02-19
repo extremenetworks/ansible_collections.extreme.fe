@@ -15,7 +15,7 @@
 # =============================================================================
 
 - name: CLI Command Module Tests
-  hosts: switches
+  hosts: gns3_network
   gather_facts: false
 
   tasks:
