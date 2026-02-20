@@ -47,6 +47,15 @@ rules:
     ignore-shebangs: true
     min-spaces-from-content: 1
 
+  # Comments indentation
+  comments-indentation: false
+
+  # Octal values
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+
+
   # Document markers
   document-start: disable
   document-end: disable
