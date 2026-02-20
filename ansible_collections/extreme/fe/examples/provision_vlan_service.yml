@@ -73,7 +73,16 @@
 
     - name: "Find ISID currently bound to VLAN {{ vlan_id }}"
       ansible.builtin.set_fact:
-        existing_isid: "{{ (fabric_l2_gathered.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
+        existing_isid: >-
+          {{
+            (fabric_l2_gathered.gathered | default([]) | first | default({})).cvlan
+            | default([])
+            | selectattr('platformVlanId', 'equalto', vlan_id | int)
+            | map(attribute='isid')
+            | list
+            | first
+            | default(0)
+          }}
 
     - name: "Delete existing ISID {{ existing_isid }} if different from {{ vlan_isid }}"
       extreme.fe.extreme_fe_fabric_l2:

@@ -62,7 +62,7 @@
 # interface vlan 4000
 # ip address 192.168.140.1/24
 # exit
-#router isis
+# router isis
 # spbm 1
 # spbm 1 nick-name 0.00.01
 # spbm 1 b-vid 4051-4052 primary 4051
@@ -79,7 +79,7 @@
 # isis spbm 1
 # isis enable
 # exit
-# 
+#
 # =============================================================================
 # SWITCH 2 CONFIGURATION
 # =============================================================================
@@ -166,7 +166,7 @@
           - "Peers: {{ initial_mlag.gathered.peers | default([]) }}"
           - "RSMLT: {{ initial_mlag.gathered.rsmlt | default({}) }}"
 
-    #-------------------------------------------------------------------------
+    # -------------------------------------------------------------------------
     # Test 1: Configure peer IP address only (no local_vlan_id)
     # Before fix: Failed with "None is not of type 'integer' - 'vistVlanId'"
     # -------------------------------------------------------------------------
