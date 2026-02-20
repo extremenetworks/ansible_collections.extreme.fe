@@ -66,7 +66,15 @@
 
     - name: "Step 3 - Find VLAN {{ vlan_id }} configuration"
       ansible.builtin.set_fact:
-        _existing_vlan: "{{ vlans_info.vlans | default([]) | selectattr('id', 'defined') | selectattr('id', 'equalto', vlan_id | int) | list | first | default({}) }}"
+        _existing_vlan: >-
+          {{
+            vlans_info.vlans | default([])
+            | selectattr('id', 'defined')
+            | selectattr('id', 'equalto', vlan_id | int)
+            | list
+            | first
+            | default({})
+          }}
 
     - name: "Step 3 - Get VLAN VR name"
       ansible.builtin.set_fact:
@@ -89,7 +97,16 @@
 
     - name: "Step 4 - Find ISID bound to VLAN {{ vlan_id }}"
       ansible.builtin.set_fact:
-        isid_to_delete: "{{ (isid_info.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
+        isid_to_delete: >-
+          {{
+            (isid_info.gathered | default([]) | first | default({})).cvlan
+            | default([])
+            | selectattr('platformVlanId', 'equalto', vlan_id | int)
+            | map(attribute='isid')
+            | list
+            | first
+            | default(0)
+          }}
 
     - name: "Step 4 - Show ISID found"
       ansible.builtin.debug:
@@ -110,7 +127,12 @@
     - name: "Step 5 - Show ISID deletion result"
       ansible.builtin.debug:
         msg:
-          - "ISID {{ isid_to_delete }} deletion: {{ cleanup_isid_result.changed | default(false) | ternary('SUCCESS', (isid_to_delete | int > 0) | ternary('ERROR', 'NO ISID BOUND')) }}"
+          - >-
+            ISID {{ isid_to_delete }} deletion:
+            {{
+              cleanup_isid_result.changed | default(false)
+              | ternary('SUCCESS', (isid_to_delete | int > 0) | ternary('ERROR', 'NO ISID BOUND'))
+            }}
 
     # -------------------------------------------------------------------------
     # Step 6: Delete VLAN (using actual VR name)
@@ -127,7 +149,12 @@
     - name: "Step 6 - Show VLAN deletion result"
       ansible.builtin.debug:
         msg:
-          - "VLAN {{ vlan_id }} deletion: {{ cleanup_vlan_result.changed | default(false) | ternary('SUCCESS', (_existing_vlan | length > 0) | ternary('ERROR', 'VLAN NOT FOUND')) }}"
+          - >-
+            VLAN {{ vlan_id }} deletion:
+            {{
+              cleanup_vlan_result.changed | default(false)
+              | ternary('SUCCESS', (_existing_vlan | length > 0) | ternary('ERROR', 'VLAN NOT FOUND'))
+            }}
 
     # -------------------------------------------------------------------------
     # Step 7: Summary
@@ -136,5 +163,7 @@
       ansible.builtin.debug:
         msg:
           - "=== VLAN DELETE COMPLETE ==="
-          - "VLAN {{ vlan_id }} (VR: {{ _vlan_vr_name | default('N/A') }}) deleted: {{ cleanup_vlan_result.changed | default(false) | ternary('✓ YES', '✗ NO') }}"
+          - >-
+            VLAN {{ vlan_id }} (VR: {{ _vlan_vr_name | default('N/A') }}) deleted:
+            {{ cleanup_vlan_result.changed | default(false) | ternary('✓ YES', '✗ NO') }}
           - "ISID deleted: {{ (isid_to_delete | default(0) | int > 0) | ternary(isid_to_delete, 'none bound') }}"
