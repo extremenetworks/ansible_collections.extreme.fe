@@ -14,7 +14,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_poe
 short_description: Manage PoE settings on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
   - Retrieve and configure Power over Ethernet (PoE) settings for copper ports on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Supports the standard Ansible network resource states to merge, replace, override, delete, or gather PoE configuration across PoE-capable ports.
@@ -279,7 +279,9 @@ REQUIRES_CONFIG: Set[str] = {STATE_MERGED, STATE_REPLACED, STATE_DELETED}
 class FePoeError(Exception):
     """Raised for module validation issues."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -296,12 +298,22 @@ def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
     if isinstance(code, str) and code.isdigit():
         code = int(code)
-    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    message = (
+        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    )
     if code and isinstance(code, int) and code >= 400:
-        return {"code": code, "message": message or "Device reported an error", "payload": payload}
+        return {
+            "code": code,
+            "message": message or "Device reported an error",
+            "payload": payload,
+        }
     errors = payload.get("errors")
     if isinstance(errors, list) and errors:
-        return {"message": message or "Device reported errors", "payload": payload, "errors": errors}
+        return {
+            "message": message or "Device reported errors",
+            "payload": payload,
+            "errors": errors,
+        }
     return None
 
 
@@ -317,7 +329,11 @@ def _call_api(
     try:
         response = connection.send_request(payload, path=path, method=method)
     except ConnectionError as exc:
-        module.fail_json(msg=to_text(exc), code=getattr(exc, "code", None), err=getattr(exc, "err", None))
+        module.fail_json(
+            msg=to_text(exc),
+            code=getattr(exc, "code", None),
+            err=getattr(exc, "err", None),
+        )
 
     if response in (None, ""):
         return None if not expect_content else {}
@@ -333,8 +349,12 @@ def _call_api(
     return response
 
 
-def _fetch_port_capabilities(module: AnsibleModule, connection: Connection) -> Dict[str, Dict[str, Any]]:
-    data = _call_api(module, connection, method="GET", path=PORT_CAPABILITIES_PATH) or []
+def _fetch_port_capabilities(
+    module: AnsibleModule, connection: Connection
+) -> Dict[str, Dict[str, Any]]:
+    data = (
+        _call_api(module, connection, method="GET", path=PORT_CAPABILITIES_PATH) or []
+    )
     if not isinstance(data, list):
         raise FePoeError("Unexpected capabilities response", details={"payload": data})
 
@@ -403,11 +423,16 @@ def _normalize_config(
                 try:
                     value = int(value)
                 except (TypeError, ValueError):
-                    raise FePoeError("power_limit must be an integer", details={"port": port, "received": value})
+                    raise FePoeError(
+                        "power_limit must be an integer",
+                        details={"port": port, "received": value},
+                    )
                 min_limit, max_limit = POWER_LIMIT_RANGE
                 if not (min_limit <= value <= max_limit):
                     raise FePoeError(
-                        "power_limit must be between {0} and {1} mW".format(min_limit, max_limit),
+                        "power_limit must be between {0} and {1} mW".format(
+                            min_limit, max_limit
+                        ),
                         details={"port": port, "received": value},
                     )
             payload[field] = value
@@ -440,14 +465,20 @@ def _port_state_path(port: str) -> str:
     return f"{PORT_STATE_BASE_PATH}/{quote(port, safe='')}"
 
 
-def _fetch_port_settings(module: AnsibleModule, connection: Connection, port: str) -> Dict[str, Any]:
+def _fetch_port_settings(
+    module: AnsibleModule, connection: Connection, port: str
+) -> Dict[str, Any]:
     response = _call_api(module, connection, method="GET", path=_port_path(port))
     if isinstance(response, dict):
         return response
-    raise FePoeError("Unexpected port settings response", details={"port": port, "payload": response})
+    raise FePoeError(
+        "Unexpected port settings response", details={"port": port, "payload": response}
+    )
 
 
-def _fetch_port_state(module: AnsibleModule, connection: Connection, port: str) -> Optional[Dict[str, Any]]:
+def _fetch_port_state(
+    module: AnsibleModule, connection: Connection, port: str
+) -> Optional[Dict[str, Any]]:
     response = _call_api(module, connection, method="GET", path=_port_state_path(port))
     if response in (None, ""):
         return None
@@ -510,7 +541,9 @@ def main() -> None:
     except FePoeError as exc:
         module.fail_json(**exc.to_fail_kwargs())
 
-    poe_capabilities = {port: info for port, info in capabilities.items() if _poe_capable(info)}
+    poe_capabilities = {
+        port: info for port, info in capabilities.items() if _poe_capable(info)
+    }
     if not poe_capabilities:
         if state == STATE_GATHERED:
             module.exit_json(
@@ -518,10 +551,14 @@ def main() -> None:
                 ports=[],
                 msg="Device does not have PoE-capable ports. No PoE data to gather.",
             )
-        module.fail_json(msg="Device does not report any PoE-capable ports via capabilities endpoint")
+        module.fail_json(
+            msg="Device does not report any PoE-capable ports via capabilities endpoint"
+        )
 
     try:
-        order, config_by_port = _normalize_config(state, raw_config, set(poe_capabilities))
+        order, config_by_port = _normalize_config(
+            state, raw_config, set(poe_capabilities)
+        )
     except FePoeError as exc:
         module.fail_json(**exc.to_fail_kwargs())
 
@@ -561,7 +598,11 @@ def main() -> None:
             if differences:
                 changed = True
                 port_result["differences"] = differences
-                submitted[port] = {"operation": state, "payload": patch_payload, "deleted": True}
+                submitted[port] = {
+                    "operation": state,
+                    "payload": patch_payload,
+                    "deleted": True,
+                }
                 if not module.check_mode:
                     _call_api(
                         module,
@@ -608,7 +649,11 @@ def main() -> None:
             if differences:
                 changed = True
                 port_result["differences"] = differences
-                submitted[port] = {"operation": state, "payload": patch_payload, "deleted": False}
+                submitted[port] = {
+                    "operation": state,
+                    "payload": patch_payload,
+                    "deleted": False,
+                }
                 if not module.check_mode:
                     _call_api(
                         module,
@@ -640,7 +685,11 @@ def main() -> None:
         if differences:
             changed = True
             port_result["differences"] = differences
-            submitted[port] = {"operation": state, "payload": patch_payload, "deleted": False}
+            submitted[port] = {
+                "operation": state,
+                "payload": patch_payload,
+                "deleted": False,
+            }
             if not module.check_mode:
                 _call_api(
                     module,
@@ -659,7 +708,9 @@ def main() -> None:
 
     if state == STATE_OVERRIDDEN:
         managed_set = set(managed_ports)
-        leftover_ports = sorted(port for port in poe_capabilities if port not in managed_set)
+        leftover_ports = sorted(
+            port for port in poe_capabilities if port not in managed_set
+        )
         for port in leftover_ports:
             capability = poe_capabilities[port]
             current = _fetch_port_settings(module, connection, port)
@@ -684,7 +735,11 @@ def main() -> None:
             if differences:
                 changed = True
                 port_result["differences"] = differences
-                submitted[port] = {"operation": state, "payload": patch_payload, "deleted": True}
+                submitted[port] = {
+                    "operation": state,
+                    "payload": patch_payload,
+                    "deleted": True,
+                }
                 if not module.check_mode:
                     _call_api(
                         module,

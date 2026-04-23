@@ -18,13 +18,13 @@
 # USAGE EXAMPLES
 # =============================================================================
 #
-# Delete VLAN 50 and its bound ISID:
-#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50
+# Delete VLAN 5 and its bound ISID:
+#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=5
 #
 # Dry run (check mode) - see what would be deleted without making changes:
-#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50 --check
+#   ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=5 --check
 #
-# NOTE: vlan_id parameter is REQUIRED. Example: -e vlan_id=50
+# NOTE: vlan_id parameter is REQUIRED. Example: -e vlan_id=5
 #
 # =============================================================================
 
@@ -43,7 +43,7 @@
         fail_msg:
           - "ERROR: vlan_id parameter is required!"
           - "Usage: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=VLAN_ID"
-          - "Example: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=50"
+          - "Example: ansible-playbook vlan_delete.yml -i inventory.ini -e vlan_id=5"
         success_msg: "Parameter validated - proceeding with delete"
 
     # -------------------------------------------------------------------------
@@ -99,8 +99,8 @@
       ansible.builtin.set_fact:
         isid_to_delete: >-
           {{
-            (isid_info.gathered | default([]) | first | default({})).cvlan
-            | default([])
+            isid_info.gathered | default([])
+            | selectattr('platformVlanId', 'defined')
             | selectattr('platformVlanId', 'equalto', vlan_id | int)
             | map(attribute='isid')
             | list
@@ -118,8 +118,9 @@
     # -------------------------------------------------------------------------
     - name: "Step 5 - Delete ISID {{ isid_to_delete }} (bound to VLAN {{ vlan_id }})"
       extreme.fe.extreme_fe_fabric_l2:
-        isid: "{{ isid_to_delete | int }}"
         state: deleted
+        config:
+          - isid: "{{ isid_to_delete | int }}"
       register: cleanup_isid_result
       when: isid_to_delete | int > 0
       ignore_errors: true

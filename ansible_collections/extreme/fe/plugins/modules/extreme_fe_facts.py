@@ -15,7 +15,7 @@ import re
 DOCUMENTATION = r"""
 module: extreme_fe_facts
 short_description: Gather facts from ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Collect state, hardware, interface, configuration, and neighbor facts from
   ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
@@ -205,7 +205,9 @@ _VRF_NAME_CACHE: Optional[Set[str]] = None
 class FeFactsError(Exception):
     """Base exception for the extreme_fe_facts module."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -224,7 +226,9 @@ def _is_not_found_response(payload: Optional[Any]) -> bool:
         code = int(code)
     if code == 404:
         return True
-    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    message = (
+        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    )
     if isinstance(message, str):
         lowered = message.lower()
         if "not found" in lowered or "does not exist" in lowered:
@@ -430,9 +434,10 @@ def gather_hardware_subset(connection: Connection) -> Dict[str, Any]:
 
 
 def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
-    ports = _normalize_payload(
-        _http_get(connection, "/v1/state/ports") or _http_get(connection, "/v0/state/ports")
-    )
+    ports_payload = _http_get(connection, "/v1/state/ports")
+    if ports_payload is None:
+        ports_payload = _http_get(connection, "/v0/state/ports")
+    ports = _normalize_payload(ports_payload)
     capabilities = _normalize_payload(
         _http_get(connection, "/v0/state/capabilities/system/ports")
     )
@@ -440,12 +445,16 @@ def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
 
 
 def gather_config_subset(connection: Connection) -> Dict[str, Any]:
-    services = _normalize_payload(_http_get(connection, "/v0/configuration/system-services"))
-    mgmt = _normalize_payload(
-        _http_get(connection, "/v1/configuration/mgmt-interface")
-        or _http_get(connection, "/v0/configuration/mgmt-interface")
+    services = _normalize_payload(
+        _http_get(connection, "/v0/configuration/system-services")
     )
-    images = _normalize_payload(_http_get(connection, "/v0/configuration/system/images"))
+    mgmt_payload = _http_get(connection, "/v1/configuration/mgmt-interface")
+    if mgmt_payload is None:
+        mgmt_payload = _http_get(connection, "/v0/configuration/mgmt-interface")
+    mgmt = _normalize_payload(mgmt_payload)
+    images = _normalize_payload(
+        _http_get(connection, "/v0/configuration/system/images")
+    )
     isids = _gather_isid_data(connection)
     return _merge_dicts(
         system_services=services,
@@ -503,7 +512,9 @@ def gather_l3_interfaces_resource(connection: Connection) -> Dict[str, Any]:
             or "GlobalRouter"
         )
         vlan_id = item.get("id") or item.get("vlanId") or item.get("vlan_id")
-        key = str(vlan_id) if vlan_id is not None else str(item.get("name") or "unknown")
+        key = (
+            str(vlan_id) if vlan_id is not None else str(item.get("name") or "unknown")
+        )
         result.setdefault(vrf, {})[key] = item
 
     return result
@@ -565,7 +576,9 @@ def gather_syslog_resource(connection: Connection) -> Any:
 
 
 def gather_anycast_gateway_resource(connection: Connection) -> Any:
-    return _normalize_payload(_http_get(connection, "/v0/configuration/anycast-gateway"))
+    return _normalize_payload(
+        _http_get(connection, "/v0/configuration/anycast-gateway")
+    )
 
 
 def gather_isid_resource(connection: Connection) -> Any:
@@ -596,19 +609,27 @@ RESOURCE_HANDLERS = {
 def _gather_isid_data(connection: Connection) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
 
-    all_isids = _normalize_payload(_http_get(connection, "/v0/configuration/spbm/l2/isid"))
+    all_isids = _normalize_payload(
+        _http_get(connection, "/v0/configuration/spbm/l2/isid")
+    )
     if all_isids is not None:
         result["list"] = all_isids
 
-    cvlan = _normalize_payload(_http_get(connection, "/v0/configuration/spbm/l2/isid/cvlan"))
+    cvlan = _normalize_payload(
+        _http_get(connection, "/v0/configuration/spbm/l2/isid/cvlan")
+    )
     if cvlan is not None:
         result["cvlan"] = cvlan
 
-    suni = _normalize_payload(_http_get(connection, "/v0/configuration/spbm/l2/isid/suni"))
+    suni = _normalize_payload(
+        _http_get(connection, "/v0/configuration/spbm/l2/isid/suni")
+    )
     if suni is not None:
         result["suni"] = suni
 
-    tuni = _normalize_payload(_http_get(connection, "/v0/configuration/spbm/l2/isid/tuni"))
+    tuni = _normalize_payload(
+        _http_get(connection, "/v0/configuration/spbm/l2/isid/tuni")
+    )
     if tuni is not None:
         result["tuni"] = tuni
 

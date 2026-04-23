@@ -237,7 +237,13 @@ STATE_GATHERED = "gathered"
 ARGUMENT_SPEC: Dict[str, Any] = {
     "state": {
         "type": "str",
-        "choices": [STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DELETED, STATE_GATHERED],
+        "choices": [
+            STATE_MERGED,
+            STATE_REPLACED,
+            STATE_OVERRIDDEN,
+            STATE_DELETED,
+            STATE_GATHERED,
+        ],
         "default": STATE_MERGED,
     },
     "lag_id": {"type": "raw"},
@@ -259,7 +265,9 @@ ARGUMENT_SPEC: Dict[str, Any] = {
 class FeLagError(Exception):
     """Base exception for Fabric Engine LAG module errors."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -278,7 +286,9 @@ def _is_not_found_response(payload: Optional[Any]) -> bool:
         code = int(code)
     if code == 404:
         return True
-    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    message = (
+        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    )
     if isinstance(message, str) and "not found" in message.lower():
         return True
     return False
@@ -286,7 +296,9 @@ def _is_not_found_response(payload: Optional[Any]) -> bool:
 
 def _normalize_lag_id(value: Any) -> str:
     if value is None:
-        raise FeLagError("Parameter 'lag_id' must be provided when state requires a LAG identifier")
+        raise FeLagError(
+            "Parameter 'lag_id' must be provided when state requires a LAG identifier"
+        )
     if isinstance(value, bool):
         raise FeLagError("Boolean values are not valid for 'lag_id'")
     if isinstance(value, int):
@@ -386,16 +398,22 @@ def create_lag(connection: Connection, payload: Dict[str, Any]) -> None:
 
 def update_lag(connection: Connection, lag_id: str, payload: Dict[str, Any]) -> None:
     if payload:
-        connection.send_request(payload, path=f"/v0/configuration/lag/{lag_id}", method="PATCH")
+        connection.send_request(
+            payload, path=f"/v0/configuration/lag/{lag_id}", method="PATCH"
+        )
 
 
 def delete_lag(connection: Connection, lag_id: str) -> None:
-    connection.send_request(None, path=f"/v0/configuration/lag/{lag_id}", method="DELETE")
+    connection.send_request(
+        None, path=f"/v0/configuration/lag/{lag_id}", method="DELETE"
+    )
 
 
 def add_member_ports(connection: Connection, lag_id: str, ports: List[str]) -> None:
     if ports:
-        connection.send_request(ports, path=f"/v0/configuration/lag/{lag_id}/memberPorts", method="POST")
+        connection.send_request(
+            ports, path=f"/v0/configuration/lag/{lag_id}/memberPorts", method="POST"
+        )
 
 
 def remove_member_ports(connection: Connection, lag_id: str, ports: List[str]) -> None:
@@ -407,7 +425,9 @@ def remove_member_ports(connection: Connection, lag_id: str, ports: List[str]) -
         )
 
 
-def ensure_configured(module: AnsibleModule, connection: Connection, state: str) -> Dict[str, Any]:
+def ensure_configured(
+    module: AnsibleModule, connection: Connection, state: str
+) -> Dict[str, Any]:
     lag_id = _normalize_lag_id(module.params.get("lag_id"))
     name = module.params.get("name")
     mode = module.params.get("mode")
@@ -424,30 +444,52 @@ def ensure_configured(module: AnsibleModule, connection: Connection, state: str)
     purge_members = False
 
     if state == STATE_MERGED:
-        desired_members = _unique_port_list(desired_members_param, param_name="member_ports") if desired_members_param is not None else None
-        add_members = _unique_port_list(add_members_param, param_name="add_member_ports")
-        remove_members = _unique_port_list(remove_members_param, param_name="remove_member_ports")
+        desired_members = (
+            _unique_port_list(desired_members_param, param_name="member_ports")
+            if desired_members_param is not None
+            else None
+        )
+        add_members = _unique_port_list(
+            add_members_param, param_name="add_member_ports"
+        )
+        remove_members = _unique_port_list(
+            remove_members_param, param_name="remove_member_ports"
+        )
         purge_members = bool(purge_members_param)
         if purge_members and desired_members is None:
-            raise FeLagError("'purge_member_ports' requires 'member_ports' when state is 'merged'")
+            raise FeLagError(
+                "'purge_member_ports' requires 'member_ports' when state is 'merged'"
+            )
     elif state == STATE_REPLACED:
         if add_members_param:
-            raise FeLagError("'add_member_ports' is not supported when state is 'replaced'")
+            raise FeLagError(
+                "'add_member_ports' is not supported when state is 'replaced'"
+            )
         if remove_members_param:
-            raise FeLagError("'remove_member_ports' is not supported when state is 'replaced'")
+            raise FeLagError(
+                "'remove_member_ports' is not supported when state is 'replaced'"
+            )
         if desired_members_param is None:
             raise FeLagError("'member_ports' is required when state is 'replaced'")
-        desired_members = _unique_port_list(desired_members_param, param_name="member_ports")
+        desired_members = _unique_port_list(
+            desired_members_param, param_name="member_ports"
+        )
         purge_members = True
     elif state == STATE_OVERRIDDEN:
         if add_members_param:
-            raise FeLagError("'add_member_ports' is not supported when state is 'overridden'")
+            raise FeLagError(
+                "'add_member_ports' is not supported when state is 'overridden'"
+            )
         if remove_members_param:
-            raise FeLagError("'remove_member_ports' is not supported when state is 'overridden'")
+            raise FeLagError(
+                "'remove_member_ports' is not supported when state is 'overridden'"
+            )
         if desired_members_param is None:
             desired_members = []
         else:
-            desired_members = _unique_port_list(desired_members_param, param_name="member_ports")
+            desired_members = _unique_port_list(
+                desired_members_param, param_name="member_ports"
+            )
         purge_members = True
     else:
         raise FeLagError(f"Unsupported state '{state}' for configuration workflow")
@@ -492,7 +534,9 @@ def ensure_configured(module: AnsibleModule, connection: Connection, state: str)
             update_payload["name"] = name
         if lacp_key is not None and lacp_key != existing.get("lacpKey"):
             update_payload["lacpKey"] = lacp_key
-        if load_balance_algo is not None and load_balance_algo != existing.get("loadBalanceAlgo"):
+        if load_balance_algo is not None and load_balance_algo != existing.get(
+            "loadBalanceAlgo"
+        ):
             update_payload["loadBalanceAlgo"] = load_balance_algo
         if mode is not None and mode != existing.get("mode"):
             raise FeLagError(
@@ -555,9 +599,13 @@ def ensure_configured(module: AnsibleModule, connection: Connection, state: str)
         current["memberPorts"] = simulated_members
         result: Dict[str, Any] = {"changed": changed, "lag": current}
         if member_additions:
-            result["member_additions"] = _unique_port_list(member_additions, param_name="member_additions")
+            result["member_additions"] = _unique_port_list(
+                member_additions, param_name="member_additions"
+            )
         if member_removals:
-            result["member_removals"] = _unique_port_list(member_removals, param_name="member_removals")
+            result["member_removals"] = _unique_port_list(
+                member_removals, param_name="member_removals"
+            )
         return result
 
     if ports_to_add:
@@ -574,9 +622,13 @@ def ensure_configured(module: AnsibleModule, connection: Connection, state: str)
 
     result: Dict[str, Any] = {"changed": changed, "lag": final_lag or current}
     if member_additions:
-        result["member_additions"] = _unique_port_list(member_additions, param_name="member_additions")
+        result["member_additions"] = _unique_port_list(
+            member_additions, param_name="member_additions"
+        )
     if member_removals:
-        result["member_removals"] = _unique_port_list(member_removals, param_name="member_removals")
+        result["member_removals"] = _unique_port_list(
+            member_removals, param_name="member_removals"
+        )
     return result
 
 
@@ -590,11 +642,17 @@ def ensure_deleted(module: AnsibleModule, connection: Connection) -> Dict[str, A
     member_ports_param = module.params.get("member_ports")
     remove_members_param = module.params.get("remove_member_ports")
     if member_ports_param is not None:
-        members_to_remove.extend(_unique_port_list(member_ports_param, param_name="member_ports"))
+        members_to_remove.extend(
+            _unique_port_list(member_ports_param, param_name="member_ports")
+        )
     if remove_members_param:
-        members_to_remove.extend(_unique_port_list(remove_members_param, param_name="remove_member_ports"))
+        members_to_remove.extend(
+            _unique_port_list(remove_members_param, param_name="remove_member_ports")
+        )
     if members_to_remove:
-        members_to_remove = _unique_port_list(members_to_remove, param_name="member_removals")
+        members_to_remove = _unique_port_list(
+            members_to_remove, param_name="member_removals"
+        )
 
     existing = get_lag_config(connection, lag_id)
     if existing is None:
@@ -624,7 +682,9 @@ def ensure_deleted(module: AnsibleModule, connection: Connection) -> Dict[str, A
         return {"changed": False, "lag": existing}
 
     if module.check_mode:
-        simulated_members = [port for port in current_members if port not in ports_to_remove]
+        simulated_members = [
+            port for port in current_members if port not in ports_to_remove
+        ]
         simulated = existing.copy()
         simulated["memberPorts"] = simulated_members
         return {
