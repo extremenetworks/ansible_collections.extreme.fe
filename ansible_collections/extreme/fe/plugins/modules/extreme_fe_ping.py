@@ -14,7 +14,7 @@ from urllib.parse import quote
 DOCUMENTATION = r"""
 module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
@@ -234,7 +234,11 @@ ARGUMENT_SPEC = {
     "interface": {
         "type": "dict",
         "options": {
-            "type": {"type": "str", "choices": ["GIGABITETHERNET", "TUNNEL", "VLAN"], "required": True},
+            "type": {
+                "type": "str",
+                "choices": ["GIGABITETHERNET", "TUNNEL", "VLAN"],
+                "required": True,
+            },
             "port": {"type": "str"},
             "tunnel_id": {"type": "int"},
             "vlan_id": {"type": "int"},
@@ -276,7 +280,9 @@ def _to_general_ip(value: object) -> Dict[str, object]:
         address = lower.get("address")
         ip_type = lower.get("ipaddresstype") or lower.get("type")
         if not address:
-            raise ExtremeFePingError("source_ip_address dictionary must include 'address'")
+            raise ExtremeFePingError(
+                "source_ip_address dictionary must include 'address'"
+            )
         try:
             addr = ip_address(str(address))
         except ValueError as exc:
@@ -284,20 +290,34 @@ def _to_general_ip(value: object) -> Dict[str, object]:
         if ip_type:
             ip_type = str(ip_type)
             if ip_type not in {"IPv4", "IPv6"}:
-                raise ExtremeFePingError("source_ip_address 'ipAddressType' must be 'IPv4' or 'IPv6'")
-            if (addr.version == 4 and ip_type != "IPv4") or (addr.version == 6 and ip_type != "IPv6"):
-                raise ExtremeFePingError("source_ip_address type does not match the address")
-        return {"ipAddressType": "IPv4" if addr.version == 4 else "IPv6", "address": str(addr)}
+                raise ExtremeFePingError(
+                    "source_ip_address 'ipAddressType' must be 'IPv4' or 'IPv6'"
+                )
+            if (addr.version == 4 and ip_type != "IPv4") or (
+                addr.version == 6 and ip_type != "IPv6"
+            ):
+                raise ExtremeFePingError(
+                    "source_ip_address type does not match the address"
+                )
+        return {
+            "ipAddressType": "IPv4" if addr.version == 4 else "IPv6",
+            "address": str(addr),
+        }
     if isinstance(value, str):
         try:
             addr = ip_address(value)
         except ValueError as exc:
             raise ExtremeFePingError(f"Invalid source IP address '{value}'") from exc
-        return {"ipAddressType": "IPv4" if addr.version == 4 else "IPv6", "address": str(addr)}
+        return {
+            "ipAddressType": "IPv4" if addr.version == 4 else "IPv6",
+            "address": str(addr),
+        }
     raise ExtremeFePingError("source_ip_address must be a string or mapping")
 
 
-def _build_interface_payload(data: Optional[Dict[str, object]]) -> Optional[Dict[str, object]]:
+def _build_interface_payload(
+    data: Optional[Dict[str, object]],
+) -> Optional[Dict[str, object]]:
     if not data:
         return None
     iface_type = data.get("type")
@@ -309,7 +329,9 @@ def _build_interface_payload(data: Optional[Dict[str, object]]) -> Optional[Dict
     key_name = SUPPORTED_INTERFACE_KEYS[iface_type]
     value = data.get(key_name)
     if value is None:
-        raise ExtremeFePingError(f"interface.{key_name} is required when interface.type is '{iface_type}'")
+        raise ExtremeFePingError(
+            f"interface.{key_name} is required when interface.type is '{iface_type}'"
+        )
     payload: Dict[str, object] = {"interfaceType": iface_type}
     if iface_type == "GIGABITETHERNET":
         payload["port"] = str(value)
@@ -344,16 +366,22 @@ def validate_parameters(module: AnsibleModule, host_type: str) -> None:
     if scope_id is not None and host_type != "IPv6":
         raise ExtremeFePingError("scope_id can only be used with IPv6 destinations")
     if interface and management_type:
-        raise ExtremeFePingError("interface cannot be used together with management_type")
+        raise ExtremeFePingError(
+            "interface cannot be used together with management_type"
+        )
     if service_probe is not None:
         if management_type or vrf or source_ip or interface or scope_id:
             raise ExtremeFePingError(
                 "service_probe_instance cannot be combined with other context parameters"
             )
         if host_type != "IPv4":
-            raise ExtremeFePingError("service_probe_instance is only supported for IPv4 destinations")
+            raise ExtremeFePingError(
+                "service_probe_instance is only supported for IPv4 destinations"
+            )
         if int(service_probe) != 1:
-            raise ExtremeFePingError("Only service probe instance 1 is supported on Fabric Engine")
+            raise ExtremeFePingError(
+                "Only service probe instance 1 is supported on Fabric Engine"
+            )
 
     count = params.get("count")
     if count is not None and not (1 <= count <= 9999):
@@ -401,10 +429,22 @@ def build_payload(module: AnsibleModule, host_type: str) -> Dict[str, object]:
     if params.get("datasize") is not None and params["datasize"] < 28:
         raise ExtremeFePingError("datasize must be at least 28 bytes on Fabric Engine")
 
-    if params.get("datasize") is not None and host_type == "IPv4" and params["datasize"] > 9216:
-        raise ExtremeFePingError("datasize must be <= 9216 bytes for IPv4 on Fabric Engine")
-    if params.get("datasize") is not None and host_type == "IPv6" and params["datasize"] > 51200:
-        raise ExtremeFePingError("datasize must be <= 51200 bytes for IPv6 on Fabric Engine")
+    if (
+        params.get("datasize") is not None
+        and host_type == "IPv4"
+        and params["datasize"] > 9216
+    ):
+        raise ExtremeFePingError(
+            "datasize must be <= 9216 bytes for IPv4 on Fabric Engine"
+        )
+    if (
+        params.get("datasize") is not None
+        and host_type == "IPv6"
+        and params["datasize"] > 51200
+    ):
+        raise ExtremeFePingError(
+            "datasize must be <= 51200 bytes for IPv6 on Fabric Engine"
+        )
 
     return payload
 
@@ -417,7 +457,11 @@ def interpret_ping_response(response: Optional[Dict[str, object]]) -> Optional[s
         return "Service probe reported failure"
 
     if response.get("isTimeout"):
-        return "Ping timed out" if response.get("packetsReceived", 0) == 0 else "Ping partially timed out"
+        return (
+            "Ping timed out"
+            if response.get("packetsReceived", 0) == 0
+            else "Ping partially timed out"
+        )
 
     transmitted = response.get("packetsTransmitted")
     received = response.get("packetsReceived")
@@ -431,7 +475,9 @@ def run_module() -> None:
     module = AnsibleModule(argument_spec=ARGUMENT_SPEC, supports_check_mode=True)
 
     if module.check_mode:
-        module.exit_json(changed=False, skipped=True, msg="Check mode: ping not executed")
+        module.exit_json(
+            changed=False, skipped=True, msg="Check mode: ping not executed"
+        )
 
     host = module.params["host"].strip()
     if not host:

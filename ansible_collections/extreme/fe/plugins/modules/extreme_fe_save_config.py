@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 DOCUMENTATION = r"""
 module: extreme_fe_save_config
 short_description: Save the running configuration on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Save the current Fabric Engine (VOSS) running configuration to the active or specified
   configuration file via the custom C(extreme_fe) HTTPAPI plugin.
@@ -118,7 +118,9 @@ SAVE_CONFIG_PATH = "/v0/operation/system/config/:save"
 class FeSaveConfigError(Exception):
     """Raised for validation issues or unexpected device responses."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, Any]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -137,7 +139,10 @@ def _sanitize_name(value: Optional[str]) -> Optional[str]:
         if not trimmed:
             raise FeSaveConfigError("Parameter 'name' must not be empty when provided")
         return trimmed
-    raise FeSaveConfigError("Parameter 'name' must be a string", details={"received_type": type(value).__name__})
+    raise FeSaveConfigError(
+        "Parameter 'name' must be a string",
+        details={"received_type": type(value).__name__},
+    )
 
 
 def _build_payload(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -159,14 +164,24 @@ def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
     if isinstance(code, str) and code.isdigit():
         code = int(code)
-    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    message = (
+        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    )
     if code and isinstance(code, int) and code >= 400:
-        return {"code": code, "message": message or "Device reported an error", "payload": payload}
+        return {
+            "code": code,
+            "message": message or "Device reported an error",
+            "payload": payload,
+        }
     if message and isinstance(message, str) and message.lower().startswith("error"):
         return {"message": message, "payload": payload}
     errors = payload.get("errors")
     if isinstance(errors, list) and errors:
-        return {"message": message or "Device reported errors", "payload": payload, "errors": errors}
+        return {
+            "message": message or "Device reported errors",
+            "payload": payload,
+            "errors": errors,
+        }
     return None
 
 
@@ -186,9 +201,15 @@ def main() -> None:
     request_body: Optional[Dict[str, Any]] = payload if payload else {}
 
     try:
-        response = connection.send_request(request_body, path=SAVE_CONFIG_PATH, method="POST")
+        response = connection.send_request(
+            request_body, path=SAVE_CONFIG_PATH, method="POST"
+        )
     except ConnectionError as exc:
-        module.fail_json(msg=to_text(exc), code=getattr(exc, "code", None), err=getattr(exc, "err", None))
+        module.fail_json(
+            msg=to_text(exc),
+            code=getattr(exc, "code", None),
+            err=getattr(exc, "err", None),
+        )
 
     error = _extract_error(response)
     if error:

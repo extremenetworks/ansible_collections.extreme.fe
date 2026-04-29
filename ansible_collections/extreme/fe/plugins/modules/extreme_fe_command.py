@@ -12,7 +12,7 @@ from typing import Dict, List, Optional
 DOCUMENTATION = r"""
 module: extreme_fe_command
 short_description: Execute CLI commands on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Execute one or more CLI commands on ExtremeNetworks Fabric Engine (VOSS) switches using the
   custom C(extreme_fe) HTTPAPI plugin.
@@ -143,7 +143,9 @@ CLI_ENDPOINT = "/v0/operation/system/cli"
 class FeCommandError(Exception):
     """Raised when the device returns an unexpected or failed CLI response."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, object]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, object]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -180,7 +182,7 @@ def _output_to_lines(output: Optional[str]) -> List[str]:
         return []
     text = to_text(output, errors="surrogate_then_replace")
     # Split on newlines, strip trailing carriage returns from each line
-    lines = [line.rstrip('\r') for line in text.split('\n')]
+    lines = [line.rstrip("\r") for line in text.split("\n")]
     return lines
 
 
@@ -204,7 +206,11 @@ def _normalize_response(
     if len(data) != len(commands):
         raise FeCommandError(
             "Device returned a different number of CLI responses than commands submitted",
-            details={"requested": len(commands), "received": len(data), "response": response},
+            details={
+                "requested": len(commands),
+                "received": len(data),
+                "response": response,
+            },
         )
 
     normalized: List[Dict[str, object]] = []
@@ -217,7 +223,9 @@ def _normalize_response(
                 "Device returned a malformed CLI response entry",
                 details={"index": idx, "entry": entry},
             )
-        command = to_text(entry.get("cliInput") or commands[idx], errors="surrogate_then_replace")
+        command = to_text(
+            entry.get("cliInput") or commands[idx], errors="surrogate_then_replace"
+        )
         status = entry.get("statusCode")
         output = entry.get("cliOutput")
         output_lines = _output_to_lines(output)
@@ -237,26 +245,36 @@ def _normalize_response(
                 "Device returned status 400 but produced CLI output; "
                 "treating as successful with warning"
             )
-            warnings.append({
-                "index": idx,
-                "command": command,
-                "status_code": status,
-                "output": output_lines,
-            })
+            warnings.append(
+                {
+                    "index": idx,
+                    "command": command,
+                    "status_code": status,
+                    "output": output_lines,
+                }
+            )
         else:
             # 409 (conflict), 400 without output, or any other non-200 status
-            failures.append({
-                "index": idx,
-                "command": command,
-                "status_code": status,
-                "output": output_lines,
-            })
+            failures.append(
+                {
+                    "index": idx,
+                    "command": command,
+                    "status_code": status,
+                    "output": output_lines,
+                }
+            )
 
-    metadata = response.get("metadata") if isinstance(response.get("metadata"), dict) else None
+    metadata = (
+        response.get("metadata") if isinstance(response.get("metadata"), dict) else None
+    )
     if failures:
         raise FeCommandError(
             "One or more CLI commands failed",
-            details={"failures": failures, "cli_warnings": warnings, "metadata": metadata},
+            details={
+                "failures": failures,
+                "cli_warnings": warnings,
+                "metadata": metadata,
+            },
         )
 
     result: Dict[str, object] = {"responses": normalized}
@@ -297,7 +315,12 @@ def main() -> None:
     continue_on_failure: bool = bool(module.params.get("continue_on_failure"))
 
     if module.check_mode:
-        module.exit_json(changed=True, responses=[{"command": cmd, "status_code": None, "output": []} for cmd in commands])
+        module.exit_json(
+            changed=True,
+            responses=[
+                {"command": cmd, "status_code": None, "output": []} for cmd in commands
+            ],
+        )
 
     connection = Connection(module._socket_path)
     try:

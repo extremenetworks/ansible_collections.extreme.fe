@@ -13,7 +13,9 @@ from typing import List, Optional
 from ansible.module_utils.common.text.converters import to_text
 from ansible.module_utils.connection import ConnectionError
 from ansible.errors import AnsibleConnectionFailure
-from ansible_collections.ansible.netcommon.plugins.plugin_utils.httpapi_base import HttpApiBase
+from ansible_collections.ansible.netcommon.plugins.plugin_utils.httpapi_base import (
+    HttpApiBase,
+)
 
 DOCUMENTATION = """
 author:
@@ -116,7 +118,9 @@ class HttpApi(HttpApiBase):
                 break
 
         if host_value:
-            port = getattr(self.connection, "_port", None) or getattr(self.connection, "port", None)
+            port = getattr(self.connection, "_port", None) or getattr(
+                self.connection, "port", None
+            )
             if port:
                 host_value = f"{host_value}:{port}"
             try:
@@ -134,13 +138,14 @@ class HttpApi(HttpApiBase):
             "Content-Type": DEFAULT_CONTENT_TYPE,
             "Accept": DEFAULT_ACCEPT,
         }
-        path = self._full_path(self.get_option("auth_endpoint") or "/v0/operation/auth-token/:generate")
+        path = self._full_path(
+            self.get_option("auth_endpoint") or "/v0/operation/auth-token/:generate"
+        )
         # Cache the connected host for enhanced logging context.
         connected_host = getattr(self.connection, "_connected_host", None)
         if not connected_host:
-            connected_host = (
-                getattr(self.connection, "_host", None)
-                or getattr(self.connection, "host", None)
+            connected_host = getattr(self.connection, "_host", None) or getattr(
+                self.connection, "host", None
             )
             if connected_host:
                 try:
@@ -160,10 +165,14 @@ class HttpApi(HttpApiBase):
                 timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 HTTPAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
                 with HTTPAPI_LOG.open("a") as fh:
-                    fh.write(f"{timestamp} login attempt {attempt}/{max_attempts} POST {path}\n")
+                    fh.write(
+                        f"{timestamp} login attempt {attempt}/{max_attempts} POST {path}\n"
+                    )
             try:
                 request_id = self._log_request("POST", path, None, is_retry=attempt > 1)
-                response, response_data = self.connection.send(path, payload, headers=headers, method="POST")
+                response, response_data = self.connection.send(
+                    path, payload, headers=headers, method="POST"
+                )
                 token_payload = self._parse_response(
                     response,
                     response_data,
@@ -185,17 +194,20 @@ class HttpApi(HttpApiBase):
                 if attempt > 1:
                     timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                     with HTTPAPI_LOG.open("a") as fh:
-                        fh.write(f"{timestamp} login success on attempt {attempt} POST {path}\n")
+                        fh.write(
+                            f"{timestamp} login success on attempt {attempt} POST {path}\n"
+                        )
                 return
             except (ConnectionError, AnsibleConnectionFailure) as exc:
                 coerced_exc = self._coerce_connection_error(exc)
                 message = to_text(coerced_exc)
                 last_exc = coerced_exc
-                if any(sig in message for sig in retry_signatures) and attempt < max_attempts:
+                if (
+                    any(sig in message for sig in retry_signatures)
+                    and attempt < max_attempts
+                ):
                     timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    log_line = (
-                        f"{timestamp} login retry {attempt} for POST {path}: {message}\n"
-                    )
+                    log_line = f"{timestamp} login retry {attempt} for POST {path}: {message}\n"
                     HTTPAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
                     with HTTPAPI_LOG.open("a") as fh:
                         fh.write(log_line)
@@ -205,14 +217,14 @@ class HttpApi(HttpApiBase):
         else:  # pragma: no cover - safeguard
             if last_exc is not None:
                 timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                log_line = (
-                    f"{timestamp} login retries exhausted POST {path}: {to_text(last_exc)}\n"
-                )
+                log_line = f"{timestamp} login retries exhausted POST {path}: {to_text(last_exc)}\n"
                 HTTPAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
                 with HTTPAPI_LOG.open("a") as fh:
                     fh.write(log_line)
                 raise last_exc
-            raise ConnectionError("Retries exhausted while contacting device during login")
+            raise ConnectionError(
+                "Retries exhausted while contacting device during login"
+            )
 
     def logout(self) -> None:
         self.connection._auth = None
@@ -256,7 +268,9 @@ class HttpApi(HttpApiBase):
                     )
             try:
                 is_retry = attempt > 1
-                request_id = self._log_request(method, full_path, body, is_retry=is_retry)
+                request_id = self._log_request(
+                    method, full_path, body, is_retry=is_retry
+                )
                 response, response_data = self.connection.send(
                     full_path,
                     body,
@@ -274,12 +288,12 @@ class HttpApi(HttpApiBase):
                 coerced_exc = self._coerce_connection_error(exc)
                 message = to_text(coerced_exc)
                 last_exc = coerced_exc
-                self._emit_http_debug(f"{request_id} !! {method} {full_path} failed: {message}")
+                self._emit_http_debug(
+                    f"{request_id} !! {method} {full_path} failed: {message}"
+                )
                 if any(sig in message for sig in retry_signatures):
                     timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                    log_line = (
-                        f"{timestamp} retry {attempt} for {method} {full_path}: {message}\n"
-                    )
+                    log_line = f"{timestamp} retry {attempt} for {method} {full_path}: {message}\n"
                     HTTPAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
                     with HTTPAPI_LOG.open("a") as fh:
                         fh.write(log_line)
@@ -290,9 +304,7 @@ class HttpApi(HttpApiBase):
         else:  # pragma: no cover - safeguard
             if last_exc is not None:
                 timestamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                log_line = (
-                    f"{timestamp} retries exhausted for {method} {full_path}: {to_text(last_exc)}\n"
-                )
+                log_line = f"{timestamp} retries exhausted for {method} {full_path}: {to_text(last_exc)}\n"
                 HTTPAPI_LOG.parent.mkdir(parents=True, exist_ok=True)
                 with HTTPAPI_LOG.open("a") as fh:
                     fh.write(log_line)
@@ -305,7 +317,9 @@ class HttpApi(HttpApiBase):
             path=full_path,
             request_id=request_id,
         )
-        status_code = getattr(response, "code", None) or getattr(response, "status", None)
+        status_code = getattr(response, "code", None) or getattr(
+            response, "status", None
+        )
         if status_code == 207:
             errors = self._multi_status_errors(parsed)
             if errors:
@@ -353,31 +367,61 @@ class HttpApi(HttpApiBase):
             with self._trace_log.open("a") as fh:
                 fh.write(f"{timestamp} {message}\n")
 
-    def _log_request(self, method: str, path: str, body: Optional[str], *, is_retry: bool = False) -> str:
+    def _log_request(
+        self, method: str, path: str, body: Optional[str], *, is_retry: bool = False
+    ) -> str:
         self._log_counter += 1
         request_id = f"#{self._log_counter}"
         retry_suffix = " (retry)" if is_retry else ""
         self._emit_http_debug(f"{request_id} => {method} {path}{retry_suffix}")
         if body:
-            truncated = body if len(body) <= self.LOG_TRUNCATE_LIMIT else f"{body[:self.LOG_TRUNCATE_LIMIT]}... (truncated)"
+            truncated = (
+                body
+                if len(body) <= self.LOG_TRUNCATE_LIMIT
+                else f"{body[:self.LOG_TRUNCATE_LIMIT]}... (truncated)"
+            )
             self._emit_http_debug(f"{request_id} => payload: {truncated}")
         return request_id
 
-    def _log_response(self, response, method: str, path: str, raw_text: Optional[str], log_body: bool, *, request_id: Optional[str] = None) -> None:
+    def _log_response(
+        self,
+        response,
+        method: str,
+        path: str,
+        raw_text: Optional[str],
+        log_body: bool,
+        *,
+        request_id: Optional[str] = None,
+    ) -> None:
         status = getattr(response, "code", None) or getattr(response, "status", None)
         status_display = status if status is not None else ""
         rid = request_id or ""
         rid_prefix = f"{rid} " if rid else ""
         self._emit_http_debug(f"{rid_prefix}<= {status_display} {method} {path}")
         if log_body and raw_text:
-            truncated = raw_text if len(raw_text) <= self.LOG_TRUNCATE_LIMIT else f"{raw_text[:self.LOG_TRUNCATE_LIMIT]}... (truncated)"
+            truncated = (
+                raw_text
+                if len(raw_text) <= self.LOG_TRUNCATE_LIMIT
+                else f"{raw_text[:self.LOG_TRUNCATE_LIMIT]}... (truncated)"
+            )
             self._emit_http_debug(f"{rid_prefix}<= payload: {truncated}")
 
-    def _parse_response(self, response, buffer, *, method: Optional[str] = None, path: Optional[str] = None, log_body: bool = True, request_id: Optional[str] = None):
+    def _parse_response(
+        self,
+        response,
+        buffer,
+        *,
+        method: Optional[str] = None,
+        path: Optional[str] = None,
+        log_body: bool = True,
+        request_id: Optional[str] = None,
+    ):
         raw = buffer.read()
         raw_text = to_text(raw, errors="surrogate_then_replace") if raw else ""
         if method and path:
-            self._log_response(response, method, path, raw_text, log_body, request_id=request_id)
+            self._log_response(
+                response, method, path, raw_text, log_body, request_id=request_id
+            )
         if not raw_text:
             return None
         try:
@@ -409,7 +453,11 @@ class HttpApi(HttpApiBase):
                     location.append(str(iface_name))
                 location_str = " ".join(location)
                 prefix = f"{status}" if status is not None else "error"
-                message = entry.get("errorMessage") or entry.get("message") or "request failed"
+                message = (
+                    entry.get("errorMessage")
+                    or entry.get("message")
+                    or "request failed"
+                )
                 if location_str:
                     errors.append(f"{prefix} - {location_str}: {message}")
                 else:

@@ -14,11 +14,12 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 DOCUMENTATION = r"""
 module: extreme_fe_vlans
 short_description: Manage VLANs on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Create, update, remove, and query VLANs on ExtremeNetworks Fabric Engine switches using
   the custom C(extreme_fe) HTTPAPI plugin.
 - Supports creating VLANs, ensuring membership, deleting VLANs, and collecting VLAN facts.
+- Use C(extreme_fe_fabric_l2) to manage ISID to VLAN associations.
 author:
 - ExtremeNetworks Networking Automation Team
 notes:
@@ -52,12 +53,6 @@ options:
     - Defaults to PORT_MSTP_RSTP when omitted.
     type: str
     default: PORT_MSTP_RSTP
-  i_sid:
-    description:
-    - I-SID (Service Instance Identifier) to associate with the VLAN.
-    - Required when adding SMLT LAGs to a VLAN in an SPB fabric.
-    - Range 1-15999999 for user-configurable values.
-    type: int
   stp_name:
     description:
     - Auto-bind STP instance name associated with the VLAN.
@@ -161,12 +156,12 @@ EXAMPLES = r"""
 # # mlt 10 enable
 # # mlt 11 enable
 #
-# ## I-SID Requirement:
-# # When using SMLT LAGs/MLTs, VLANs MUST have an I-SID association
-# # BEFORE adding the LAG/MLT interfaces. The module supports
-# # setting i_sid directly, or you can create them via CLI.
+# ## ISID Requirement:
+# # When using SMLT LAGs/MLTs, VLANs MUST have an ISID association
+# # BEFORE adding the LAG/MLT interfaces. Manage that separately with
+# # extreme.fe.extreme_fe_fabric_l2 or via CLI.
 #
-# # Create the VLAN with I-SID:
+# # Create the VLAN with ISID:
 # # vlan create 200 name VLAN-200 type port-mstprstp 0
 # # vlan i-sid 200 20020
 #
@@ -176,47 +171,47 @@ EXAMPLES = r"""
 # # show mlt
 
 # -------------------------------------------------------------------------
-# Task 1: Create or update VLAN with I-SID and LAG/MLT membership
+# Task 1: Create or update VLAN with LAG/MLT membership
 # Description:
-#   - Create a VLAN with I-SID and add LAG/MLT interfaces
+#   - Create a VLAN and add LAG/MLT interfaces
 #   - 'merged' state is non-destructive (adds/modifies without removing)
-#   - i_sid parameter associates the VLAN with an I-SID for SPB fabric
 # Prerequisites:
+#   - If SPB fabric services require an ISID, create it separately first
+#     using extreme.fe.extreme_fe_fabric_l2
 #   - LAG/MLT 10 must exist
 # -------------------------------------------------------------------------
-# - name: "Task 1: Merge VLAN 20 with I-SID and tagged membership"
+# - name: "Task 1: Merge VLAN 20 with tagged membership"
 #   hosts: switches
 #   gather_facts: false
 #   tasks:
-- name: Ensure VLAN 20 exists with I-SID and core LAG/MLT membership
+- name: Ensure VLAN 20 exists with core LAG/MLT membership
   extreme.fe.extreme_fe_vlans:
     state: merged
     vlan_id: 20
     vlan_name: Campus-20
-    i_sid: 2020
     vr_name: GlobalRouter
     lag_interfaces:
       - name: "10"
         tag: tagged
 
 # -------------------------------------------------------------------------
-# Task 2: Replace VLAN membership with I-SID
+# Task 2: Replace VLAN membership
 # Description:
 #   - Enforce specific LAG/MLT membership using 'replaced' state
 #   - All interface membership will match exactly what is defined
-#   - i_sid ensures the VLAN has proper SPB fabric association
 # Prerequisites:
+#   - If SPB fabric services require an ISID, create it separately first
+#     using extreme.fe.extreme_fe_fabric_l2
 #   - LAG/MLT 10 must exist
 # -------------------------------------------------------------------------
 # - name: "Task 2: Replace VLAN 200 membership with a specific LAG/MLT"
 #   hosts: switches
 #   gather_facts: false
 #   tasks:
-- name: Enforce tagged membership set with I-SID
+- name: Enforce tagged membership set
   extreme.fe.extreme_fe_vlans:
     state: replaced
     vlan_id: 200
-    i_sid: 20020
     vr_name: GlobalRouter
     lag_interfaces:
       - name: "10"
@@ -286,7 +281,6 @@ ARGUMENT_SPEC = {
     "vlan_id": {"type": "int"},
     "vlan_name": {"type": "str"},
     "vlan_type": {"type": "str", "default": "PORT_MSTP_RSTP"},
-    "i_sid": {"type": "int"},
     "stp_name": {"type": "str", "default": None},
     "vr_name": {"type": "str", "default": "GlobalRouter"},
     "gather_filter": {"type": "list", "elements": "int"},
@@ -295,7 +289,11 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
+            "tag": {
+                "type": "str",
+                "choices": ["tagged", "untagged"],
+                "default": "tagged",
+            },
         },
     },
     "remove_lag_interfaces": {
@@ -303,7 +301,11 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
+            "tag": {
+                "type": "str",
+                "choices": ["tagged", "untagged"],
+                "default": "tagged",
+            },
         },
     },
     "isis_logical_interfaces": {
@@ -311,7 +313,11 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
+            "tag": {
+                "type": "str",
+                "choices": ["tagged", "untagged"],
+                "default": "tagged",
+            },
         },
     },
     "remove_isis_logical_interfaces": {
@@ -319,7 +325,11 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
+            "tag": {
+                "type": "str",
+                "choices": ["tagged", "untagged"],
+                "default": "tagged",
+            },
         },
     },
 }
@@ -328,7 +338,9 @@ ARGUMENT_SPEC = {
 class FeVlansError(Exception):
     """Base exception for module-level errors."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, object]] = None) -> None:
+    def __init__(
+        self, message: str, *, details: Optional[Dict[str, object]] = None
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -347,7 +359,9 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
         code = int(code)
     if code == 404:
         return True
-    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    message = (
+        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+    )
     if isinstance(message, str):
         lowered = message.lower()
         if "not found" in lowered or "does not exist" in lowered:
@@ -371,7 +385,9 @@ def _normalize_state(value: str) -> str:
     return normalized
 
 
-def _normalize_membership_entry(option: str, entry: object) -> Optional[Tuple[str, str]]:
+def _normalize_membership_entry(
+    option: str, entry: object
+) -> Optional[Tuple[str, str]]:
     if not isinstance(entry, dict):
         return None
     name = entry.get("name")
@@ -380,7 +396,9 @@ def _normalize_membership_entry(option: str, entry: object) -> Optional[Tuple[st
     tag_choice = str(entry.get("tag", "tagged")).lower()
     tag_value = TAG_VALUE_MAP.get(tag_choice)
     if tag_value is None:
-        raise FeVlansError(f"Unsupported tag value '{tag_choice}' for interface '{name}'")
+        raise FeVlansError(
+            f"Unsupported tag value '{tag_choice}' for interface '{name}'"
+        )
     return str(name), tag_value
 
 
@@ -389,7 +407,9 @@ def _key_to_entry(key: Tuple[str, str]) -> Dict[str, str]:
     return {"interfaceType": interface_type, "interfaceName": interface_name}
 
 
-def _sanitize_membership(entries: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
+def _sanitize_membership(
+    entries: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, str]]:
     sanitized: List[Dict[str, str]] = []
     if not entries:
         return sanitized
@@ -410,10 +430,15 @@ def _sanitize_membership(entries: Optional[List[Dict[str, Any]]]) -> List[Dict[s
 
 
 def _membership_key(entry: Dict[str, str]) -> Tuple[str, str]:
-    return (str(entry.get("interfaceType", "")).upper(), str(entry.get("interfaceName", "")))
+    return (
+        str(entry.get("interfaceType", "")).upper(),
+        str(entry.get("interfaceName", "")),
+    )
 
 
-def _remove_membership_entry(entries: List[Dict[str, str]], key: Tuple[str, str]) -> bool:
+def _remove_membership_entry(
+    entries: List[Dict[str, str]], key: Tuple[str, str]
+) -> bool:
     removed = False
     filtered: List[Dict[str, str]] = []
     for entry in entries:
@@ -582,7 +607,11 @@ def _membership_operations_authoritative(
     additions_sets: Dict[str, Set[Tuple[str, str]]] = {"TAG": set(), "UNTAG": set()}
     removals_sets: Dict[str, Set[Tuple[str, str]]] = {"TAG": set(), "UNTAG": set()}
 
-    combinations = set(current_combination_sets.keys()) | set(desired_sets.keys()) | set(explicit_removals.keys())
+    combinations = (
+        set(current_combination_sets.keys())
+        | set(desired_sets.keys())
+        | set(explicit_removals.keys())
+    )
 
     for combo in combinations:
         tag_value, iface_type = combo
@@ -618,9 +647,13 @@ def _resolve_membership_operations(
     if normalized == "merged":
         return _membership_operations_for_merge(module)
     if normalized == "replaced":
-        return _membership_operations_authoritative(module, existing, purge_missing=False)
+        return _membership_operations_authoritative(
+            module, existing, purge_missing=False
+        )
     if normalized == "overridden":
-        return _membership_operations_authoritative(module, existing, purge_missing=True)
+        return _membership_operations_authoritative(
+            module, existing, purge_missing=True
+        )
     return {"TAG": [], "UNTAG": []}, {"TAG": [], "UNTAG": []}
 
 
@@ -721,7 +754,9 @@ def _apply_membership_changes(
     return True, working_copy, True
 
 
-def gather_vlans(module: AnsibleModule, connection: Connection) -> List[Dict[str, object]]:
+def gather_vlans(
+    module: AnsibleModule, connection: Connection
+) -> List[Dict[str, object]]:
     gather_filter: Optional[List[int]] = module.params.get("gather_filter")
     if gather_filter:
         result: List[Dict[str, object]] = []
@@ -740,7 +775,9 @@ def gather_vlans(module: AnsibleModule, connection: Connection) -> List[Dict[str
     )
 
 
-def get_vlan_config(connection: Connection, vlan_id: int) -> Optional[Dict[str, object]]:
+def get_vlan_config(
+    connection: Connection, vlan_id: int
+) -> Optional[Dict[str, object]]:
     try:
         data = connection.send_request(
             None,
@@ -756,7 +793,8 @@ def get_vlan_config(connection: Connection, vlan_id: int) -> Optional[Dict[str, 
     if isinstance(data, dict):
         return data
     raise FeVlansError(
-        "Unexpected response when retrieving VLAN configuration", details={"response": data}
+        "Unexpected response when retrieving VLAN configuration",
+        details={"response": data},
     )
 
 
@@ -779,79 +817,34 @@ def create_vlan(
         payload["stpName"] = ""
     if vlan_name is not None:
         payload["name"] = vlan_name
-    connection.send_request(payload, path=f"/v0/configuration/vrf/{vr_name}/vlan", method="POST")
+    connection.send_request(
+        payload, path=f"/v0/configuration/vrf/{vr_name}/vlan", method="POST"
+    )
 
 
-def update_vlan(connection: Connection, vlan_id: int, payload: Dict[str, object]) -> None:
+def update_vlan(
+    connection: Connection, vlan_id: int, payload: Dict[str, object]
+) -> None:
     if payload:
-        connection.send_request(payload, path=f"/v0/configuration/vlan/{vlan_id}", method="PATCH")
+        connection.send_request(
+            payload, path=f"/v0/configuration/vlan/{vlan_id}", method="PATCH"
+        )
 
 
 def delete_vlan(connection: Connection, vr_name: str, vlan_id: int) -> None:
-    connection.send_request(None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE")
+    connection.send_request(
+        None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE"
+    )
 
 
-def _ensure_isid_list(payload: Optional[Any]) -> List[Dict[str, Any]]:
-    """Normalize API response to a list of dicts, handling various response formats."""
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if isinstance(payload, dict):
-        # Check common keys used by the API: "isids", "items", "data", "results"
-        for key in ("isids", "items", "data", "results"):
-            value = payload.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        # If no known list key, treat the dict itself as a single entry
-        return [payload]
-    return []
-
-
-def _safe_int(value: Any) -> Optional[int]:
-    """Safely convert a value to int, returning None on failure."""
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def get_vlan_isid(connection: Connection, vlan_id: int) -> Optional[int]:
-    """Get the I-SID associated with a VLAN, if any."""
-    try:
-        # Query all ISIDs and find the one for this VLAN
-        data = connection.send_request(None, path="/v0/configuration/spbm/l2/isid", method="GET")
-        isid_entries = _ensure_isid_list(data)
-        for isid_entry in isid_entries:
-            # Compare as ints to handle API returning platformVlanId as string
-            entry_vlan_id = _safe_int(isid_entry.get("platformVlanId"))
-            if entry_vlan_id == vlan_id:
-                return _safe_int(isid_entry.get("isid"))
-    except ConnectionError as exc:
-        # Only treat 404 (not found) as "no I-SID configured" and return None.
-        # Re-raise other connection errors (auth, permission, server errors) to avoid
-        # incorrect behavior like attempting to create duplicate I-SIDs.
-        exc_code = getattr(exc, "code", None)
-        if exc_code == 404:
-            return None
-        raise
-    return None
-
-
-def create_vlan_isid(connection: Connection, vlan_id: int, i_sid: int) -> None:
-    """Create an I-SID association for a VLAN (CVLAN type)."""
-    payload = {
-        "isidType": "CVLAN",
-        "isid": i_sid,
-        "platformVlanId": vlan_id,
-    }
-    connection.send_request(payload, path="/v0/configuration/spbm/l2/isid", method="POST")
-
-
-def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> Dict[str, object]:
+def ensure_config(
+    module: AnsibleModule, connection: Connection, state: str
+) -> Dict[str, object]:
     vlan_id = module.params.get("vlan_id")
     if vlan_id is None:
-        raise FeVlansError("Parameter 'vlan_id' must be provided for VLAN configuration states")
+        raise FeVlansError(
+            "Parameter 'vlan_id' must be provided for VLAN configuration states"
+        )
 
     vr_name = module.params["vr_name"]
     vlan_name = module.params.get("vlan_name")
@@ -874,7 +867,10 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
                 existing["stpName"] = stp_name
         else:
             create_vlan(connection, vr_name, vlan_id, vlan_name, vlan_type, stp_name)
-            existing = get_vlan_config(connection, vlan_id) or {"id": vlan_id, "vrName": vr_name}
+            existing = get_vlan_config(connection, vlan_id) or {
+                "id": vlan_id,
+                "vrName": vr_name,
+            }
     else:
         existing = copy.deepcopy(existing_raw)
 
@@ -894,29 +890,6 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
         if not module.check_mode:
             update_vlan(connection, vlan_id, update_payload)
             refresh_needed = True
-
-    # Handle I-SID configuration
-    i_sid = module.params.get("i_sid")
-    if i_sid is not None:
-        current_isid = get_vlan_isid(connection, vlan_id)
-        if current_isid is None:
-            # No I-SID exists, create it
-            changed = True
-            if not module.check_mode:
-                create_vlan_isid(connection, vlan_id, i_sid)
-            existing["i_sid"] = i_sid
-        elif current_isid == i_sid:
-            # I-SID already matches desired value, reflect actual device state
-            existing["i_sid"] = current_isid
-        else:
-            # I-SID exists but differs - fail with clear message
-            # The API doesn't support updating i-sid directly
-            raise FeVlansError(
-                f"VLAN {vlan_id} has I-SID {current_isid} configured but requested I-SID {i_sid}. "
-                "The API does not support updating I-SID directly. "
-                "Delete the existing I-SID first using extreme.fe.extreme_fe_fabric_l2 with state=deleted. "
-                "See the 'Delete existing ISID' step in examples/provision_vlan_service.yml for reference."
-            )
 
     additions, removals = _resolve_membership_operations(module, existing, state)
 
@@ -938,14 +911,7 @@ def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> 
     if not module.check_mode and refresh_needed:
         refreshed = get_vlan_config(connection, vlan_id)
         if refreshed is not None:
-            # Preserve i_sid since get_vlan_config doesn't return it
-            preserved_isid = existing.get("i_sid")
             existing = refreshed
-            if preserved_isid is not None:
-                existing["i_sid"] = preserved_isid
-            elif i_sid is not None:
-                # Re-fetch i_sid after refresh if it was requested
-                existing["i_sid"] = get_vlan_isid(connection, vlan_id)
 
     return {"changed": changed, "vlan": existing}
 

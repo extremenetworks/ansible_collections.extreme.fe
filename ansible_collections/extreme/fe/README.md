@@ -48,10 +48,14 @@ The Extreme Fabric Engine collection supports `httpapi` connections. The custom 
 | extreme.fe.extreme_fe_l2_interfaces | Configure Layer 2 interface settings |
 | extreme.fe.extreme_fe_l3_interfaces | Configure Layer 3 interface addressing |
 | extreme.fe.extreme_fe_lag           | Configure Link Aggregation Groups (MLT/LACP) |
+| extreme.fe.extreme_fe_lldp_global   | Configure global LLDP timer settings |
+| extreme.fe.extreme_fe_lldp_interfaces | Configure LLDP interface settings |
 | extreme.fe.extreme_fe_mlag          | Configure Multi-chassis LAG (vIST/SMLT) |
 | extreme.fe.extreme_fe_ping          | Execute ICMP ping tests from the switch |
 | extreme.fe.extreme_fe_poe           | Configure Power over Ethernet settings |
 | extreme.fe.extreme_fe_save_config   | Save running configuration to file |
+| extreme.fe.extreme_fe_slpp          | Configure SLPP (Simple Loop Prevention Protocol) settings |
+| extreme.fe.extreme_fe_stp           | Configure STP per-port settings and BPDU Guard |
 | extreme.fe.extreme_fe_vlans         | Configure VLANs on Fabric Engine switches |
 
 Click the `Content` button to see the list of content included in this collection.
