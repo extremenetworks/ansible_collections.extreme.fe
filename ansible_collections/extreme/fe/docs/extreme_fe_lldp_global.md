@@ -4,7 +4,7 @@
 ---
 module: extreme_fe_lldp_global
 short_description: Manage global LLDP settings on ExtremeNetworks Fabric Engine switches
-version_added: "1.0.0"
+version_added: "1.1.0"
 description:
   - Manage device-wide LLDP timer settings on ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/lldp) from the NOS OpenAPI schema.

@@ -4,7 +4,7 @@
 ---
 module: extreme_fe_slpp
 short_description: Manage Fabric Engine SLPP (Simple Loop Prevention Protocol) settings
-version_added: 1.0.0
+version_added: 1.1.0
 description:
     - Manage global, per-VLAN, and per-port SLPP settings on ExtremeNetworks Fabric Engine
       switches using the custom C(extreme_fe) HTTPAPI plugin.
