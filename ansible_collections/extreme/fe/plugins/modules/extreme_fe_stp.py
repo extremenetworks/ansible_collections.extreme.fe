@@ -26,7 +26,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_stp
 short_description: Manage STP per-port settings on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: 1.1.0
 description:
 - Configure STP per-port settings on ExtremeNetworks Fabric Engine
   (VOSS) switches using the C(extreme_fe) HTTPAPI connection plugin.
