@@ -4,7 +4,7 @@
 ---
 module: extreme_fe_lldp_interfaces
 short_description: Manage LLDP interface settings on ExtremeNetworks Fabric Engine switches
-version_added: "1.0.0"
+version_added: "1.1.0"
 description:
   - Manage LLDP interface-level settings on ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/lldp/ports/{port}) and C(/v0/configuration/lldp/ports/{port}/med-policy) from the NOS OpenAPI schema.
