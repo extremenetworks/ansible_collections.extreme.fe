@@ -42,7 +42,7 @@ DOCUMENTATION = r"""
 ---
 module: extreme_fe_slpp
 short_description: Manage Fabric Engine SLPP (Simple Loop Prevention Protocol) settings
-version_added: 1.0.0
+version_added: 1.1.0
 description:
     - Manage global, per-VLAN, and per-port SLPP settings on ExtremeNetworks Fabric Engine
       switches using the custom C(extreme_fe) HTTPAPI plugin.
@@ -543,7 +543,8 @@ def _transform_ports_output(
                 normalized.append(_normalize_port_name(item))
             except FeSlppError:
                 raise FeSlppError(
-                    "gather_filter contains invalid port identifier: %r" % item
+                    "gather_filter contains invalid port identifier: %r"
+                    % item
                 )
         names = normalized
     else:
@@ -713,8 +714,7 @@ def apply_vlan_settings(
         vlan_id = entry["vlan_id"]
         if require_full_definition:
             missing = [
-                param
-                for param in VLAN_FIELD_MAP
+                param for param in VLAN_FIELD_MAP
                 if param not in entry or entry[param] is None
             ]
             if missing:
@@ -786,8 +786,7 @@ def apply_port_settings(
 
         if require_full_definition:
             missing = [
-                param
-                for param in PORT_FIELD_MAP
+                param for param in PORT_FIELD_MAP
                 if param not in entry or entry[param] is None
             ]
             if missing:
@@ -1035,7 +1034,8 @@ def gather_slpp_state(
                 filter_set.add(_normalize_port_name(item))
             except FeSlppError:
                 raise FeSlppError(
-                    "gather_filter contains invalid port identifier: %r" % item
+                    "gather_filter contains invalid port identifier: %r"
+                    % item
                 )
 
     results: List[Dict[str, Any]] = []

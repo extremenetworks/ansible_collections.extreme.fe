@@ -433,9 +433,7 @@ PORT_FIELD_MAP = {
 class FeInterfacesError(Exception):
     """Base exception for interface module errors."""
 
-    def __init__(
-        self, message: str, *, details: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -455,9 +453,7 @@ def _normalize_port_name(raw: str) -> str:
     return value
 
 
-def _list_equal(
-    first: Optional[Iterable[Any]], second: Optional[Iterable[Any]]
-) -> bool:
+def _list_equal(first: Optional[Iterable[Any]], second: Optional[Iterable[Any]]) -> bool:
     if first is None and second is None:
         return True
     if first is None or second is None:
@@ -500,9 +496,7 @@ def fetch_port_config_map(connection: Connection) -> Dict[str, Dict[str, Any]]:
 
 def fetch_global_config(connection: Connection) -> Dict[str, Any]:
     try:
-        data = connection.send_request(
-            None, path="/v0/configuration/ports/global", method="GET"
-        )
+        data = connection.send_request(None, path="/v0/configuration/ports/global", method="GET")
     except ConnectionError as exc:
         if getattr(exc, "code", None) == 404:
             return {}
@@ -526,9 +520,7 @@ def apply_global_settings(
 ) -> Tuple[bool, Dict[str, Any]]:
     if state == STATE_DELETED:
         if desired:
-            raise FeInterfacesError(
-                "Global settings cannot be supplied when state is 'deleted'."
-            )
+            raise FeInterfacesError("Global settings cannot be supplied when state is 'deleted'.")
         return False, current
     if not desired:
         return False, current
@@ -551,9 +543,7 @@ def apply_global_settings(
         new_config.update(payload)
         return True, new_config
 
-    connection.send_request(
-        payload, path="/v0/configuration/ports/global", method="PATCH"
-    )
+    connection.send_request(payload, path="/v0/configuration/ports/global", method="PATCH")
     merged = current.copy()
     merged.update(payload)
     return True, merged
@@ -593,9 +583,7 @@ def apply_port_admin(
     if module.check_mode:
         return True, changed_ports
 
-    response = connection.send_request(
-        updates, path="/v0/configuration/ports", method="PUT"
-    )
+    response = connection.send_request(updates, path="/v0/configuration/ports", method="PUT")
     if isinstance(response, dict) and response.get("errorCode"):
         raise FeInterfacesError(
             "Failed to update administrative state for interfaces",
@@ -660,9 +648,7 @@ def apply_port_settings(
         if module.check_mode:
             changed_ports.append(port_name)
             continue
-        response = connection.send_request(
-            diff, path=f"/v0/configuration/ports/{port_name}", method="PATCH"
-        )
+        response = connection.send_request(diff, path=f"/v0/configuration/ports/{port_name}", method="PATCH")
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeInterfacesError(
                 f"Failed to update interface {port_name}",
@@ -702,9 +688,7 @@ def delete_port_settings(
     removed_ports: List[str] = []
     for entry in ports:
         if "name" not in entry:
-            raise FeInterfacesError(
-                "Each item in 'ports' must define 'name' when state is 'deleted'."
-            )
+            raise FeInterfacesError("Each item in 'ports' must define 'name' when state is 'deleted'.")
         port_name = _normalize_port_name(entry["name"])
         existing_settings = current_map.get(port_name)
 
@@ -718,11 +702,7 @@ def delete_port_settings(
         try:
             # Use PUT with default values to reset port configuration
             # DELETE method is not supported by the API for ports
-            response = connection.send_request(
-                default_payload,
-                path=f"/v0/configuration/ports/{port_name}",
-                method="PUT",
-            )
+            response = connection.send_request(default_payload, path=f"/v0/configuration/ports/{port_name}", method="PUT")
         except ConnectionError as exc:
             if getattr(exc, "code", None) == 404:
                 if existing_settings is not None:
@@ -755,9 +735,7 @@ def gather_interface_state(
         results: List[Dict[str, Any]] = []
         for raw in params:
             port_name = _normalize_port_name(raw)
-            data = connection.send_request(
-                None, path=f"/v1/state/ports/{port_name}", method="GET"
-            )
+            data = connection.send_request(None, path=f"/v1/state/ports/{port_name}", method="GET")
             if isinstance(data, dict):
                 results.append({"name": port_name, "settings": data})
         return results
@@ -788,9 +766,7 @@ def run_module() -> None:
         state = module.params.get("state")
         if state == STATE_GATHERED:
             try:
-                ports_state = gather_interface_state(
-                    connection, module.params.get("gather_filter")
-                )
+                ports_state = gather_interface_state(connection, module.params.get("gather_filter"))
             except FeInterfacesError as exc:
                 module.fail_json(**exc.to_fail_kwargs())
                 return
@@ -822,9 +798,7 @@ def run_module() -> None:
         else:
             # STATE_DELETED
             if desired_global:
-                raise FeInterfacesError(
-                    "Global settings cannot be supplied when state is 'deleted'."
-                )
+                raise FeInterfacesError("Global settings cannot be supplied when state is 'deleted'.")
 
         admin_changed = False
         if desired_admin:
@@ -870,11 +844,7 @@ def run_module() -> None:
                     for entry in desired_ports
                     if isinstance(entry, dict) and "name" in entry
                 }
-                to_remove = [
-                    name
-                    for name in initial_port_names
-                    if name not in desired_port_names
-                ]
+                to_remove = [name for name in initial_port_names if name not in desired_port_names]
                 if to_remove:
                     removal_entries = [{"name": name} for name in to_remove]
                     removal_changed, removed_ports = delete_port_settings(

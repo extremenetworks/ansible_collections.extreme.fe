@@ -289,11 +289,7 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {
-                "type": "str",
-                "choices": ["tagged", "untagged"],
-                "default": "tagged",
-            },
+            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
         },
     },
     "remove_lag_interfaces": {
@@ -301,11 +297,7 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {
-                "type": "str",
-                "choices": ["tagged", "untagged"],
-                "default": "tagged",
-            },
+            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
         },
     },
     "isis_logical_interfaces": {
@@ -313,11 +305,7 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {
-                "type": "str",
-                "choices": ["tagged", "untagged"],
-                "default": "tagged",
-            },
+            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
         },
     },
     "remove_isis_logical_interfaces": {
@@ -325,11 +313,7 @@ ARGUMENT_SPEC = {
         "elements": "dict",
         "options": {
             "name": {"type": "str", "required": True},
-            "tag": {
-                "type": "str",
-                "choices": ["tagged", "untagged"],
-                "default": "tagged",
-            },
+            "tag": {"type": "str", "choices": ["tagged", "untagged"], "default": "tagged"},
         },
     },
 }
@@ -338,9 +322,7 @@ ARGUMENT_SPEC = {
 class FeVlansError(Exception):
     """Base exception for module-level errors."""
 
-    def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
-    ) -> None:
+    def __init__(self, message: str, *, details: Optional[Dict[str, object]] = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -359,9 +341,7 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
         code = int(code)
     if code == 404:
         return True
-    message = (
-        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
-    )
+    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
     if isinstance(message, str):
         lowered = message.lower()
         if "not found" in lowered or "does not exist" in lowered:
@@ -385,9 +365,7 @@ def _normalize_state(value: str) -> str:
     return normalized
 
 
-def _normalize_membership_entry(
-    option: str, entry: object
-) -> Optional[Tuple[str, str]]:
+def _normalize_membership_entry(option: str, entry: object) -> Optional[Tuple[str, str]]:
     if not isinstance(entry, dict):
         return None
     name = entry.get("name")
@@ -396,9 +374,7 @@ def _normalize_membership_entry(
     tag_choice = str(entry.get("tag", "tagged")).lower()
     tag_value = TAG_VALUE_MAP.get(tag_choice)
     if tag_value is None:
-        raise FeVlansError(
-            f"Unsupported tag value '{tag_choice}' for interface '{name}'"
-        )
+        raise FeVlansError(f"Unsupported tag value '{tag_choice}' for interface '{name}'")
     return str(name), tag_value
 
 
@@ -407,9 +383,7 @@ def _key_to_entry(key: Tuple[str, str]) -> Dict[str, str]:
     return {"interfaceType": interface_type, "interfaceName": interface_name}
 
 
-def _sanitize_membership(
-    entries: Optional[List[Dict[str, Any]]],
-) -> List[Dict[str, str]]:
+def _sanitize_membership(entries: Optional[List[Dict[str, Any]]]) -> List[Dict[str, str]]:
     sanitized: List[Dict[str, str]] = []
     if not entries:
         return sanitized
@@ -430,15 +404,10 @@ def _sanitize_membership(
 
 
 def _membership_key(entry: Dict[str, str]) -> Tuple[str, str]:
-    return (
-        str(entry.get("interfaceType", "")).upper(),
-        str(entry.get("interfaceName", "")),
-    )
+    return (str(entry.get("interfaceType", "")).upper(), str(entry.get("interfaceName", "")))
 
 
-def _remove_membership_entry(
-    entries: List[Dict[str, str]], key: Tuple[str, str]
-) -> bool:
+def _remove_membership_entry(entries: List[Dict[str, str]], key: Tuple[str, str]) -> bool:
     removed = False
     filtered: List[Dict[str, str]] = []
     for entry in entries:
@@ -607,11 +576,7 @@ def _membership_operations_authoritative(
     additions_sets: Dict[str, Set[Tuple[str, str]]] = {"TAG": set(), "UNTAG": set()}
     removals_sets: Dict[str, Set[Tuple[str, str]]] = {"TAG": set(), "UNTAG": set()}
 
-    combinations = (
-        set(current_combination_sets.keys())
-        | set(desired_sets.keys())
-        | set(explicit_removals.keys())
-    )
+    combinations = set(current_combination_sets.keys()) | set(desired_sets.keys()) | set(explicit_removals.keys())
 
     for combo in combinations:
         tag_value, iface_type = combo
@@ -647,13 +612,9 @@ def _resolve_membership_operations(
     if normalized == "merged":
         return _membership_operations_for_merge(module)
     if normalized == "replaced":
-        return _membership_operations_authoritative(
-            module, existing, purge_missing=False
-        )
+        return _membership_operations_authoritative(module, existing, purge_missing=False)
     if normalized == "overridden":
-        return _membership_operations_authoritative(
-            module, existing, purge_missing=True
-        )
+        return _membership_operations_authoritative(module, existing, purge_missing=True)
     return {"TAG": [], "UNTAG": []}, {"TAG": [], "UNTAG": []}
 
 
@@ -754,9 +715,7 @@ def _apply_membership_changes(
     return True, working_copy, True
 
 
-def gather_vlans(
-    module: AnsibleModule, connection: Connection
-) -> List[Dict[str, object]]:
+def gather_vlans(module: AnsibleModule, connection: Connection) -> List[Dict[str, object]]:
     gather_filter: Optional[List[int]] = module.params.get("gather_filter")
     if gather_filter:
         result: List[Dict[str, object]] = []
@@ -775,9 +734,7 @@ def gather_vlans(
     )
 
 
-def get_vlan_config(
-    connection: Connection, vlan_id: int
-) -> Optional[Dict[str, object]]:
+def get_vlan_config(connection: Connection, vlan_id: int) -> Optional[Dict[str, object]]:
     try:
         data = connection.send_request(
             None,
@@ -793,8 +750,7 @@ def get_vlan_config(
     if isinstance(data, dict):
         return data
     raise FeVlansError(
-        "Unexpected response when retrieving VLAN configuration",
-        details={"response": data},
+        "Unexpected response when retrieving VLAN configuration", details={"response": data}
     )
 
 
@@ -817,34 +773,22 @@ def create_vlan(
         payload["stpName"] = ""
     if vlan_name is not None:
         payload["name"] = vlan_name
-    connection.send_request(
-        payload, path=f"/v0/configuration/vrf/{vr_name}/vlan", method="POST"
-    )
+    connection.send_request(payload, path=f"/v0/configuration/vrf/{vr_name}/vlan", method="POST")
 
 
-def update_vlan(
-    connection: Connection, vlan_id: int, payload: Dict[str, object]
-) -> None:
+def update_vlan(connection: Connection, vlan_id: int, payload: Dict[str, object]) -> None:
     if payload:
-        connection.send_request(
-            payload, path=f"/v0/configuration/vlan/{vlan_id}", method="PATCH"
-        )
+        connection.send_request(payload, path=f"/v0/configuration/vlan/{vlan_id}", method="PATCH")
 
 
 def delete_vlan(connection: Connection, vr_name: str, vlan_id: int) -> None:
-    connection.send_request(
-        None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE"
-    )
+    connection.send_request(None, path=f"/v0/configuration/vrf/{vr_name}/vlan/{vlan_id}", method="DELETE")
 
 
-def ensure_config(
-    module: AnsibleModule, connection: Connection, state: str
-) -> Dict[str, object]:
+def ensure_config(module: AnsibleModule, connection: Connection, state: str) -> Dict[str, object]:
     vlan_id = module.params.get("vlan_id")
     if vlan_id is None:
-        raise FeVlansError(
-            "Parameter 'vlan_id' must be provided for VLAN configuration states"
-        )
+        raise FeVlansError("Parameter 'vlan_id' must be provided for VLAN configuration states")
 
     vr_name = module.params["vr_name"]
     vlan_name = module.params.get("vlan_name")
@@ -867,10 +811,7 @@ def ensure_config(
                 existing["stpName"] = stp_name
         else:
             create_vlan(connection, vr_name, vlan_id, vlan_name, vlan_type, stp_name)
-            existing = get_vlan_config(connection, vlan_id) or {
-                "id": vlan_id,
-                "vrName": vr_name,
-            }
+            existing = get_vlan_config(connection, vlan_id) or {"id": vlan_id, "vrName": vr_name}
     else:
         existing = copy.deepcopy(existing_raw)
 

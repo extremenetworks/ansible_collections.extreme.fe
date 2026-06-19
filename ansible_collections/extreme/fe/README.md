@@ -40,23 +40,29 @@ The Extreme Fabric Engine collection supports `httpapi` connections. The custom 
 
 | Name                                | Description                  |
 |-------------------------------------|------------------------------|
-| extreme.fe.extreme_fe_autosense     | Configure Auto-Sense settings on Fabric Engine switches |
-| extreme.fe.extreme_fe_command       | Execute CLI commands on Fabric Engine switches |
-| extreme.fe.extreme_fe_fabric_l2     | Manage Layer 2 Fabric (ISID/C-VLAN) configuration |
-| extreme.fe.extreme_fe_facts         | Collect facts from Fabric Engine switches |
-| extreme.fe.extreme_fe_interfaces    | Configure physical interfaces on Fabric Engine switches |
-| extreme.fe.extreme_fe_l2_interfaces | Configure Layer 2 interface settings |
-| extreme.fe.extreme_fe_l3_interfaces | Configure Layer 3 interface addressing |
-| extreme.fe.extreme_fe_lag           | Configure Link Aggregation Groups (MLT/LACP) |
-| extreme.fe.extreme_fe_lldp_global   | Configure global LLDP timer settings |
-| extreme.fe.extreme_fe_lldp_interfaces | Configure LLDP interface settings |
-| extreme.fe.extreme_fe_mlag          | Configure Multi-chassis LAG (vIST/SMLT) |
-| extreme.fe.extreme_fe_ping          | Execute ICMP ping tests from the switch |
-| extreme.fe.extreme_fe_poe           | Configure Power over Ethernet settings |
-| extreme.fe.extreme_fe_save_config   | Save running configuration to file |
-| extreme.fe.extreme_fe_slpp          | Configure SLPP (Simple Loop Prevention Protocol) settings |
-| extreme.fe.extreme_fe_stp           | Configure STP per-port settings and BPDU Guard |
-| extreme.fe.extreme_fe_vlans         | Configure VLANs on Fabric Engine switches |
+| extreme.fe.extreme_fe_anycast_gateway | Manages Anycast Gateway interfaces on Fabric Engine devices |
+| extreme.fe.extreme_fe_autosense     | Manages Fabric Engine autosense settings and port behaviour |
+| extreme.fe.extreme_fe_command       | Executes CLI commands on Fabric Engine devices |
+| extreme.fe.extreme_fe_dns           | Manages DNS settings on Fabric Engine devices |
+| extreme.fe.extreme_fe_fabric_l2     | Manages Layer 2 Fabric (ISID/C-VLAN) on Fabric Engine devices |
+| extreme.fe.extreme_fe_facts         | Gathers hardware and system facts from Fabric Engine devices |
+| extreme.fe.extreme_fe_interfaces    | Manages Ethernet interfaces on Fabric Engine devices |
+| extreme.fe.extreme_fe_l2_interfaces | Manages Layer 2 interface on Fabric Engine devices |
+| extreme.fe.extreme_fe_l3_interfaces | Manages Layer 3 interfaces on Fabric Engine devices |
+| extreme.fe.extreme_fe_lag           | Manages Link Aggregation Groups (MLT/LACP) configuration |
+| extreme.fe.extreme_fe_lldp_global   | Manages global LLDP settings on Fabric Engine devices |
+| extreme.fe.extreme_fe_lldp_interfaces | Manages LLDP interface settings on Fabric Engine devices |
+| extreme.fe.extreme_fe_mlag          | Manages Multi-chassis LAG (vIST/SMLT) configuration |
+| extreme.fe.extreme_fe_ping          | Sends a ping from a Fabric Engine device to the given host |
+| extreme.fe.extreme_fe_poe           | Manages Power over Ethernet settings |
+| extreme.fe.extreme_fe_save_config   | Saves the running configuration on Fabric Engine devices |
+| extreme.fe.extreme_fe_slpp          | Manages SLPP (Simple Loop Prevention Protocol) settings |
+| extreme.fe.extreme_fe_snmp          | Manages the SNMP system name on Fabric Engine devices |
+| extreme.fe.extreme_fe_spbm_l3vsn    | Manages SPBM L3VSN (IPVPN) instances on Fabric Engine devices |
+| extreme.fe.extreme_fe_stp           | Manages STP per-port settings and BPDU Guard|
+| extreme.fe.extreme_fe_vlans         | Manages VLANs on Fabric Engine devices |
+| extreme.fe.extreme_fe_vrf           | Manages VRFs on Fabric Engine devices |
+| extreme.fe.extreme_fe_vrf_static_routes | Manages static routes on Fabric Engine devices |
 
 Click the `Content` button to see the list of content included in this collection.
 

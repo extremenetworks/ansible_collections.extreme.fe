@@ -424,10 +424,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
                     "camera": {
                         "type": "dict",
                         "options": {
-                            "dot1x_status": {
-                                "type": "str",
-                                "choices": ["AUTO", "FORCE_AUTHORIZED"],
-                            },
+                            "dot1x_status": {"type": "str", "choices": ["AUTO", "FORCE_AUTHORIZED"]},
                             "isid": {"type": "int"},
                         },
                     },
@@ -435,10 +432,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
                         "type": "dict",
                         "options": {
                             "isid": {"type": "int"},
-                            "status": {
-                                "type": "str",
-                                "choices": ["AUTO", "FORCE_AUTHORIZED"],
-                            },
+                            "status": {"type": "str", "choices": ["AUTO", "FORCE_AUTHORIZED"]},
                         },
                     },
                     "proxy": {
@@ -453,10 +447,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
                         "type": "dict",
                         "options": {
                             "isid": {"type": "int"},
-                            "status": {
-                                "type": "str",
-                                "choices": ["AUTO", "FORCE_AUTHORIZED"],
-                            },
+                            "status": {"type": "str", "choices": ["AUTO", "FORCE_AUTHORIZED"]},
                         },
                     },
                 },
@@ -477,12 +468,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
                             "key_id": {"type": "int"},
                             "type": {
                                 "type": "str",
-                                "choices": [
-                                    "HMAC_MD5",
-                                    "HMAC_SHA_256",
-                                    "SIMPLE",
-                                    "NONE",
-                                ],
+                                "choices": ["HMAC_MD5", "HMAC_SHA_256", "SIMPLE", "NONE"],
                             },
                         },
                     },
@@ -623,9 +609,7 @@ STATE_GATHERED = "gathered"
 class FeAutosenseError(Exception):
     """Base exception for autosense module errors."""
 
-    def __init__(
-        self, message: str, *, details: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -686,9 +670,8 @@ def _build_diff_from_module(
                     "value", current_value.get("value", "")
                 )
                 # Check if anything actually changed
-                if complete_authkey["isEncrypted"] != current_value.get(
-                    "isEncrypted"
-                ) or complete_authkey["value"] != current_value.get("value"):
+                if (complete_authkey["isEncrypted"] != current_value.get("isEncrypted") or
+                        complete_authkey["value"] != current_value.get("value")):
                     payload[rest_key] = complete_authkey
             # Special handling for helloAuth: API requires key, keyId, and type together
             # The nested key object also requires both isEncrypted and value
@@ -716,19 +699,13 @@ def _build_diff_from_module(
                 )
                 # Check if anything actually changed
                 current_key = current_value.get("key", {})
-                if (
-                    complete_helloauth.get("key", {}).get("isEncrypted")
-                    != current_key.get("isEncrypted")
-                    or complete_helloauth.get("key", {}).get("value")
-                    != current_key.get("value")
-                    or complete_helloauth["keyId"] != current_value.get("keyId")
-                    or complete_helloauth["type"] != current_value.get("type")
-                ):
+                if (complete_helloauth.get("key", {}).get("isEncrypted") != current_key.get("isEncrypted") or
+                        complete_helloauth.get("key", {}).get("value") != current_key.get("value") or
+                        complete_helloauth["keyId"] != current_value.get("keyId") or
+                        complete_helloauth["type"] != current_value.get("type")):
                     payload[rest_key] = complete_helloauth
             else:
-                diff_value = _build_diff_from_module(
-                    desired_value, current_value, child_spec
-                )
+                diff_value = _build_diff_from_module(desired_value, current_value, child_spec)
                 if diff_value:
                     payload[rest_key] = diff_value
         else:
@@ -738,9 +715,7 @@ def _build_diff_from_module(
     return payload
 
 
-def _transform_for_output(
-    payload: Dict[str, Any], spec: Dict[str, Any]
-) -> Dict[str, Any]:
+def _transform_for_output(payload: Dict[str, Any], spec: Dict[str, Any]) -> Dict[str, Any]:
     result: Dict[str, Any] = {}
     for param, mapping in spec.items():
         rest_key = mapping["rest"]
@@ -805,12 +780,8 @@ def get_connection(module: AnsibleModule) -> Connection:
     return Connection(module._socket_path)
 
 
-def fetch_autosense_config(
-    connection: Connection,
-) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
-    data = connection.send_request(
-        None, path="/v0/configuration/autosense", method="GET"
-    )
+def fetch_autosense_config(connection: Connection) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+    data = connection.send_request(None, path="/v0/configuration/autosense", method="GET")
     if data is None:
         return {}, {}
     if not isinstance(data, dict):
@@ -927,9 +898,7 @@ def _delete_port_override(
         return False
 
     try:
-        connection.send_request(
-            None, path=f"/v0/configuration/autosense/port/{port_name}", method="DELETE"
-        )
+        connection.send_request(None, path=f"/v0/configuration/autosense/port/{port_name}", method="DELETE")
         current_map.pop(port_name, None)
         return existing_settings is not None or True
     except ConnectionError:
@@ -1026,14 +995,10 @@ def run_module() -> None:
         current_global, port_map = fetch_autosense_config(connection)
 
         if state == STATE_GATHERED:
-            result["global_settings"] = _transform_for_output(
-                current_global, GLOBAL_SPEC
-            )
+            result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
             result["ports_settings"] = _transform_ports_output(port_map, gather_filter)
             if gather_state:
-                result["ports_state"] = gather_autosense_state(
-                    connection, gather_filter
-                )
+                result["ports_state"] = gather_autosense_state(connection, gather_filter)
             module.exit_json(**result)
 
         desired_global = module.params.get("global_settings") or {}
@@ -1050,14 +1015,10 @@ def run_module() -> None:
             if changed_global:
                 result["changed"] = True
             if changed_global or (desired_global and module.check_mode):
-                result["global_settings"] = _transform_for_output(
-                    current_global, GLOBAL_SPEC
-                )
+                result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
         elif state == STATE_DELETED:
             if desired_global:
-                raise FeAutosenseError(
-                    "Global settings cannot be supplied when state='deleted'."
-                )
+                raise FeAutosenseError("Global settings cannot be supplied when state='deleted'.")
         else:
             raise FeAutosenseError(f"Unsupported state '{state}' supplied.")
 
@@ -1081,15 +1042,9 @@ def run_module() -> None:
             )
             if state == STATE_OVERRIDDEN:
                 desired_port_names = {
-                    _normalize_port_name(entry["name"])
-                    for entry in desired_ports
-                    if "name" in entry
+                    _normalize_port_name(entry["name"]) for entry in desired_ports if "name" in entry
                 }
-                to_remove = [
-                    name
-                    for name in initial_port_names
-                    if name not in desired_port_names
-                ]
+                to_remove = [name for name in initial_port_names if name not in desired_port_names]
                 if to_remove:
                     removal_entries = [{"name": name} for name in to_remove]
                     removal_changed, port_map, removal_list = delete_port_settings(
