@@ -249,9 +249,7 @@ REQUIRES_CONFIG = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN}
 class FeLldpGlobalError(Exception):
     """Raised for LLDP global module validation or response issues."""
 
-    def __init__(
-        self, message: str, *, details: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -270,9 +268,7 @@ def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
     if isinstance(code, str) and code.isdigit():
         code = int(code)
 
-    message = (
-        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
-    )
+    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
     errors = payload.get("errors")
 
     if isinstance(code, int) and code >= 400:
@@ -328,9 +324,7 @@ def _call_api(
     if isinstance(response, dict):
         error = _extract_error(response)
         if error:
-            module.fail_json(
-                msg=error.get("message"), details=error, api_responses=api_responses
-            )
+            module.fail_json(msg=error.get("message"), details=error, api_responses=api_responses)
 
     return response
 
@@ -364,11 +358,7 @@ def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, 
         )
 
     if state == STATE_MERGED and normalized:
-        managed_keys = [
-            key
-            for key in normalized
-            if key in SETTABLE_FIELDS and normalized.get(key) is not None
-        ]
+        managed_keys = [key for key in normalized if key in SETTABLE_FIELDS and normalized.get(key) is not None]
         if not managed_keys:
             raise FeLldpGlobalError(
                 "At least one configurable LLDP global attribute must be supplied when state='merged'"
@@ -387,9 +377,7 @@ def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, 
             )
         if value < meta["minimum"] or value > meta["maximum"]:
             raise FeLldpGlobalError(
-                "{0} must be between {1} and {2}".format(
-                    option, meta["minimum"], meta["maximum"]
-                ),
+                "{0} must be between {1} and {2}".format(option, meta["minimum"], meta["maximum"]),
                 details={"option": option, "received": value},
             )
         normalized[option] = value
@@ -404,15 +392,9 @@ def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, 
     return normalized
 
 
-def _build_target_config(
-    current: Dict[str, Any], config: Dict[str, Any], state: str
-) -> Dict[str, Any]:
+def _build_target_config(current: Dict[str, Any], config: Dict[str, Any], state: str) -> Dict[str, Any]:
     if state == STATE_MERGED:
-        return {
-            key: value
-            for key, value in config.items()
-            if key in SETTABLE_FIELDS and value is not None
-        }
+        return {key: value for key, value in config.items() if key in SETTABLE_FIELDS and value is not None}
 
     if state in (STATE_REPLACED, STATE_OVERRIDDEN):
         target = {key: meta["default"] for key, meta in SETTABLE_FIELDS.items()}
@@ -436,9 +418,7 @@ def _build_target_config(
     raise FeLldpGlobalError("Unsupported state supplied", details={"state": state})
 
 
-def _build_patch_payload(
-    current: Dict[str, Any], target: Dict[str, Any]
-) -> Dict[str, Any]:
+def _build_patch_payload(current: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {}
     for option, desired_value in target.items():
         if option not in SETTABLE_FIELDS:
@@ -448,9 +428,7 @@ def _build_patch_payload(
     return payload
 
 
-def _build_differences(
-    current: Dict[str, Any], target: Dict[str, Any]
-) -> Dict[str, Dict[str, Any]]:
+def _build_differences(current: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     differences: Dict[str, Dict[str, Any]] = {}
     for option, desired_value in target.items():
         if option not in SETTABLE_FIELDS:
@@ -461,9 +439,7 @@ def _build_differences(
     return differences
 
 
-def _merge_after(
-    current: Dict[str, Any], patch_payload: Dict[str, Any]
-) -> Dict[str, Any]:
+def _merge_after(current: Dict[str, Any], patch_payload: Dict[str, Any]) -> Dict[str, Any]:
     merged = dict(current)
     for option, meta in SETTABLE_FIELDS.items():
         rest_key = meta["rest"]
@@ -504,17 +480,14 @@ def run_module() -> None:
         if state == STATE_GATHERED:
             result["lldp"] = {"config": current_config}
             if gather_state:
-                result["lldp"]["state"] = (
-                    _call_api(
-                        module,
-                        connection,
-                        method="GET",
-                        path=STATE_PATH,
-                        api_responses=result["api_responses"],
-                        response_key="state",
-                    )
-                    or {}
-                )
+                result["lldp"]["state"] = _call_api(
+                    module,
+                    connection,
+                    method="GET",
+                    path=STATE_PATH,
+                    api_responses=result["api_responses"],
+                    response_key="state",
+                ) or {}
             module.exit_json(**result)
 
         target_config = _build_target_config(current_config, requested_config, state)
@@ -561,23 +534,18 @@ def run_module() -> None:
             result["api_responses"]["patch"] = None
 
         if gather_state:
-            result["lldp"]["state"] = (
-                _call_api(
-                    module,
-                    connection,
-                    method="GET",
-                    path=STATE_PATH,
-                    api_responses=result["api_responses"],
-                    response_key="state",
-                )
-                or {}
-            )
+            result["lldp"]["state"] = _call_api(
+                module,
+                connection,
+                method="GET",
+                path=STATE_PATH,
+                api_responses=result["api_responses"],
+                response_key="state",
+            ) or {}
 
         module.exit_json(**result)
     except FeLldpGlobalError as exc:
-        module.fail_json(
-            api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs()
-        )
+        module.fail_json(api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs())
     except ConnectionError as exc:
         module.fail_json(
             msg=to_text(exc),

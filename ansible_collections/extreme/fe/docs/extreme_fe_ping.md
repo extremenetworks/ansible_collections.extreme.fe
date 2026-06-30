@@ -1,96 +1,145 @@
-# extreme_fe_ping
+# ICMP Ping
+
+## Module: extreme.fe.extreme_fe_ping
+
+Sends a ping from a Fabric Engine device to the given host.
+
+---
+
+Version added: 1.0.0
+
+## Table of Contents
+
+- [Description](#description)
+- [Notes](#notes)
+- [Requirements](#requirements)
+- [REST API Endpoints](#rest-api-endpoints)
+- [Parameters](#parameters)
+- [Return Values](#return-values)
+- [Examples](#examples)
+- [Complete Playbook](#complete-playbook)
+- [Status](#status)
+
+---
+
+## [Description](#table-of-contents)
+
+This module transmits ICMP echo requests from Fabric Engine devices to the given host using the REST API endpoints exposed through the OpenAPI Server.
+
+- Supports VRF-specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
+- Returns detailed per-packet telemetry and fails when the switch reports any timeout or unsuccessful probe.
+
+---
+
+## [Notes](#table-of-contents)
+
+- Tested against Fabric Engine Version 9.3.2.
+
+---
+
+## [Requirements](#table-of-contents)
+
+- `extreme.fe` collection installed on the Ansible control node (includes `ansible.netcommon` dependency and the `extreme_fe` HTTPAPI connection plugin).
+- Inventory configured with `ansible_connection: httpapi` and `ansible_network_os: extreme.fe.extreme_fe`.
+- `OpenAPI Server` service enabled on the devices being managed.
+
+---
+
+## [REST API Endpoints](#table-of-contents)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /v0/operation/system/ping/{host_type}/host/{host}/:transmit | Execute ping operation |
+
+---
+
+## [Parameters](#table-of-contents)
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `host` | str | Yes | - | Destination hostname or IP address |
+| `host_type` | str | No | - | Host identifier type: `hostname`, `IPv4`, `IPv6` |
+| `count` | int | No | - | Number of ICMP echo requests to send |
+| `datasize` | int | No | - | Payload size in bytes (28-9216 IPv4, up to 51200 IPv6) |
+| `transmission_interval` | int | No | - | Interval between probes in seconds |
+| `timeout_interval` | int | No | - | Response timeout in seconds |
+| `source_ip_address` | raw | No | - | Source IPv4/IPv6 address |
+| `scope_id` | int | No | - | IPv6 scope circuit identifier |
+| `management_type` | str | No | - | Management context: `OOB`, `VLAN`, `CLIP`, `AUTO` |
+| `vrf` | str | No | - | VRF context (use `GlobalRouter` for default) |
+| `interface` | dict | No | - | Explicit egress interface specification |
+| `interface.type` | str | Yes | - | Interface type: `GIGABITETHERNET`, `TUNNEL`, `VLAN` |
+| `interface.port` | str | No | - | Port name (slot:port) when type is GIGABITETHERNET |
+| `interface.tunnel_id` | int | No | - | Tunnel ID when type is TUNNEL |
+| `interface.vlan_id` | int | No | - | VLAN ID when type is VLAN |
+| `service_probe_instance` | int | No | - | Service probe instance (IPv4 only) |
+
+---
+
+## [Return Values](#table-of-contents)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `changed` | bool | Always false — ping does not modify device state |
+| `response` | dict | Ping execution details reported by the device |
+
+---
+
+## [Examples](#table-of-contents)
+
+### Basic ping
 
 ```yaml
-
-module: extreme_fe_ping
-short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
-description:
-- Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom ``extreme_fe`` HTTPAPI plugin.
-- Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
-- Returns detailed per-packet telemetry and fails when the switch reports any timeout or unsuccessful probe.
-author:
-- ExtremeNetworks Networking Automation Team
-notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
-- Service probe assisted pings are limited to IPv4 and instance ``1`` on Fabric Engine.
-requirements:
-- ansible.netcommon
-options:
-  host:
-    description:
-    - Destination hostname or IP address.
-    type: str
-    required: true
-  host_type:
-    description:
-    - Explicitly set the host identifier type when autodetection is not desired.
-    type: str
-    choices: [hostname, IPv4, IPv6]
-  count:
-    description:
-    - Number of ICMP echo requests to send.
-    type: int
-  datasize:
-    description:
-    - Payload size in bytes for each probe. Fabric Engine supports 28-9216 for IPv4 and up to 51200 for IPv6.
-    type: int
-  transmission_interval:
-    description:
-    - Interval between probes in seconds.
-    type: int
-  timeout_interval:
-    description:
-    - Response timeout in seconds.
-    type: int
-  source_ip_address:
-    description:
-    - Source IPv4/IPv6 address. Cannot be combined with ``management_type`` or service probe operations.
-    type: raw
-  scope_id:
-    description:
-    - IPv6 scope circuit identifier. Only valid for IPv6 destinations.
-    type: int
-  management_type:
-    description:
-    - Management context to source the ping from.
-    type: str
-    choices: [OOB, VLAN, CLIP, AUTO]
-  vrf:
-    description:
-    - VRF context to use. Use ``GlobalRouter`` for the default VRF.
-    type: str
-  interface:
-    description:
-    - Explicit egress interface specification. Cannot be combined with ``management_type``.
-    type: dict
-    suboptions:
-      type:
-        description:
-        - Interface type identifier.
-        type: str
-        choices: [GIGABITETHERNET, TUNNEL, VLAN]
-        required: true
-      port:
-        description:
-        - Interface name when ``type`` is ``GIGABITETHERNET`` (slot:port notation).
-        type: str
-      tunnel_id:
-        description:
-        - Tunnel identifier when ``type`` is ``TUNNEL``.
-        type: int
-      vlan_id:
-        description:
-        - VLAN identifier when ``type`` is ``VLAN``.
-        type: int
-  service_probe_instance:
-    description:
-    - Service probe instance used to source the ping (IPv4 only).
-    type: int
-return_values:
-  response:
-    description: Parsed response payload returned by the Fabric Engine REST API.
-    returned: success
-    type: dict
-
+- name: Ping peer switch via management interface
+  extreme.fe.extreme_fe_ping:
+    host: 10.0.0.1
+    count: 3
+    management_type: AUTO
 ```
+
+### Ping through a specific VRF
+
+```yaml
+- name: Ping gateway through VRF
+  extreme.fe.extreme_fe_ping:
+    host: 192.168.1.1
+    count: 5
+    vrf: my-vrf
+```
+
+---
+
+## [Complete Playbook](#table-of-contents)
+
+Copy this playbook and fill in the inventory.
+
+```yaml
+- name: Network connectivity checks
+  hosts: switches
+  gather_facts: false
+  collections:
+    - extreme.fe
+  tasks:
+
+    - name: Ping default gateway
+      extreme.fe.extreme_fe_ping:
+        host: 10.0.0.1
+        count: 3
+        management_type: AUTO
+      register: ping_result
+
+    - name: Display ping results
+      ansible.builtin.debug:
+        var: ping_result.response
+```
+
+
+---
+
+## [Status](#table-of-contents)
+
+This module is maintained by the Extreme Networks `Infrastructure as Code` team.
+
+### Authors
+
+- Bjorn Haas ([@bhaas_extr](https://github.com/bhaas_extr))
