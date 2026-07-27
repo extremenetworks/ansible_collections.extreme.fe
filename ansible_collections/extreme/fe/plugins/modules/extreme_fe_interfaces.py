@@ -137,6 +137,7 @@ options:
                     - Enable or disable Fabric Engine Flex UNI mode on the port.
                     - Device default is false; if omitted the existing setting is left unchanged, and C(state=deleted) resets it to the device default (false).
                 type: bool
+                version_added: "1.1.0"
             native_vlan:
                 description:
                     - Native VLAN identifier for trunk ports (0 to clear).
