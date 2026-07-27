@@ -447,9 +447,7 @@ REQUIRES_INTERFACES = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DEL
 class FeLldpInterfacesError(Exception):
     """Raised for LLDP interface validation and response issues."""
 
-    def __init__(
-        self, message: str, *, details: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -466,22 +464,12 @@ def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
     if isinstance(code, str) and code.isdigit():
         code = int(code)
-    message = (
-        payload.get("errorMessage") or payload.get("message") or payload.get("detail")
-    )
+    message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
     if isinstance(code, int) and code >= 400:
-        return {
-            "code": code,
-            "message": message or "Device reported an LLDP error",
-            "payload": payload,
-        }
+        return {"code": code, "message": message or "Device reported an LLDP error", "payload": payload}
     errors = payload.get("errors")
     if isinstance(errors, list) and errors:
-        return {
-            "message": message or "Device reported LLDP errors",
-            "errors": errors,
-            "payload": payload,
-        }
+        return {"message": message or "Device reported LLDP errors", "errors": errors, "payload": payload}
     return None
 
 
@@ -518,26 +506,20 @@ def _call_api(
     if isinstance(response, dict):
         error = _extract_error(response)
         if error:
-            module.fail_json(
-                msg=error.get("message"), details=error, api_responses=api_responses
-            )
+            module.fail_json(msg=error.get("message"), details=error, api_responses=api_responses)
 
     return response
 
 
 def _get_connection(module: AnsibleModule) -> Connection:
     if not module._socket_path:
-        raise FeLldpInterfacesError(
-            "Connection type httpapi is required for this module"
-        )
+        raise FeLldpInterfacesError("Connection type httpapi is required for this module")
     return Connection(module._socket_path)
 
 
 def _normalize_port_name(raw: Any) -> str:
     if not isinstance(raw, str):
-        raise FeLldpInterfacesError(
-            "Interface name must be a string in slot:port format"
-        )
+        raise FeLldpInterfacesError("Interface name must be a string in slot:port format")
     value = raw.strip()
     if not value:
         raise FeLldpInterfacesError("Interface name must not be empty")
@@ -592,18 +574,11 @@ def _normalize_med_policy_item(item: Dict[str, Any]) -> Dict[str, Any]:
                     details={"policy": item},
                 )
         if param == "dscp" and not (0 <= value <= 63):
-            raise FeLldpInterfacesError(
-                "MED policy dscp must be between 0 and 63", details={"policy": item}
-            )
+            raise FeLldpInterfacesError("MED policy dscp must be between 0 and 63", details={"policy": item})
         if param == "priority" and not (0 <= value <= 7):
-            raise FeLldpInterfacesError(
-                "MED policy priority must be between 0 and 7", details={"policy": item}
-            )
+            raise FeLldpInterfacesError("MED policy priority must be between 0 and 7", details={"policy": item})
         if param == "vlan_id" and not (0 <= value <= 4059):
-            raise FeLldpInterfacesError(
-                "MED policy vlan_id must be between 0 and 4059",
-                details={"policy": item},
-            )
+            raise FeLldpInterfacesError("MED policy vlan_id must be between 0 and 4059", details={"policy": item})
         normalized[param] = value
     required = {"type", "dscp", "priority", "tagged", "vlan_id"}
     missing = sorted(required.difference(normalized.keys()))
@@ -629,38 +604,14 @@ def _sort_med_policy(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 CIVIC_ADDRESS_FIELDS = {
-    "country-code",
-    "language",
-    "province-state",
-    "county",
-    "city",
-    "city-division",
-    "neighborhood",
-    "street-group",
-    "leading-street-direction",
-    "trailing-street-suffix",
-    "street",
-    "house-number",
-    "house-number-suffix",
-    "landmark",
-    "additional-info",
-    "name",
-    "postal-zip",
-    "building",
-    "unit",
-    "floor",
-    "room",
-    "type-of-place",
-    "postal-community-name",
-    "post-office-box",
-    "additional-code",
-    "seat",
-    "primary-road-name",
-    "road-section",
-    "branch-road-name",
-    "sub-branch-road-name",
-    "street-name-pre-modifier",
-    "street-name-post-modifier",
+    "country-code", "language", "province-state", "county", "city",
+    "city-division", "neighborhood", "street-group", "leading-street-direction",
+    "trailing-street-suffix", "street", "house-number", "house-number-suffix",
+    "landmark", "additional-info", "name", "postal-zip", "building",
+    "unit", "floor", "room", "type-of-place", "postal-community-name",
+    "post-office-box", "additional-code", "seat", "primary-road-name",
+    "road-section", "branch-road-name", "sub-branch-road-name",
+    "street-name-pre-modifier", "street-name-post-modifier",
 }
 
 
@@ -680,7 +631,7 @@ def _parse_civic_address(value: str) -> Dict[str, str]:
         # Check for multi-word field names (e.g. "country-code", "house-number-suffix")
         key = None
         for length in (3, 2, 1):
-            candidate = "-".join(tokens[i : i + length])
+            candidate = "-".join(tokens[i:i + length])
             if candidate.lower() in CIVIC_ADDRESS_FIELDS:
                 key = candidate.lower()
                 i += length
@@ -714,7 +665,7 @@ def _parse_civic_address(value: str) -> Dict[str, str]:
                 # Look ahead: is this token the start of a new field?
                 is_field = False
                 for length in (3, 2, 1):
-                    candidate = "-".join(tokens[i : i + length])
+                    candidate = "-".join(tokens[i:i + length])
                     if candidate.lower() in CIVIC_ADDRESS_FIELDS:
                         is_field = True
                         break
@@ -772,17 +723,13 @@ def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> Dict[str,
     med_policy = payload.get("medPolicy")
     if isinstance(med_policy, list):
         base["med_policy"] = _sort_med_policy(
-            _normalize_med_policy_item(item)
-            for item in med_policy
-            if isinstance(item, dict)
+            _normalize_med_policy_item(item) for item in med_policy if isinstance(item, dict)
         )
 
     return base
 
 
-def _normalize_input_interfaces(
-    module: AnsibleModule, state: str
-) -> List[Dict[str, Any]]:
+def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[str, Any]]:
     raw_entries = list(module.params.get("interfaces") or [])
     if state in REQUIRES_INTERFACES and not raw_entries:
         raise FeLldpInterfacesError(
@@ -796,9 +743,7 @@ def _normalize_input_interfaces(
             raise FeLldpInterfacesError("Each interface entry must be a dictionary")
         name = _normalize_port_name(item.get("name"))
         if name in seen:
-            raise FeLldpInterfacesError(
-                "Duplicate interface entry detected", details={"name": name}
-            )
+            raise FeLldpInterfacesError("Duplicate interface entry detected", details={"name": name})
         seen.add(name)
 
         normalized: Dict[str, Any] = {"name": name}
@@ -826,9 +771,7 @@ def _normalize_input_interfaces(
         advertise = item.get("advertise")
         if advertise is not None:
             if not isinstance(advertise, dict):
-                raise FeLldpInterfacesError(
-                    "advertise must be a dictionary", details={"name": name}
-                )
+                raise FeLldpInterfacesError("advertise must be a dictionary", details={"name": name})
             normalized_advertise: Dict[str, Any] = {}
             for param in ADVERTISE_FIELD_MAP:
                 if param in advertise and advertise.get(param) is not None:
@@ -839,9 +782,7 @@ def _normalize_input_interfaces(
         location = item.get("location")
         if location is not None:
             if not isinstance(location, dict):
-                raise FeLldpInterfacesError(
-                    "location must be a dictionary", details={"name": name}
-                )
+                raise FeLldpInterfacesError("location must be a dictionary", details={"name": name})
             normalized_location: Dict[str, Any] = {}
             for param in LOCATION_FIELD_MAP:
                 value = location.get(param)
@@ -858,13 +799,9 @@ def _normalize_input_interfaces(
         med_policy = item.get("med_policy")
         if med_policy is not None:
             if not isinstance(med_policy, list):
-                raise FeLldpInterfacesError(
-                    "med_policy must be a list", details={"name": name}
-                )
+                raise FeLldpInterfacesError("med_policy must be a list", details={"name": name})
             normalized["med_policy"] = _sort_med_policy(
-                _normalize_med_policy_item(entry)
-                for entry in med_policy
-                if isinstance(entry, dict)
+                _normalize_med_policy_item(entry) for entry in med_policy if isinstance(entry, dict)
             )
 
         if state == STATE_MERGED and len(normalized) == 1:
@@ -925,8 +862,7 @@ def _settings_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
     return (
         (left.get("advertise") or {}) == (right.get("advertise") or {})
         and _locations_equal(left.get("location"), right.get("location"))
-        and _sort_med_policy(left.get("med_policy") or [])
-        == _sort_med_policy(right.get("med_policy") or [])
+        and _sort_med_policy(left.get("med_policy") or []) == _sort_med_policy(right.get("med_policy") or [])
     )
 
 
@@ -980,22 +916,16 @@ def _fetch_capabilities(
     connection: Connection,
     api_responses: Dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
-    data = (
-        _call_api(
-            module,
-            connection,
-            method="GET",
-            path=PORT_CAPABILITIES_PATH,
-            api_responses=api_responses,
-            response_key="capabilities",
-        )
-        or []
-    )
+    data = _call_api(
+        module,
+        connection,
+        method="GET",
+        path=PORT_CAPABILITIES_PATH,
+        api_responses=api_responses,
+        response_key="capabilities",
+    ) or []
     if not isinstance(data, list):
-        raise FeLldpInterfacesError(
-            "Unexpected response when retrieving port capabilities",
-            details={"payload": data},
-        )
+        raise FeLldpInterfacesError("Unexpected response when retrieving port capabilities", details={"payload": data})
     capabilities: Dict[str, Dict[str, Any]] = {}
     for entry in data:
         if not isinstance(entry, dict):
@@ -1012,22 +942,16 @@ def _fetch_all_interfaces(
     capabilities: Dict[str, Dict[str, Any]],
     api_responses: Dict[str, Any],
 ) -> Dict[str, Dict[str, Any]]:
-    data = (
-        _call_api(
-            module,
-            connection,
-            method="GET",
-            path=LLDP_CONFIG_PATH,
-            api_responses=api_responses,
-            response_key="configuration",
-        )
-        or {}
-    )
+    data = _call_api(
+        module,
+        connection,
+        method="GET",
+        path=LLDP_CONFIG_PATH,
+        api_responses=api_responses,
+        response_key="configuration",
+    ) or {}
     if not isinstance(data, dict):
-        raise FeLldpInterfacesError(
-            "Unexpected response when retrieving LLDP configuration",
-            details={"payload": data},
-        )
+        raise FeLldpInterfacesError("Unexpected response when retrieving LLDP configuration", details={"payload": data})
 
     interfaces: Dict[str, Dict[str, Any]] = {}
     for entry in data.get("ports") or []:
@@ -1038,6 +962,7 @@ def _fetch_all_interfaces(
             continue
         settings = entry.get("settings")
         is_poe_capable_flag = _is_poe_capable(capabilities.get(name, {}))
+        defaults = _default_interface_settings(is_poe_capable_flag)
         norm_name = _normalize_port_name(name)
         normalized = _normalize_current_settings(settings, is_poe_capable_flag)
         interfaces[norm_name] = normalized
@@ -1052,17 +977,14 @@ def _fetch_single_interface(
     api_responses: Dict[str, Any],
     response_key: str,
 ) -> Dict[str, Any]:
-    data = (
-        _call_api(
-            module,
-            connection,
-            method="GET",
-            path=_port_config_path(port_name),
-            api_responses=api_responses,
-            response_key=response_key,
-        )
-        or {}
-    )
+    data = _call_api(
+        module,
+        connection,
+        method="GET",
+        path=_port_config_path(port_name),
+        api_responses=api_responses,
+        response_key=response_key,
+    ) or {}
     return _normalize_current_settings(data, is_poe_capable_flag)
 
 
@@ -1089,17 +1011,14 @@ def _gather_port_state(
     state_responses = api_responses.setdefault("state", {})
     results: List[Dict[str, Any]] = []
     for port_name in port_names:
-        payload = (
-            _call_api(
-                module,
-                connection,
-                method="GET",
-                path=_port_state_path(port_name),
-                api_responses=state_responses,
-                response_key=port_name,
-            )
-            or {}
-        )
+        payload = _call_api(
+            module,
+            connection,
+            method="GET",
+            path=_port_state_path(port_name),
+            api_responses=state_responses,
+            response_key=port_name,
+        ) or {}
         results.append({"name": port_name, "state": payload})
     return results
 
@@ -1179,20 +1098,15 @@ def run_module() -> None:
         gather_state = bool(module.params.get("gather_state"))
 
         capabilities = _fetch_capabilities(module, connection, result["api_responses"])
-        current_map = _fetch_all_interfaces(
-            module, connection, capabilities, result["api_responses"]
-        )
+        current_map = _fetch_all_interfaces(module, connection, capabilities, result["api_responses"])
         normalized_entries = _normalize_input_interfaces(module, state)
 
         if state == STATE_GATHERED:
             selected_names = (
                 [_normalize_port_name(item) for item in gather_filter]
-                if gather_filter
-                else sorted(current_map.keys())
+                if gather_filter else sorted(current_map.keys())
             )
-            result["interfaces_settings"] = _format_output_interfaces(
-                current_map, selected_names
-            )
+            result["interfaces_settings"] = _format_output_interfaces(current_map, selected_names)
             if gather_state:
                 result["interfaces_state"] = _gather_port_state(
                     module,
@@ -1203,9 +1117,7 @@ def run_module() -> None:
             module.exit_json(**result)
 
         current_names = set(current_map.keys())
-        desired_names = {
-            _normalize_port_name(entry["name"]) for entry in normalized_entries
-        }
+        desired_names = {_normalize_port_name(entry["name"]) for entry in normalized_entries}
         defaults_map: Dict[str, Dict[str, Any]] = {}
         for port_name in current_names.union(desired_names):
             defaults_map[port_name] = _default_interface_settings(
@@ -1261,15 +1173,11 @@ def run_module() -> None:
 
         if updated_names:
             result["interface_updates"] = updated_names
-            result["interfaces_settings"] = _format_output_interfaces(
-                current_map, updated_names
-            )
+            result["interfaces_settings"] = _format_output_interfaces(current_map, updated_names)
         if removed_names:
             result["interface_removals"] = removed_names
             if "interfaces_settings" not in result:
-                result["interfaces_settings"] = _format_output_interfaces(
-                    current_map, removed_names
-                )
+                result["interfaces_settings"] = _format_output_interfaces(current_map, removed_names)
 
         if gather_state:
             selected_names = updated_names or removed_names or sorted(desired_names)
@@ -1282,9 +1190,7 @@ def run_module() -> None:
 
         module.exit_json(**result)
     except FeLldpInterfacesError as exc:
-        module.fail_json(
-            api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs()
-        )
+        module.fail_json(api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs())
     except ConnectionError as exc:
         module.fail_json(
             msg=to_text(exc),

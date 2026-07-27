@@ -420,7 +420,9 @@ def get_interface_settings(
     if data is None or _is_not_found_response(data):
         return None
     if isinstance(data, dict):
-        if "interfaceSettings" in data and isinstance(data["interfaceSettings"], dict):
+        if "interfaceSettings" in data and isinstance(
+            data["interfaceSettings"], dict
+        ):
             return data["interfaceSettings"]
         return data
     raise FeL2InterfacesError(
@@ -659,7 +661,9 @@ def _build_deleted_payload(
     desired_port_type = _normalize_port_type(entry.get("port_type"))
     if desired_port_type is None:
         desired_port_type = current_port_type or (
-            "ACCESS" if not target_allowed and target_untagged in (0, None) else "TRUNK"
+            "ACCESS"
+            if not target_allowed and target_untagged in (0, None)
+            else "TRUNK"
         )
 
     # TRUNK: mirror portVlan in allowedVlans.
@@ -705,7 +709,9 @@ def _current_state_key(raw: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "portType": _normalize_port_type(raw.get("portType")),
         "portVlan": _normalize_vlan_value(raw.get("portVlan")),
-        "allowedVlans": sorted({int(v) for v in raw.get("allowedVlans") or []}),
+        "allowedVlans": sorted(
+            {int(v) for v in raw.get("allowedVlans") or []}
+        ),
     }
 
 
@@ -726,16 +732,22 @@ def _apply_interface(
 
     if not check_mode:
         replace_interface_settings(connection, iface_type, iface_name, payload)
-        final = get_interface_settings(connection, iface_type, iface_name) or comparison
+        final = (
+            get_interface_settings(connection, iface_type, iface_name)
+            or comparison
+        )
         # Re-try if portVlan diverges (port-type transition edge case).
         expected_vlan = payload.get("portVlan")
         if (
             expected_vlan is not None
             and _normalize_vlan_value(final.get("portVlan")) != expected_vlan
         ):
-            replace_interface_settings(connection, iface_type, iface_name, payload)
+            replace_interface_settings(
+                connection, iface_type, iface_name, payload
+            )
             final = (
-                get_interface_settings(connection, iface_type, iface_name) or comparison
+                get_interface_settings(connection, iface_type, iface_name)
+                or comparison
             )
         return True, final
 
@@ -754,7 +766,8 @@ def _process_config_entry(
     iface_type, iface_name = parse_interface_name(name)
     # Canonical name: omit PORT: prefix, keep LAG: prefix.
     canonical_name = (
-        f"{iface_type}:{iface_name}" if iface_type != "PORT" else iface_name
+        f"{iface_type}:{iface_name}" if iface_type != "PORT"
+        else iface_name
     )
 
     raw_existing = get_interface_settings(connection, iface_type, iface_name)
@@ -767,11 +780,7 @@ def _process_config_entry(
             "differences": [],
             "changed": False,
         }
-    if raw_existing is None and state in (
-        STATE_MERGED,
-        STATE_REPLACED,
-        STATE_OVERRIDDEN,
-    ):
+    if raw_existing is None and state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN):
         raise FeL2InterfacesError(
             f"Interface {canonical_name} does not exist on the device"
         )
@@ -814,7 +823,9 @@ def _process_config_entry(
 # --------------------------------------------------------------------------
 
 
-def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str, Any]:
+def _handle_gathered(
+    module: AnsibleModule, connection: Connection
+) -> Dict[str, Any]:
     config = module.params.get("config") or []
     interfaces: List[Dict[str, Any]] = []
 
@@ -824,21 +835,20 @@ def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str,
             iface_type, iface_name = parse_interface_name(name)
             # Canonical name: omit PORT: prefix, keep LAG:.
             canonical_name = (
-                f"{iface_type}:{iface_name}" if iface_type != "PORT" else iface_name
+                f"{iface_type}:{iface_name}" if iface_type != "PORT"
+                else iface_name
             )
             raw = get_interface_settings(connection, iface_type, iface_name)
             if raw is None:
                 module.warn(f"gathered: interface {canonical_name} not found on device")
             state = _to_ansible_state(raw)
-            interfaces.append(
-                {
-                    "name": canonical_name,
-                    "before": state,
-                    "after": state,
-                    "differences": [],
-                    "changed": False,
-                }
-            )
+            interfaces.append({
+                "name": canonical_name,
+                "before": state,
+                "after": state,
+                "differences": [],
+                "changed": False,
+            })
     else:
         all_ifaces = get_all_interface_settings(connection)
         for item in all_ifaces:
@@ -848,24 +858,29 @@ def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str,
                 continue
             settings = item.get("interfaceSettings") or item
             state = _to_ansible_state(settings)
-            name = f"{iface_type}:{iface_name}" if iface_type != "PORT" else iface_name
-            interfaces.append(
-                {
-                    "name": name,
-                    "before": state,
-                    "after": state,
-                    "differences": [],
-                    "changed": False,
-                }
+            name = (
+                f"{iface_type}:{iface_name}" if iface_type != "PORT"
+                else iface_name
             )
+            interfaces.append({
+                "name": name,
+                "before": state,
+                "after": state,
+                "differences": [],
+                "changed": False,
+            })
 
     return {"changed": False, "interfaces": interfaces}
 
 
-def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[str, Any]:
+def _handle_overridden(
+    module: AnsibleModule, connection: Connection
+) -> Dict[str, Any]:
     config = module.params.get("config") or []
     if not config:
-        raise FeL2InterfacesError("'config' is required when state is 'overridden'")
+        raise FeL2InterfacesError(
+            "'config' is required when state is 'overridden'"
+        )
 
     check_mode = module.check_mode
     overall_changed = False
@@ -891,8 +906,7 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
 
     # Pre-validate: all config entries must reference existing interfaces.
     missing = [
-        entry["name"]
-        for entry in config
+        entry["name"] for entry in config
         if parse_interface_name(entry["name"]) not in existing_keys
     ]
     if missing:
@@ -925,17 +939,22 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
             # Skip interfaces that cannot be reset (e.g. LAG in
             # LACP mode where port-type changes are rejected).
             display_name = (
-                f"{iface_type}:{iface_name}" if iface_type != "PORT" else iface_name
+                f"{iface_type}:{iface_name}"
+                if iface_type != "PORT"
+                else iface_name
             )
             module.warn(
-                f"overridden: skipped {display_name} " f"(cannot reset — {exc})"
+                f"overridden: skipped {display_name} "
+                f"(cannot reset — {exc})"
             )
             skipped_interfaces.append(display_name)
             continue
         if changed:
             overall_changed = True
             display_name = (
-                f"{iface_type}:{iface_name}" if iface_type != "PORT" else iface_name
+                f"{iface_type}:{iface_name}"
+                if iface_type != "PORT"
+                else iface_name
             )
             reset_interfaces.append(display_name)
 
@@ -962,14 +981,18 @@ def _handle_config_states(
     """Handle merged, replaced, deleted states."""
     config = module.params.get("config") or []
     if not config:
-        raise FeL2InterfacesError(f"'config' is required when state is '{state}'")
+        raise FeL2InterfacesError(
+            f"'config' is required when state is '{state}'"
+        )
 
     check_mode = module.check_mode
     overall_changed = False
     interfaces: List[Dict[str, Any]] = []
 
     for entry in config:
-        result = _process_config_entry(connection, entry, state, check_mode=check_mode)
+        result = _process_config_entry(
+            connection, entry, state, check_mode=check_mode
+        )
         if result["changed"]:
             overall_changed = True
         interfaces.append(result)

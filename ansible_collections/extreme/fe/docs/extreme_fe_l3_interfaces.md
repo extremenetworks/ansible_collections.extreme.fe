@@ -1,69 +1,200 @@
-# extreme_fe_l3_interfaces
+# Layer 3 Interfaces
+
+## Module: extreme.fe.extreme_fe_l3_interfaces
+
+Manages Layer 3 interfaces on Fabric Engine devices.
+
+---
+
+Version added: 1.0.0
+
+## Table of Contents
+
+- [Description](#description)
+- [Notes](#notes)
+- [Requirements](#requirements)
+- [REST API Endpoints](#rest-api-endpoints)
+- [Parameters](#parameters)
+- [State Behaviour Summary](#state-behaviour-summary)
+- [Return Values](#return-values)
+- [Examples](#examples)
+- [Complete Playbook](#complete-playbook)
+- [Status](#status)
+
+---
+
+## [Description](#table-of-contents)
+
+This module manages IPv4 and IPv6 addresses on VLAN and loopback interfaces of Fabric Engine devices using the REST API endpoints exposed through the OpenAPI Server.
+
+---
+
+## [Notes](#table-of-contents)
+
+- VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
+- In `state=overridden`, system-protected VLANs (dynamic, management, BROUTER) are skipped with a warning instead of being cleared.
+- Tested against Fabric Engine Version 9.3.2.
+
+---
+
+## [Requirements](#table-of-contents)
+
+- `extreme.fe` collection installed on the Ansible control node (includes `ansible.netcommon` dependency and the `extreme_fe` HTTPAPI connection plugin).
+- Inventory configured with `ansible_connection: httpapi` and `ansible_network_os: extreme.fe.extreme_fe`.
+- `OpenAPI Server` service enabled on the devices being managed.
+
+---
+
+## [REST API Endpoints](#table-of-contents)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | /v0/configuration/vlan | Retrieve all VLANs |
+| GET | /v0/configuration/vlan/{vlan_id}/address | Get VLAN addresses |
+| PUT | /v0/configuration/vlan/{vlan_id}/address | Update VLAN addresses |
+| GET | /v0/configuration/loopback | Retrieve all loopbacks |
+| PUT | /v0/configuration/loopback/{id} | Update loopback addresses |
+
+---
+
+## [Parameters](#table-of-contents)
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `state` | str | No | `merged` | Operation state |
+| `config` | list of dict | No | - | Layer 3 interface definitions |
+| `config[].name` | str | No | - | Interface identifier (e.g. `VLAN 20`, `Loopback 10`) |
+| `config[].type` | str | No | - | Interface type: `vlan` or `loopback` |
+| `config[].vlan_id` | int | No | - | VLAN identifier for routed VLAN interfaces |
+| `config[].loopback_id` | int | No | - | Loopback identifier |
+| `config[].vrf` | str | No | - | VRF name (documentation only) |
+| `config[].ipv4` | list of raw | No | - | IPv4 addresses (CIDR strings or dicts) |
+| `config[].ipv6` | list of raw | No | - | IPv6 addresses (CIDR strings or dicts) |
+
+---
+
+## [State Behaviour Summary](#table-of-contents)
+
+| State | Behaviour | HTTP Methods |
+|-------|-----------|-------------|
+| `merged` | Add/update addresses incrementally. | GET, PUT |
+| `replaced` | Make supplied addresses authoritative for listed interfaces. | GET, PUT |
+| `overridden` | Enforce supplied addresses globally; clear unlisted interfaces. | GET, PUT |
+| `deleted` | Remove addresses from listed interfaces. | GET, PUT |
+| `gathered` | Read-only — return current L3 interface configuration. | GET |
+
+---
+
+## [Return Values](#table-of-contents)
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `changed` | bool | Whether any changes were made |
+| `interfaces` | list | Final L3 interface configuration |
+| `before` | list | Interface configuration before changes |
+| `after` | list | Interface configuration after changes |
+| `differences` | list | Per-interface change details |
+
+---
+
+## [Examples](#table-of-contents)
+
+### Add IPv4 address to a VLAN
 
 ```yaml
-
-module: extreme_fe_l3_interfaces
-short_description: Manage Layer 3 interfaces on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
-description:
-- Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom ``extreme_fe`` HTTPAPI transport.
-- Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible ``ios_l3_interfaces`` and ``junos_l3_interfaces`` modules.
-- Updates rely on the Fabric Engine REST resources ``/v0/configuration/vlan/{vlan_id}/address`` and ``/v0/configuration/loopback/{id}`` as defined in ``nos-openapi-09-15-2025.yaml``.
-author:
-- ExtremeNetworks Networking Automation Team
-notes:
-- Requires the ``ansible.netcommon`` collection and the ``extreme_fe`` HTTPAPI plugin shipped with this project.
-- VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
-- ``state=gathered`` returns all VLANs including system-protected ones (dynamic, management, BROUTER). When ``state=overridden``, those VLANs are skipped with a warning instead of being cleared. Other states pass requests to the device as-is and let the REST API reject invalid operations.
-requirements:
-- ansible.netcommon
-options:
-  config:
-    description:
-    - List of Layer 3 interface definitions to manage.
-    - When omitted with ``state: gathered``, the module returns all VLANs (including system-protected) and all loopbacks that have at least one IP address. The REST API does not list empty loopbacks; use an explicit ``config`` entry to gather a specific empty loopback.
-    type: list
-    elements: dict
-    suboptions:
-      name:
-        description:
-        - Interface identifier for readability, such as ``VLAN 20`` or ``Loopback 10``.
-        - When ``type`` is not supplied, the module attempts to infer the interface type and identifier from ``name``.
-        type: str
-      type:
-        description:
-        - Interface type to operate on.
-        type: str
-        choices: [vlan, loopback]
-      vlan_id:
-        description:
-        - VLAN identifier for routed VLAN interfaces (SVIs).
-        type: int
-      loopback_id:
-        description:
-        - Loopback identifier for Fabric Engine loopback interfaces.
-        type: int
-      vrf:
-        description:
-        - Optional VRF name for documentation purposes only; changes are not pushed through this module.
-        type: str
-      ipv4:
-        description:
-        - IPv4 addresses to manage on the interface.
-        - Accepts CIDR strings (for example ``10.0.1.1/24``) or dictionaries with ``address`` and ``prefix``/``mask``/``mask_length`` keys.
-        type: list
-        elements: raw
-      ipv6:
-        description:
-        - IPv6 addresses to manage on the interface.
-        - Accepts CIDR strings or dictionaries with ``address`` and ``prefix``/``mask_length`` keys.
-        type: list
-        elements: raw
-  state:
-    description:
-    - Desired module operation.
-    type: str
-    choices: [merged, replaced, overridden, deleted, gathered]
-    default: merged
-
+- name: Ensure VLAN 20 has 10.0.1.101/24
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - vlan_id: 20
+        ipv4:
+          - 10.0.1.101/24
+    state: merged
 ```
+
+### Replace addresses on a VLAN
+
+```yaml
+- name: Replace address list on VLAN 200
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - vlan_id: 200
+        ipv4:
+          - 10.10.200.1/24
+        ipv6:
+          - 2001:db8:200::1/64
+    state: replaced
+```
+
+### Delete addresses from a loopback
+
+```yaml
+- name: Clear loopback IPs
+  extreme.fe.extreme_fe_l3_interfaces:
+    config:
+      - loopback_id: 5
+    state: deleted
+```
+
+### Gather L3 interfaces
+
+```yaml
+- name: Collect routed interface addressing
+  extreme.fe.extreme_fe_l3_interfaces:
+    state: gathered
+  register: routed_interfaces
+```
+
+---
+
+## [Complete Playbook](#table-of-contents)
+
+Copy this playbook and fill in the inventory.
+
+```yaml
+- name: Manage L3 interfaces on Fabric Engine
+  hosts: switches
+  gather_facts: false
+  collections:
+    - extreme.fe
+  tasks:
+
+    - name: Gather current L3 interface configuration
+      extreme.fe.extreme_fe_l3_interfaces:
+        state: gathered
+      register: l3_before
+
+    - name: Add IPv4 address to VLAN 20
+      extreme.fe.extreme_fe_l3_interfaces:
+        config:
+          - vlan_id: 20
+            ipv4:
+              - 10.0.1.101/24
+        state: merged
+
+    - name: Replace addresses on VLAN 200
+      extreme.fe.extreme_fe_l3_interfaces:
+        config:
+          - vlan_id: 200
+            ipv4:
+              - 10.10.200.1/24
+            ipv6:
+              - 2001:db8:200::1/64
+        state: replaced
+
+    - name: Clear loopback addresses
+      extreme.fe.extreme_fe_l3_interfaces:
+        config:
+          - loopback_id: 5
+        state: deleted
+```
+
+
+---
+
+## [Status](#table-of-contents)
+
+This module is maintained by the Extreme Networks `Infrastructure as Code` team.
+
+### Authors
+
+- Bjorn Haas ([@bhaas_extr](https://github.com/bhaas_extr))
