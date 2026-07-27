@@ -7,13 +7,13 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
 
-from ipaddress import IPv4Interface, IPv6Interface, ip_network
+from ipaddress import IPv4Interface, IPv6Interface, ip_address, ip_network
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 DOCUMENTATION = r"""
 module: extreme_fe_l3_interfaces
 short_description: Manage Layer 3 interfaces on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Configure IPv4 and IPv6 addressing on VLAN and loopback interfaces of ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI transport.
 - Supports declarative merge, replace, override, delete, and gather operations modeled after the Ansible C(ios_l3_interfaces) and C(junos_l3_interfaces) modules.
@@ -23,13 +23,14 @@ author:
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
 - VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
+- C(state=gathered) returns all VLANs including system-protected ones (dynamic, management, BROUTER). When C(state=overridden), those VLANs are skipped with a warning instead of being cleared. Other states pass requests to the device as-is and let the REST API reject invalid operations.
 requirements:
 - ansible.netcommon
 options:
   config:
     description:
     - List of Layer 3 interface definitions to manage.
-    - When omitted with C(state=gathered), the module returns all VLAN and loopback interfaces that have IP addressing configured.
+    - When omitted with C(state=gathered), the module returns all VLANs (including system-protected) and all loopbacks that have at least one IP address. The REST API does not list empty loopbacks; use an explicit C(config) entry to gather a specific empty loopback.
     type: list
     elements: dict
     suboptions:
@@ -208,6 +209,21 @@ interfaces:
     ipv4:
       - 10.0.1.101/24
     ipv6: []
+before:
+  description: Interface configuration before the module ran.
+  returned: when C(state) is not C(gathered)
+  type: list
+  elements: dict
+after:
+  description: Interface configuration after the module ran.
+  returned: when C(state) is not C(gathered)
+  type: list
+  elements: dict
+differences:
+  description: Per-interface change details with before/after address lists for each modified address family.
+  returned: when C(state) is not C(gathered)
+  type: list
+  elements: dict
 """
 
 ARGUMENT_SPEC = {
@@ -238,7 +254,11 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
     if code == 404:
         return True
     if isinstance(payload, dict):
-        message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
+        message = (
+            payload.get("errorMessage")
+            or payload.get("message")
+            or payload.get("detail")
+        )
         if isinstance(message, str) and "not exist" in message.lower():
             return True
     return False
@@ -251,10 +271,27 @@ def _is_error_response(payload: Optional[object]) -> bool:
     return False
 
 
+def _vlan_protected_reason(vlan_data: Dict[str, object]) -> Optional[str]:
+    """Return a human-readable reason if the VLAN is system-protected, else None."""
+    if vlan_data.get("dynamic") is True:
+        return "dynamic VLAN"
+    if vlan_data.get("isMgmtInterface") is True:
+        return "management VLAN"
+    vlan_type = (vlan_data.get("vlanType") or "").upper()
+    if vlan_type == "BROUTER":
+        return "BROUTER VLAN"
+    return None
+
+
 class ExtremeFeL3InterfacesError(Exception):
     """Base exception for the L3 interface module."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, object]] = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: Optional[Dict[str, object]] = None,
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
 
@@ -268,7 +305,13 @@ class ExtremeFeL3InterfacesError(Exception):
 class InterfaceId:
     """Represents a normalized interface identifier."""
 
-    def __init__(self, if_type: str, identifier: int, name: Optional[str] = None, vrf: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        if_type: str,
+        identifier: int,
+        name: Optional[str] = None,
+        vrf: Optional[str] = None,
+    ) -> None:
         self.type = if_type
         self.identifier = identifier
         self.name = name
@@ -302,13 +345,17 @@ def normalize_ipv4_entry(value: object) -> Tuple[str, str, int]:
     if isinstance(value, str):
         data = value.strip()
         if "/" not in data:
-            raise ExtremeFeL3InterfacesError(f"IPv4 address '{value}' must include prefix length")
+            raise ExtremeFeL3InterfacesError(
+                f"IPv4 address '{value}' must include prefix length"
+            )
         addr, prefix = data.split("/", 1)
         prefixlen = int(prefix)
     elif isinstance(value, dict):
         addr = value.get("address") or value.get("addr")
         if not addr:
-            raise ExtremeFeL3InterfacesError("IPv4 address dictionary must include 'address'")
+            raise ExtremeFeL3InterfacesError(
+                "IPv4 address dictionary must include 'address'"
+            )
         if "prefix" in value and value["prefix"] is not None:
             prefixlen = int(value["prefix"])
         elif "mask_length" in value and value["mask_length"] is not None:
@@ -318,14 +365,20 @@ def normalize_ipv4_entry(value: object) -> Tuple[str, str, int]:
         elif "mask" in value and value["mask"]:
             prefixlen = dotted_netmask_to_prefix(str(value["mask"]))
         else:
-            raise ExtremeFeL3InterfacesError("IPv4 address dictionary must include prefix or mask")
+            raise ExtremeFeL3InterfacesError(
+                "IPv4 address dictionary must include prefix or mask"
+            )
     else:
-        raise ExtremeFeL3InterfacesError(f"Unsupported IPv4 address type: {type(value).__name__}")
+        raise ExtremeFeL3InterfacesError(
+            f"Unsupported IPv4 address type: {type(value).__name__}"
+        )
 
     try:
         iface = IPv4Interface(f"{addr}/{prefixlen}")
     except ValueError as exc:
-        raise ExtremeFeL3InterfacesError(f"Invalid IPv4 interface '{addr}/{prefixlen}'") from exc
+        raise ExtremeFeL3InterfacesError(
+            f"Invalid IPv4 interface '{addr}/{prefixlen}'"
+        ) from exc
     return "ipv4", str(iface.ip), int(iface.network.prefixlen)
 
 
@@ -333,13 +386,17 @@ def normalize_ipv6_entry(value: object) -> Tuple[str, str, int]:
     if isinstance(value, str):
         data = value.strip()
         if "/" not in data:
-            raise ExtremeFeL3InterfacesError(f"IPv6 address '{value}' must include prefix length")
+            raise ExtremeFeL3InterfacesError(
+                f"IPv6 address '{value}' must include prefix length"
+            )
         addr, prefix = data.split("/", 1)
         prefixlen = int(prefix)
     elif isinstance(value, dict):
         addr = value.get("address") or value.get("addr")
         if not addr:
-            raise ExtremeFeL3InterfacesError("IPv6 address dictionary must include 'address'")
+            raise ExtremeFeL3InterfacesError(
+                "IPv6 address dictionary must include 'address'"
+            )
         if "prefix" in value and value["prefix"] is not None:
             prefixlen = int(value["prefix"])
         elif "mask_length" in value and value["mask_length"] is not None:
@@ -347,14 +404,20 @@ def normalize_ipv6_entry(value: object) -> Tuple[str, str, int]:
         elif "maskLength" in value and value["maskLength"] is not None:
             prefixlen = int(value["maskLength"])
         else:
-            raise ExtremeFeL3InterfacesError("IPv6 address dictionary must include prefix")
+            raise ExtremeFeL3InterfacesError(
+                "IPv6 address dictionary must include prefix"
+            )
     else:
-        raise ExtremeFeL3InterfacesError(f"Unsupported IPv6 address type: {type(value).__name__}")
+        raise ExtremeFeL3InterfacesError(
+            f"Unsupported IPv6 address type: {type(value).__name__}"
+        )
 
     try:
         iface = IPv6Interface(f"{addr}/{prefixlen}")
     except ValueError as exc:
-        raise ExtremeFeL3InterfacesError(f"Invalid IPv6 interface '{addr}/{prefixlen}'") from exc
+        raise ExtremeFeL3InterfacesError(
+            f"Invalid IPv6 interface '{addr}/{prefixlen}'"
+        ) from exc
     return "ipv6", str(iface.ip), int(iface.network.prefixlen)
 
 
@@ -388,13 +451,33 @@ def set_from_payload(address_list: Iterable[object], *, is_vlan: bool) -> Set[st
             family = "ipv4"
         elif ip_type == "IPv6":
             family = "ipv6"
+            # Filter out auto-assigned IPv6 link-local addresses
+            # (fe80::/10).  These are system-managed and cannot be
+            # configured via the REST API.
+            try:
+                if ip_address(address).is_link_local:
+                    continue
+            except ValueError:
+                pass
         else:
             continue
-        results.add(f"{family}:{address}/{int(mask)}")
+        # Normalize IPv6 addresses to compressed canonical form
+        # so they match what normalize_ipv6_entry() produces.
+        # The device returns expanded form (e.g. 2001:db8:862:0:0:0:0:1)
+        # while user input normalizes to compressed (2001:db8:862::1).
+        prefix = int(mask)
+        if family == "ipv6":
+            try:
+                address = str(IPv6Interface(f"{address}/{prefix}").ip)
+            except ValueError:
+                pass
+        results.add(f"{family}:{address}/{prefix}")
     return results
 
 
-def addresses_to_payload(addresses: Set[str], *, is_vlan: bool) -> List[Dict[str, object]]:
+def addresses_to_payload(
+    addresses: Set[str], *, is_vlan: bool
+) -> List[Dict[str, object]]:
     payload: List[Dict[str, object]] = []
     for entry in sorted(addresses):
         family, value = entry.split(":", 1)
@@ -430,7 +513,9 @@ def infer_interface(entry: Dict[str, object]) -> InterfaceId:
                         "Unable to infer VLAN identifier from name; specify 'vlan_id'"
                     ) from exc
             else:
-                raise ExtremeFeL3InterfacesError("'vlan_id' is required for VLAN interfaces")
+                raise ExtremeFeL3InterfacesError(
+                    "'vlan_id' is required for VLAN interfaces"
+                )
         return InterfaceId("vlan", int(vlan_id), name=name, vrf=entry.get("vrf"))
     if if_type == "loopback" or (if_type is None and loopback_id is not None):
         if loopback_id is None:
@@ -442,15 +527,21 @@ def infer_interface(entry: Dict[str, object]) -> InterfaceId:
                         "Unable to infer loopback identifier from name; specify 'loopback_id'"
                     ) from exc
             else:
-                raise ExtremeFeL3InterfacesError("'loopback_id' is required for loopback interfaces")
-        return InterfaceId("loopback", int(loopback_id), name=name, vrf=entry.get("vrf"))
+                raise ExtremeFeL3InterfacesError(
+                    "'loopback_id' is required for loopback interfaces"
+                )
+        return InterfaceId(
+            "loopback", int(loopback_id), name=name, vrf=entry.get("vrf")
+        )
     if name:
         lower = name.lower()
         if lower.startswith("vlan"):
             parts = lower.split()
             if len(parts) >= 2:
                 try:
-                    return InterfaceId("vlan", int(parts[1]), name=name, vrf=entry.get("vrf"))
+                    return InterfaceId(
+                        "vlan", int(parts[1]), name=name, vrf=entry.get("vrf")
+                    )
                 except Exception as exc:
                     raise ExtremeFeL3InterfacesError(
                         "Unable to infer VLAN identifier from name; specify 'type' and 'vlan_id'"
@@ -459,12 +550,16 @@ def infer_interface(entry: Dict[str, object]) -> InterfaceId:
             parts = lower.split()
             if len(parts) >= 2:
                 try:
-                    return InterfaceId("loopback", int(parts[1]), name=name, vrf=entry.get("vrf"))
+                    return InterfaceId(
+                        "loopback", int(parts[1]), name=name, vrf=entry.get("vrf")
+                    )
                 except Exception as exc:
                     raise ExtremeFeL3InterfacesError(
                         "Unable to infer loopback identifier from name; specify 'type' and 'loopback_id'"
                     ) from exc
-    raise ExtremeFeL3InterfacesError("Unable to determine interface type; specify 'type'")
+    raise ExtremeFeL3InterfacesError(
+        "Unable to determine interface type; specify 'type'"
+    )
 
 
 def vlan_path(vlan_id: int) -> str:
@@ -498,9 +593,13 @@ def get_vlan_info(connection: Connection, vlan_id: int) -> Optional[Dict[str, ob
     return None
 
 
-def put_vlan_addresses(connection: Connection, vlan_id: int, addresses: Set[str]) -> None:
+def put_vlan_addresses(
+    connection: Connection, vlan_id: int, addresses: Set[str]
+) -> None:
     payload = {"addressList": addresses_to_payload(addresses, is_vlan=True)}
-    data = connection.send_request(payload, path=vlan_address_path(vlan_id), method="PUT")
+    data = connection.send_request(
+        payload, path=vlan_address_path(vlan_id), method="PUT"
+    )
     if _is_error_response(data):
         raise ExtremeFeL3InterfacesError(
             f"Failed to update VLAN {vlan_id} addressing",
@@ -510,7 +609,9 @@ def put_vlan_addresses(connection: Connection, vlan_id: int, addresses: Set[str]
 
 def get_loopbacks(connection: Connection) -> List[Dict[str, object]]:
     try:
-        data = connection.send_request(None, path="/v0/configuration/loopback", method="GET")
+        data = connection.send_request(
+            None, path="/v0/configuration/loopback", method="GET"
+        )
     except ConnectionError as exc:
         if getattr(exc, "code", None) == 404:
             return []
@@ -525,14 +626,19 @@ def get_loopbacks(connection: Connection) -> List[Dict[str, object]]:
     return []
 
 
-def get_loopback_info(loopbacks: Sequence[Dict[str, object]], loopback_id: int) -> Optional[Dict[str, object]]:
+def get_loopback_info(
+    loopbacks: Sequence[Dict[str, object]],
+    loopback_id: int,
+) -> Optional[Dict[str, object]]:
     for item in loopbacks:
         if int(item.get("id", -1)) == loopback_id:
             return item
     return None
 
 
-def put_loopback_addresses(connection: Connection, loopback_id: int, addresses: Set[str]) -> None:
+def put_loopback_addresses(
+    connection: Connection, loopback_id: int, addresses: Set[str]
+) -> None:
     # Per the OpenAPI spec: "An empty request means that IP address configuration
     # will be deleted for that loopback interface."
     # When the address set is empty, send {} instead of {"ipAddressList": []}
@@ -541,7 +647,9 @@ def put_loopback_addresses(connection: Connection, loopback_id: int, addresses: 
         payload: Dict[str, object] = {}
     else:
         payload = {"ipAddressList": addresses_to_payload(addresses, is_vlan=False)}
-    data = connection.send_request(payload, path=loopback_path(loopback_id), method="PUT")
+    data = connection.send_request(
+        payload, path=loopback_path(loopback_id), method="PUT"
+    )
     if _is_error_response(data):
         raise ExtremeFeL3InterfacesError(
             f"Failed to update loopback {loopback_id} addressing",
@@ -549,7 +657,9 @@ def put_loopback_addresses(connection: Connection, loopback_id: int, addresses: 
         )
 
 
-def build_result_entry(interface: InterfaceId, addresses: Set[str]) -> Dict[str, object]:
+def build_result_entry(
+    interface: InterfaceId, addresses: Set[str]
+) -> Dict[str, object]:
     data = interface.to_result_dict()
     ipv4_list: List[str] = []
     ipv6_list: List[str] = []
@@ -568,26 +678,43 @@ def gather_all(
     connection: Connection,
     *,
     filter_map: Optional[Dict[Tuple[str, int], InterfaceId]] = None,
+    protected_vlans: Optional[Dict[Tuple[str, int], str]] = None,
 ) -> Dict[Tuple[str, int], Tuple[InterfaceId, Set[str]]]:
+    """Gather L3 addressing for all (or filtered) interfaces.
+
+    When *protected_vlans* is a dict, it is populated with
+    ``{(type, id): reason}`` entries for each system-protected
+    VLAN encountered during full discovery (filter_map=None).
+    """
     results: Dict[Tuple[str, int], Tuple[InterfaceId, Set[str]]] = {}
 
     # Gather VLAN addressing.
-    vlan_targets = [value for value in (filter_map or {}).values() if value.type == "vlan"] if filter_map else []
+    vlan_targets = (
+        [value for value in (filter_map or {}).values() if value.type == "vlan"]
+        if filter_map
+        else []
+    )
     if vlan_targets:
         for target in vlan_targets:
             info = get_vlan_info(connection, target.identifier)
-            address_set = set_from_payload((info or {}).get("addressList", []), is_vlan=True)
+            if info is None:
+                raise ExtremeFeL3InterfacesError(
+                    f"VLAN {target.identifier} does not exist"
+                )
+            address_set = set_from_payload(info.get("addressList", []), is_vlan=True)
             iface = InterfaceId(
                 "vlan",
                 target.identifier,
-                name=target.name or (info or {}).get("name"),
-                vrf=(info or {}).get("vrName"),
+                name=target.name or info.get("name"),
+                vrf=info.get("vrName"),
             )
             results[iface.key()] = (iface, address_set)
     elif filter_map is None or any(key[0] == "vlan" for key in (filter_map or {})):
         # Discover all VLANs when no filter is provided.
         try:
-            vlan_list = connection.send_request(None, path="/v0/configuration/vlan", method="GET")
+            vlan_list = connection.send_request(
+                None, path="/v0/configuration/vlan", method="GET"
+            )
         except ConnectionError as exc:
             if getattr(exc, "code", None) == 404:
                 vlan_list = []
@@ -613,7 +740,15 @@ def gather_all(
                 )
                 if filter_map is not None and iface.key() not in filter_map:
                     continue
-                address_set = set_from_payload(item.get("addressList", []), is_vlan=True)
+                # Track system-protected VLANs (dynamic, management,
+                # BROUTER) so the overridden state can skip them.
+                if protected_vlans is not None and filter_map is None:
+                    reason = _vlan_protected_reason(item)
+                    if reason:
+                        protected_vlans[iface.key()] = reason
+                address_set = set_from_payload(
+                    item.get("addressList", []), is_vlan=True
+                )
                 results[iface.key()] = (iface, address_set)
 
     # Gather loopback addressing
@@ -621,20 +756,28 @@ def gather_all(
         loopbacks = get_loopbacks(connection)
         for item in loopbacks:
             loopback_id = int(item.get("id", -1))
-            iface = InterfaceId("loopback", loopback_id, name=item.get("name"), vrf=item.get("vrName"))
+            iface = InterfaceId(
+                "loopback", loopback_id, name=item.get("name"), vrf=item.get("vrName")
+            )
             address_set = set_from_payload(item.get("ipAddressList", []), is_vlan=False)
             if filter_map is not None and iface.key() not in filter_map:
                 continue
             results[iface.key()] = (iface, address_set)
 
-    # For VLAN gather when filter_map None and no addresses found, results stays empty
     return results
 
 
-def gather_selected(connection: Connection, interfaces: List[InterfaceId]) -> Dict[Tuple[str, int], Tuple[InterfaceId, Set[str]]]:
-    mapping: Dict[Tuple[str, int], InterfaceId] = {item.key(): item for item in interfaces}
+def gather_selected(
+    connection: Connection, interfaces: List[InterfaceId]
+) -> Dict[Tuple[str, int], Tuple[InterfaceId, Set[str]]]:
+    mapping: Dict[Tuple[str, int], InterfaceId] = {
+        item.key(): item for item in interfaces
+    }
     gathered = gather_all(connection, filter_map=mapping)
-    # For VLAN entries not returned (because gather_all skip), fetch individually now
+    # Ensure every requested interface has an entry.  Loopbacks
+    # with no IP addresses are omitted by the REST API, so they
+    # may be missing from the gather results.
+    _loopback_cache: Optional[List[Dict[str, object]]] = None
     for iface in interfaces:
         key = iface.key()
         if key in gathered:
@@ -642,7 +785,9 @@ def gather_selected(connection: Connection, interfaces: List[InterfaceId]) -> Di
         if iface.type == "vlan":
             info = get_vlan_info(connection, iface.identifier)
             if info is None:
-                raise ExtremeFeL3InterfacesError(f"VLAN {iface.identifier} does not exist")
+                raise ExtremeFeL3InterfacesError(
+                    f"VLAN {iface.identifier} does not exist"
+                )
             derived = InterfaceId(
                 "vlan",
                 iface.identifier,
@@ -652,17 +797,32 @@ def gather_selected(connection: Connection, interfaces: List[InterfaceId]) -> Di
             addresses = set_from_payload(info.get("addressList", []), is_vlan=True)
             gathered[key] = (derived, addresses)
         elif iface.type == "loopback":
-            loopbacks = get_loopbacks(connection)
-            item = get_loopback_info(loopbacks, iface.identifier)
+            if _loopback_cache is None:
+                _loopback_cache = get_loopbacks(connection)
+            item = get_loopback_info(_loopback_cache, iface.identifier)
             if item is None:
-                raise ExtremeFeL3InterfacesError(f"Loopback {iface.identifier} does not exist")
-            derived = InterfaceId(
-                "loopback",
-                iface.identifier,
-                name=iface.name or item.get("name"),
-                vrf=item.get("vrName"),
-            )
-            addresses = set_from_payload(item.get("ipAddressList", []), is_vlan=False)
+                # The REST API omits loopbacks that have no IP
+                # addresses (in VOSS, a loopback only exists as a
+                # row in rcIpAddrTbl).  Treat as existing with an
+                # empty address set — the subsequent PUT will
+                # create the entry if needed.
+                derived = InterfaceId(
+                    "loopback",
+                    iface.identifier,
+                    name=iface.name,
+                    vrf=iface.vrf,
+                )
+                addresses: Set[str] = set()
+            else:
+                derived = InterfaceId(
+                    "loopback",
+                    iface.identifier,
+                    name=iface.name or item.get("name"),
+                    vrf=item.get("vrName"),
+                )
+                addresses = set_from_payload(
+                    item.get("ipAddressList", []), is_vlan=False
+                )
             gathered[key] = (derived, addresses)
     return gathered
 
@@ -713,7 +873,6 @@ def compute_final_sets(
             final[key] = (current[0], remaining)
         return final
 
-    # gathered handled elsewhere
     return {}
 
 
@@ -738,7 +897,10 @@ def run_module() -> None:
                 gathered = gather_selected(connection, interfaces)
             else:
                 gathered = gather_all(connection)
-            result_list = [build_result_entry(iface, addresses) for iface, addresses in gathered.values()]
+            result_list = [
+                build_result_entry(iface, addresses)
+                for iface, addresses in gathered.values()
+            ]
             module.exit_json(changed=False, interfaces=result_list)
 
         # normalize config input
@@ -749,39 +911,144 @@ def run_module() -> None:
             config_map[iface.key()] = (iface, addresses)
 
         if not config_map and state in {"merged", "replaced", "deleted"}:
-            raise ExtremeFeL3InterfacesError("'config' is required for the selected state")
+            raise ExtremeFeL3InterfacesError(
+                "'config' is required for the selected state"
+            )
+
+        # Protected VLAN keys → reason (populated by overridden).
+        _protected: Dict[Tuple[str, int], str] = {}
+        warnings: List[str] = []
 
         if state == "overridden":
-            existing = gather_all(connection)
+            existing = gather_all(connection, protected_vlans=_protected)
             for key, (iface, _) in config_map.items():
                 if key not in existing:
                     if iface.type == "vlan":
-                        raise ExtremeFeL3InterfacesError(f"VLAN {iface.identifier} does not exist")
+                        raise ExtremeFeL3InterfacesError(
+                            f"VLAN {iface.identifier} does not exist"
+                        )
                     if iface.type == "loopback":
-                        raise ExtremeFeL3InterfacesError(f"Loopback {iface.identifier} does not exist")
+                        # The REST API omits loopbacks with no IP
+                        # addresses — treat as existing with empty
+                        # set so the PUT can assign addresses.
+                        existing[key] = (iface, set())
         else:
-            existing = gather_selected(connection, [value[0] for value in config_map.values()])
+            existing = gather_selected(
+                connection, [value[0] for value in config_map.values()]
+            )
         final_sets = compute_final_sets(state, config_map, existing)
 
         changed = False
         results: Dict[Tuple[str, int], Tuple[InterfaceId, Set[str]]] = {}
+        changed_keys: List[Tuple[str, int]] = []
         for key, (iface, desired_set) in final_sets.items():
             current_set = existing.get(key, (iface, set()))[1]
             if desired_set != current_set:
+                # Skip system-protected VLANs during overridden
+                # — these cannot be modified via REST.
+                if key in _protected:
+                    warnings.append(
+                        f"Skipping VLAN {iface.identifier}: "
+                        f"{_protected[key]} — cannot be modified"
+                    )
+                    results[key] = (iface, current_set)
+                    continue
                 changed = True
+                changed_keys.append(key)
                 if not module.check_mode:
                     if iface.type == "vlan":
                         put_vlan_addresses(connection, iface.identifier, desired_set)
                     elif iface.type == "loopback":
-                        put_loopback_addresses(connection, iface.identifier, desired_set)
+                        put_loopback_addresses(
+                            connection, iface.identifier, desired_set
+                        )
             results[key] = (iface, desired_set)
 
-        # When deleted/merged/replaced result_map for interfaces not touched but existing: ensure output covers all
-        output_map = existing.copy()
-        output_map.update(results)
+        # ── Build before / after / differences ──
+        # before: captured from existing (pre-change state).
+        # after:  fresh read from device when changes were made
+        #         (confirms device accepted); local projection
+        #         in check_mode.
+        before_list = [
+            build_result_entry(iface, addresses)
+            for iface, addresses in existing.values()
+        ]
 
-        result_list = [build_result_entry(iface, addresses) for iface, addresses in output_map.values()]
-        module.exit_json(changed=changed, interfaces=result_list)
+        if changed and not module.check_mode:
+            # Re-gather from device to confirm actual state.
+            if state == "overridden":
+                refreshed = gather_all(connection)
+            else:
+                refreshed = gather_selected(
+                    connection,
+                    [value[0] for value in config_map.values()],
+                )
+            after_map = existing.copy()
+            after_map.update(refreshed)
+            # Interfaces that were changed but are absent from
+            # refreshed had their addresses cleared (e.g. loopback
+            # removed from rcIpAddrTbl).  Set them to empty so
+            # after/differences reflect the actual device state.
+            for key in changed_keys:
+                if key not in refreshed:
+                    iface = final_sets[key][0]
+                    after_map[key] = (iface, set())
+        else:
+            # No change or check_mode — project locally.
+            after_map = existing.copy()
+            after_map.update(results)
+
+        after_list = [
+            build_result_entry(iface, addresses)
+            for iface, addresses in after_map.values()
+        ]
+
+        # Per-interface differences (only for interfaces that
+        # changed).
+        differences: List[Dict[str, object]] = []
+        for key in changed_keys:
+            iface_before = existing.get(key, (None, set()))
+            iface_after = after_map.get(key, (None, set()))
+            before_entry = build_result_entry(
+                iface_before[0] or final_sets[key][0],
+                iface_before[1],
+            )
+            after_entry = build_result_entry(
+                iface_after[0] or final_sets[key][0],
+                iface_after[1],
+            )
+            diff: Dict[str, object] = {}
+            for field in ("ipv4", "ipv6"):
+                bval = before_entry.get(field, [])
+                aval = after_entry.get(field, [])
+                if bval != aval:
+                    diff[field] = {
+                        "before": bval,
+                        "after": aval,
+                    }
+            if diff:
+                diff["type"] = before_entry.get("type")
+                if before_entry.get("vlan_id") is not None:
+                    diff["vlan_id"] = before_entry["vlan_id"]
+                if before_entry.get("loopback_id") is not None:
+                    diff["loopback_id"] = before_entry["loopback_id"]
+                if before_entry.get("name"):
+                    diff["name"] = before_entry["name"]
+                differences.append(diff)
+
+        # Build interfaces from after_map so interfaces and after
+        # always reflect the same view of the device state.
+        # Emit warnings for skipped protected VLANs.
+        for msg in warnings:
+            module.warn(msg)
+
+        module.exit_json(
+            changed=changed,
+            interfaces=after_list,
+            before=before_list,
+            after=after_list,
+            differences=differences,
+        )
 
     except ConnectionError as exc:
         module.fail_json(msg=to_text(exc), code=getattr(exc, "code", None))

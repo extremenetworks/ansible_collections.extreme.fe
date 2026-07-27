@@ -15,7 +15,7 @@ import re
 DOCUMENTATION = r"""
 module: extreme_fe_facts
 short_description: Gather facts from ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Collect state, hardware, interface, configuration, and neighbor facts from
   ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
@@ -430,9 +430,10 @@ def gather_hardware_subset(connection: Connection) -> Dict[str, Any]:
 
 
 def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
-    ports = _normalize_payload(
-        _http_get(connection, "/v1/state/ports") or _http_get(connection, "/v0/state/ports")
-    )
+    ports_payload = _http_get(connection, "/v1/state/ports")
+    if ports_payload is None:
+        ports_payload = _http_get(connection, "/v0/state/ports")
+    ports = _normalize_payload(ports_payload)
     capabilities = _normalize_payload(
         _http_get(connection, "/v0/state/capabilities/system/ports")
     )
@@ -441,10 +442,10 @@ def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
 
 def gather_config_subset(connection: Connection) -> Dict[str, Any]:
     services = _normalize_payload(_http_get(connection, "/v0/configuration/system-services"))
-    mgmt = _normalize_payload(
-        _http_get(connection, "/v1/configuration/mgmt-interface")
-        or _http_get(connection, "/v0/configuration/mgmt-interface")
-    )
+    mgmt_payload = _http_get(connection, "/v1/configuration/mgmt-interface")
+    if mgmt_payload is None:
+        mgmt_payload = _http_get(connection, "/v0/configuration/mgmt-interface")
+    mgmt = _normalize_payload(mgmt_payload)
     images = _normalize_payload(_http_get(connection, "/v0/configuration/system/images"))
     isids = _gather_isid_data(connection)
     return _merge_dicts(

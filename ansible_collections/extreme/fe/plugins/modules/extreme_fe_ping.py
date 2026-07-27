@@ -14,7 +14,7 @@ from urllib.parse import quote
 DOCUMENTATION = r"""
 module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
-version_added: 1.0.0
+version_added: "1.0.0"
 description:
 - Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.

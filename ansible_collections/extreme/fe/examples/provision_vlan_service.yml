@@ -73,12 +73,22 @@
 
     - name: "Find ISID currently bound to VLAN {{ vlan_id }}"
       ansible.builtin.set_fact:
-        existing_isid: "{{ (fabric_l2_gathered.gathered | default([]) | first | default({})).cvlan | default([]) | selectattr('platformVlanId', 'equalto', vlan_id | int) | map(attribute='isid') | list | first | default(0) }}"
+        existing_isid: >-
+          {{
+            fabric_l2_gathered.gathered | default([])
+            | selectattr('platformVlanId', 'defined')
+            | selectattr('platformVlanId', 'equalto', vlan_id | int)
+            | map(attribute='isid')
+            | list
+            | first
+            | default(0)
+          }}
 
     - name: "Delete existing ISID {{ existing_isid }} if different from {{ vlan_isid }}"
       extreme.fe.extreme_fe_fabric_l2:
-        isid: "{{ existing_isid | int }}"
         state: deleted
+        config:
+          - isid: "{{ existing_isid | int }}"
       when:
         - existing_isid | int > 0
         - existing_isid | int != vlan_isid | int
@@ -96,10 +106,11 @@
     # -------------------------------------------------------------------------
     - name: "Create ISID {{ vlan_isid }} bound to VLAN {{ vlan_id }}"
       extreme.fe.extreme_fe_fabric_l2:
-        isid: "{{ vlan_isid | int }}"
-        name: "L2VSN-{{ vlan_isid }}"
-        cvlan: "{{ vlan_id }}"
         state: merged
+        config:
+          - isid: "{{ vlan_isid | int }}"
+            name: "L2VSN-{{ vlan_isid }}"
+            cvlan: "{{ vlan_id }}"
       register: isid_result
 
     - name: "Show ISID result"

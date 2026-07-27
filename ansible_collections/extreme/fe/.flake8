@@ -5,10 +5,10 @@ max-line-length = 120
 max-complexity = 20
 
 # Ignore some rules that conflict with black formatter
-extend-ignore = 
-    E203,  # whitespace before ':' (conflicts with black)
-    E501,  # line too long (handled by max-line-length)
-    W503,  # line break before binary operator (conflicts with black)
+extend-ignore =
+    E203,
+    E501,
+    W503
 
 # Exclude directories
 exclude =

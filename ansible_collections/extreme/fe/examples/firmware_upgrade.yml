@@ -206,7 +206,7 @@
         continue_on_failure: true
       async: 15
       poll: 0
-      ignore_errors: true
+      failed_when: false
       when: upgrade_needed and not ansible_check_mode
 
     - name: "Wait for switch to reboot"

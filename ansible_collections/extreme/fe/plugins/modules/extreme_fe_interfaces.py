@@ -132,6 +132,11 @@ options:
                 description:
                     - Enable Fabric Engine tagging mode on the port (true indicates trunk behaviour).
                 type: bool
+            flex_uni:
+                description:
+                    - Enable or disable Fabric Engine Flex UNI mode on the port.
+                    - Device default is false; if omitted the existing setting is left unchanged, and C(state=deleted) resets it to the device default (false).
+                type: bool
             native_vlan:
                 description:
                     - Native VLAN identifier for trunk ports (0 to clear).
@@ -165,8 +170,8 @@ EXAMPLES = r"""
 # #   no link-debounce
 # # exit
 #
-# ## Disable Auto-Sense on target ports (required before manual configuration)
-# # auto-sense
+# ## Disable Autosense on target ports (required before manual configuration)
+# # autosense
 # #   no enable port 1/5,1/6,1/7,1/8,1/9,1/10
 # # exit
 #
@@ -174,7 +179,7 @@ EXAMPLES = r"""
 # # boot config flags flow-control-mode
 #
 # ## Verify Configuration
-# # show auto-sense status
+# # show autosense status
 # # show interfaces gigabitEthernet config 1/5-1/10
 
 # -------------------------------------------------------------------------
@@ -236,6 +241,7 @@ EXAMPLES = r"""
         description: Backup uplink
         auto_negotiation: true
         flow_control: ENABLE
+        flex_uni: false
 
 # -------------------------------------------------------------------------
 # Task 3: Delete interface configuration overrides
@@ -243,7 +249,7 @@ EXAMPLES = r"""
 #   - Remove custom interface configurations using 'deleted' state
 #   - Resets ports to default settings
 # Prerequisites:
-#   - Target ports must not be Auto-Sense enabled
+#   - Target ports must not be Autosense enabled
 # -------------------------------------------------------------------------
 # - name: "Task 3: Remove interface overrides for ports 1:5 and 1:6"
 #   hosts: switches
@@ -392,6 +398,7 @@ ARGUMENT_SPEC = {
             },
             "eee": {"type": "bool"},
             "port_mode": {"type": "bool"},
+            "flex_uni": {"type": "bool"},
             "native_vlan": {"type": "int"},
             "ip_arp_inspection_trusted": {"type": "bool"},
         },
@@ -417,6 +424,7 @@ PORT_FIELD_MAP = {
     "fec": "fec",
     "eee": "eee",
     "port_mode": "portMode",
+    "flex_uni": "flexUni",
     "native_vlan": "nativeVlan",
     "ip_arp_inspection_trusted": "ipArpInspectionTrusted",
 }

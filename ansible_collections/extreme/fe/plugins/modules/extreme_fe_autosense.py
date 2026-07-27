@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Ansible module to manage Extreme Fabric Engine auto-sense settings."""
+"""Ansible module to manage Extreme Fabric Engine autosense settings."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 DOCUMENTATION = r"""
 ---
 module: extreme_fe_autosense
-short_description: Manage Fabric Engine auto-sense settings and port behaviour
-version_added: 1.0.0
+short_description: Manage Fabric Engine autosense settings and port behaviour
+version_added: "1.0.0"
 description:
-    - Manage global auto-sense settings and per-port overrides on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
-    - Supports Fabric Attach profiles, voice and DiffServ parameters, multihost limits, onboarding defaults, and per-port auto-sense toggles and wait timers.
-    - Provides a gathered mode that reports the full configuration and live auto-sense port state from C(/v0/state/autosense/ports).
+    - Manage global autosense settings and per-port overrides on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
+    - Supports Fabric Attach profiles, voice and DiffServ parameters, multihost limits, onboarding defaults, and per-port autosense toggles and wait timers.
+    - Provides a gathered mode that reports the full configuration and live autosense port state from C(/v0/state/autosense/ports).
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
@@ -39,33 +39,33 @@ options:
         default: merged
     global_settings:
         description:
-            - Global auto-sense settings applied through C(/v0/configuration/autosense).
+            - Global autosense settings applied through C(/v0/configuration/autosense).
         type: dict
         suboptions:
             access_diffserv_enabled:
                 description:
-                    - Enable the access DiffServ profile for auto-sense ports.
+                    - Enable the access DiffServ profile for autosense ports.
                 type: bool
             data_isid:
                 description:
-                    - Data I-SID assigned to auto-sense data roles. C(0) clears the value.
+                    - Data I-SID assigned to autosense data roles. C(0) clears the value.
                 type: int
             dhcp_detection_enabled:
                 description:
-                    - Enable DHCP detection on auto-sense ports.
+                    - Enable DHCP detection on autosense ports.
                 type: bool
             dot1p_override_enabled:
                 description:
-                    - Enable 802.1p override for auto-sense traffic classes.
+                    - Enable 802.1p override for autosense traffic classes.
                 type: bool
             dot1x_multihost:
                 description:
-                    - Configure 802.1X multihost client limits applied to auto-sense ports.
+                    - Configure 802.1X multihost client limits applied to autosense ports.
                 type: dict
                 suboptions:
                     eap_mac_max:
                         description:
-                            - Maximum simultaneous EAP clients allowed when auto-sense is enabled.
+                            - Maximum simultaneous EAP clients allowed when autosense is enabled.
                         type: int
                     mac_max:
                         description:
@@ -77,7 +77,7 @@ options:
                         type: int
             fabric_attach:
                 description:
-                    - Fabric Attach global defaults for auto-sense ports.
+                    - Fabric Attach global defaults for autosense ports.
                 type: dict
                 suboptions:
                     auth_key:
@@ -95,7 +95,7 @@ options:
                                 type: str
                     msg_auth_enabled:
                         description:
-                            - Enable Fabric Attach message authentication on auto-sense ports.
+                            - Enable Fabric Attach message authentication on autosense ports.
                         type: bool
                     camera:
                         description:
@@ -158,7 +158,7 @@ options:
                                 choices: [AUTO, FORCE_AUTHORIZED]
             isis:
                 description:
-                    - ISIS parameters applied to auto-sense ports.
+                    - ISIS parameters applied to autosense ports.
                 type: dict
                 suboptions:
                     hello_auth:
@@ -190,7 +190,7 @@ options:
                                 choices: [HMAC_MD5, HMAC_SHA_256, SIMPLE, NONE]
                     l1_metric:
                         description:
-                            - ISIS Level-1 metric applied to auto-sense interfaces.
+                            - ISIS Level-1 metric applied to autosense interfaces.
                         type: int
                     l1_metric_auto_enabled:
                         description:
@@ -198,16 +198,16 @@ options:
                         type: bool
             onboarding_isid:
                 description:
-                    - Onboarding I-SID used while auto-sense negotiations complete. C(0) clears the value.
+                    - Onboarding I-SID used while autosense negotiations complete. C(0) clears the value.
                 type: int
             voice:
                 description:
-                    - Voice auto-sense profile defaults.
+                    - Voice autosense profile defaults.
                 type: dict
                 suboptions:
                     cvid:
                         description:
-                            - Voice CVID applied to auto-sense ports handling tagged voice traffic.
+                            - Voice CVID applied to autosense ports handling tagged voice traffic.
                         type: int
                     dot1x_lldp_auth_enabled:
                         description:
@@ -215,15 +215,15 @@ options:
                         type: bool
                     isid:
                         description:
-                            - Voice I-SID used by auto-sense ports. C(0) clears the association.
+                            - Voice I-SID used by autosense ports. C(0) clears the association.
                         type: int
             wait_interval:
                 description:
-                    - Global wait interval (seconds) used by the auto-sense state machine.
+                    - Global wait interval (seconds) used by the autosense state machine.
                 type: int
     ports:
         description:
-            - Per-port auto-sense overrides applied through C(/v0/configuration/autosense/port/{port}).
+            - Per-port autosense overrides applied through C(/v0/configuration/autosense/port/{port}).
         type: list
         elements: dict
         suboptions:
@@ -234,7 +234,7 @@ options:
                 required: true
             enable:
                 description:
-                    - Enable or disable auto-sense on the specified port.
+                    - Enable or disable autosense on the specified port.
                 type: bool
             nsi:
                 description:
@@ -269,26 +269,26 @@ EXAMPLES = r"""
 #
 # Prerequisites:
 #
-# ## Auto-sense is enabled by default on Fabric Engine switches
-# ## Verify Auto-sense status
-# # show auto-sense
-# # show interfaces gigabitEthernet auto-sense
+# ## Autosense is enabled by default on Fabric Engine switches
+# ## Verify autosense status
+# # show autosense
+# # show interfaces gigabitEthernet autosense
 #
 # -------------------------------------------------------------------------
-# Task 1: Merge auto-sense port configuration
+# Task 1: Merge autosense port configuration
 # Description:
-#   - This example demonstrates how to enable and configure auto-sense on
+#   - This example demonstrates how to enable and configure autosense on
 #     a specific port using the 'merged' state. The 'merged' state allows
 #     non-destructive updates, adding or modifying settings without removing
 #     existing configurations on other ports.
 # Prerequisites:
 #   - Target port must exist
 # -------------------------------------------------------------------------
-# - name: "Task 1: Merge auto-sense overrides for a single port"
+# - name: "Task 1: Merge autosense overrides for a single port"
 #   hosts: switches
 #   gather_facts: false
 #   tasks:
-- name: Enable auto-sense on port 1:15 with a shorter wait interval
+- name: Enable autosense on port 1:15 with a shorter wait interval
   extreme.fe.extreme_fe_autosense:
     state: merged
     ports:
@@ -321,19 +321,19 @@ EXAMPLES = r"""
         dot1x_lldp_auth_enabled: true
 
 # -------------------------------------------------------------------------
-# Task 3: Delete auto-sense port overrides
+# Task 3: Delete autosense port overrides
 # Description:
-#   - This example demonstrates how to remove auto-sense configurations from
+#   - This example demonstrates how to remove autosense configurations from
 #     specific ports using the 'deleted' state. This resets the ports back
-#     to their default auto-sense behavior, clearing any custom overrides.
+#     to their default autosense behavior, clearing any custom overrides.
 # Prerequisites:
-#   - Target ports should have auto-sense configured
+#   - Target ports should have autosense configured
 # -------------------------------------------------------------------------
-# - name: "Task 3: Remove auto-sense overrides from a set of ports"
+# - name: "Task 3: Remove autosense overrides from a set of ports"
 #   hosts: switches
 #   gather_facts: false
 #   tasks:
-- name: Reset custom overrides and disable auto-sense
+- name: Reset custom overrides and disable autosense
   extreme.fe.extreme_fe_autosense:
     state: deleted
     ports:
@@ -341,18 +341,18 @@ EXAMPLES = r"""
       - name: "1:6"
 
 # -------------------------------------------------------------------------
-# Task 4: Gather auto-sense configuration and state
+# Task 4: Gather autosense configuration and state
 # Description:
-#   - This example demonstrates how to retrieve the current auto-sense
+#   - This example demonstrates how to retrieve the current autosense
 #     configuration and live state from the switch using the 'gathered'
 #     state. This is a read-only operation useful for auditing port
 #     configurations or comparing settings across switches.
 # -------------------------------------------------------------------------
-# - name: "Task 4: Gather configuration and live auto-sense state"
+# - name: "Task 4: Gather configuration and live autosense state"
 #   hosts: switches
 #   gather_facts: false
 #   tasks:
-- name: Collect auto-sense information for ports 1:1 and 1:2
+- name: Collect autosense information for ports 1:1 and 1:2
   extreme.fe.extreme_fe_autosense:
     state: gathered
     gather_state: true
@@ -368,11 +368,11 @@ changed:
   returned: always
   type: bool
 global_settings:
-  description: Resulting global auto-sense configuration after any updates (snake_case keys).
+  description: Resulting global autosense configuration after any updates (snake_case keys).
   returned: when state == gathered or when global settings changed/queried
   type: dict
 ports_settings:
-  description: List of per-port auto-sense settings with normalized field names.
+  description: List of per-port autosense settings with normalized field names.
   returned: when state == gathered or port settings changed/queried
   type: list
 port_updates:
@@ -384,7 +384,7 @@ port_removals:
   returned: when port overrides were cleared
   type: list
 ports_state:
-  description: Auto-sense state payload returned from C(/v0/state/autosense/ports) when requested.
+  description: Autosense state payload returned from C(/v0/state/autosense/ports) when requested.
   returned: when gather_state is true
   type: list
 """
@@ -607,7 +607,7 @@ STATE_GATHERED = "gathered"
 
 
 class FeAutosenseError(Exception):
-    """Base exception for auto-sense module errors."""
+    """Base exception for autosense module errors."""
 
     def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
         super().__init__(message)
@@ -786,7 +786,7 @@ def fetch_autosense_config(connection: Connection) -> Tuple[Dict[str, Any], Dict
         return {}, {}
     if not isinstance(data, dict):
         raise FeAutosenseError(
-            "Unexpected response when retrieving auto-sense configuration",
+            "Unexpected response when retrieving autosense configuration",
             details={"response": data},
         )
     ports_payload = data.get("ports")
@@ -875,7 +875,7 @@ def apply_port_settings(
         )
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeAutosenseError(
-                f"Failed to update auto-sense settings for port {port_name}",
+                f"Failed to update autosense settings for port {port_name}",
                 details=response,
             )
         changed = True
@@ -913,7 +913,7 @@ def _delete_port_override(
         )
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeAutosenseError(
-                f"Failed to remove auto-sense overrides for port {port_name}",
+                f"Failed to remove autosense overrides for port {port_name}",
                 details=response,
             )
         current_map.pop(port_name, None)
@@ -949,7 +949,7 @@ def gather_autosense_state(
         return []
     if not isinstance(data, list):
         raise FeAutosenseError(
-            "Unexpected response when retrieving auto-sense state",
+            "Unexpected response when retrieving autosense state",
             details={"response": data},
         )
     filter_set: Optional[set] = None

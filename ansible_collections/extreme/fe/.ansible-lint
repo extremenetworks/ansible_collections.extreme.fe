@@ -8,8 +8,8 @@ exclude_paths:
   - .tox/
   - .venv/
   - venv/
-  - tests/output/
   - tests/
+  - playbooks/
   - .github/
   - changelogs/
 
@@ -34,9 +34,6 @@ enable_list:
 
 # Use default rules
 use_default_rules: true
-
-# Parseable output
-parseable: true
 
 # Quiet mode
 quiet: false
