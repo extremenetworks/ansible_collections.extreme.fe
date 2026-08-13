@@ -40,29 +40,29 @@ The Extreme Fabric Engine collection supports `httpapi` connections. The custom 
 
 | Name                                | Description                  |
 |-------------------------------------|------------------------------|
-| extreme.fe.extreme_fe_anycast_gateway | Manages Anycast Gateway interfaces on Fabric Engine devices |
-| extreme.fe.extreme_fe_autosense     | Manages Fabric Engine autosense settings and port behaviour |
-| extreme.fe.extreme_fe_command       | Executes CLI commands on Fabric Engine devices |
-| extreme.fe.extreme_fe_dns           | Manages DNS settings on Fabric Engine devices |
-| extreme.fe.extreme_fe_fabric_l2     | Manages Layer 2 Fabric (ISID/C-VLAN) on Fabric Engine devices |
-| extreme.fe.extreme_fe_facts         | Gathers hardware and system facts from Fabric Engine devices |
-| extreme.fe.extreme_fe_interfaces    | Manages Ethernet interfaces on Fabric Engine devices |
-| extreme.fe.extreme_fe_l2_interfaces | Manages Layer 2 interface on Fabric Engine devices |
-| extreme.fe.extreme_fe_l3_interfaces | Manages Layer 3 interfaces on Fabric Engine devices |
-| extreme.fe.extreme_fe_lag           | Manages Link Aggregation Groups (MLT/LACP) configuration |
-| extreme.fe.extreme_fe_lldp_global   | Manages global LLDP settings on Fabric Engine devices |
-| extreme.fe.extreme_fe_lldp_interfaces | Manages LLDP interface settings on Fabric Engine devices |
-| extreme.fe.extreme_fe_mlag          | Manages Multi-chassis LAG (vIST/SMLT) configuration |
-| extreme.fe.extreme_fe_ping          | Sends a ping from a Fabric Engine device to the given host |
-| extreme.fe.extreme_fe_poe           | Manages Power over Ethernet settings |
-| extreme.fe.extreme_fe_save_config   | Saves the running configuration on Fabric Engine devices |
-| extreme.fe.extreme_fe_slpp          | Manages SLPP (Simple Loop Prevention Protocol) settings |
-| extreme.fe.extreme_fe_snmp          | Manages the SNMP system name on Fabric Engine devices |
-| extreme.fe.extreme_fe_spbm_l3vsn    | Manages SPBM L3VSN (IPVPN) instances on Fabric Engine devices |
-| extreme.fe.extreme_fe_stp           | Manages STP per-port settings and BPDU Guard|
-| extreme.fe.extreme_fe_vlans         | Manages VLANs on Fabric Engine devices |
-| extreme.fe.extreme_fe_vrf           | Manages VRFs on Fabric Engine devices |
-| extreme.fe.extreme_fe_vrf_static_routes | Manages static routes on Fabric Engine devices |
+| extreme.fe.extreme_fe_anycast_gateway | Manage Anycast Gateway interfaces on Fabric Engine switches |
+| extreme.fe.extreme_fe_autosense     | Configure Auto-Sense settings on Fabric Engine switches |
+| extreme.fe.extreme_fe_command       | Execute CLI commands on Fabric Engine switches |
+| extreme.fe.extreme_fe_dns           | Manage DNS servers and domain on Fabric Engine switches |
+| extreme.fe.extreme_fe_fabric_l2     | Manage Layer 2 Fabric ISIDs configuration |
+| extreme.fe.extreme_fe_facts         | Collect facts from Fabric Engine switches |
+| extreme.fe.extreme_fe_interfaces    | Configure physical interfaces on Fabric Engine switches |
+| extreme.fe.extreme_fe_l2_interfaces | Configure Layer 2 interface settings |
+| extreme.fe.extreme_fe_l3_interfaces | Configure Layer 3 interface addressing |
+| extreme.fe.extreme_fe_lag           | Configure Link Aggregation Groups (MLT/LACP) |
+| extreme.fe.extreme_fe_lldp_global   | Configure global LLDP timer settings |
+| extreme.fe.extreme_fe_lldp_interfaces | Configure LLDP interface settings |
+| extreme.fe.extreme_fe_mlag          | Configure Multi-chassis LAG (vIST/SMLT) |
+| extreme.fe.extreme_fe_ping          | Execute ICMP ping tests from the switch |
+| extreme.fe.extreme_fe_poe           | Configure Power over Ethernet settings |
+| extreme.fe.extreme_fe_save_config   | Save running configuration to file |
+| extreme.fe.extreme_fe_slpp          | Configure SLPP (Simple Loop Prevention Protocol) settings |
+| extreme.fe.extreme_fe_snmp          | Manage SNMP system name on Fabric Engine switches |
+| extreme.fe.extreme_fe_spbm_l3vsn    | Manage SPBM L3VSN (IPVPN) instances on Fabric Engine switches |
+| extreme.fe.extreme_fe_stp           | Configure STP per-port settings and BPDU Guard |
+| extreme.fe.extreme_fe_vlans         | Configure VLANs on Fabric Engine switches |
+| extreme.fe.extreme_fe_vrf           | Manage VRFs on Fabric Engine switches |
+| extreme.fe.extreme_fe_vrf_static_routes | Manage static routes on Fabric Engine switches |
 
 Click the `Content` button to see the list of content included in this collection.
 
@@ -225,6 +225,85 @@ You can call modules by their Fully Qualified Collection Namespace (FQCN), such 
         var: facts.ansible_facts.ansible_net_hostname
 ```
 
+### Example: Flex-UNI services (SUNI and TUNI)
+
+Flex-UNI must be enabled on a port or LAG **before** it can be bound to a Switched UNI
+endpoint — the device rejects the endpoint otherwise. Transparent UNI members must
+have it left disabled; a port cannot serve both roles.
+
+```yaml
+---
+- name: Provision Flex-UNI services
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Enable Flex-UNI on the SUNI ports
+      extreme.fe.extreme_fe_interfaces:
+        state: merged
+        ports:
+          - name: "1:10"
+            flex_uni: true
+          - name: "1:11"
+            flex_uni: true
+
+    - name: Enable Flex-UNI on the SUNI LAG
+      extreme.fe.extreme_fe_lag:
+        state: merged
+        lag_id: 50
+        flex_uni: true
+
+    - name: Create a Switched UNI with a tagged and an untagged endpoint
+      extreme.fe.extreme_fe_fabric_l2:
+        state: merged
+        config:
+          - isid: 8001
+            isid_type: SUNI
+            name: "Campus-FlexUNI"
+            endpoints:
+              - cvid: 1010
+                ports:
+                  - "1:10"
+                lags:
+                  - "50"
+              # c-vid 4096 is the untagged endpoint — the only one on which
+              # the device accepts BPDU forwarding.
+              - cvid: 4096
+                ports:
+                  - "1:11"
+                bpdu_enabled: true
+
+    - name: Create a Transparent UNI (members must NOT have Flex-UNI)
+      extreme.fe.extreme_fe_fabric_l2:
+        state: merged
+        config:
+          - isid: 8003
+            isid_type: TUNI
+            name: "Transparent-Uplink"
+            ports:
+              - "1:13"
+              - "1:14"
+            lags:
+              - "51"
+```
+
+In `merged` state an omitted attribute is left untouched, so the task below adds a LAG
+without disturbing the existing port membership. Supply an explicit empty list to clear
+a membership, or use `replaced` to enforce an exact state:
+
+```yaml
+    - name: Add a LAG to an existing endpoint, leaving its ports alone
+      extreme.fe.extreme_fe_fabric_l2:
+        state: merged
+        config:
+          - isid: 8001
+            isid_type: SUNI
+            endpoints:
+              - cvid: 1010
+                lags:
+                  - "50"
+                  - "51"
+```
+
 ### Example: Execute CLI commands
 
 ```yaml
@@ -259,7 +338,8 @@ This collection follows the Ansible project's [Code of Conduct](https://docs.ans
 
 ## Release notes
 
-Release notes are available in the CHANGELOG.rst.
+Release notes are available in the [CHANGELOG.md](CHANGELOG.md).
+
 ## More information
 
 - [Ansible network resources](https://docs.ansible.com/ansible/latest/network/getting_started/network_resources.html)

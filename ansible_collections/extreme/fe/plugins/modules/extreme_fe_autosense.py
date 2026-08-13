@@ -21,6 +21,8 @@ description:
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
+    - Ports are supplied through the C(config) list. The parameter was named
+      C(ports) before 1.2.1; that name still works as a deprecated alias.
     - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
     - Port identifiers must use slot:port notation such as C(1:5).
 requirements:
@@ -40,6 +42,14 @@ options:
     global_settings:
         description:
             - Global autosense settings applied through C(/v0/configuration/autosense).
+            - These are device-wide and separate from the per-port overrides in
+              C(config). They are only touched when a task mentions them, so a
+              task that manages ports alone never rewrites them, including
+              under C(replaced) and C(overridden).
+            - Omit the key to leave the global settings untouched. Supply it
+              with values to apply them - under C(replaced) and C(overridden)
+              any field left out is reset to its factory default. Supply it as
+              an empty dict to reset every global setting.
         type: dict
         suboptions:
             access_diffserv_enabled:
@@ -221,7 +231,9 @@ options:
                 description:
                     - Global wait interval (seconds) used by the autosense state machine.
                 type: int
-    ports:
+    config:
+        aliases:
+            - ports
         description:
             - Per-port autosense overrides applied through C(/v0/configuration/autosense/port/{port}).
         type: list
@@ -291,7 +303,7 @@ EXAMPLES = r"""
 - name: Enable autosense on port 1:15 with a shorter wait interval
   extreme.fe.extreme_fe_autosense:
     state: merged
-    ports:
+    config:
       - name: "1:15"
         enable: true
         wait_interval: 15
@@ -336,7 +348,7 @@ EXAMPLES = r"""
 - name: Reset custom overrides and disable autosense
   extreme.fe.extreme_fe_autosense:
     state: deleted
-    ports:
+    config:
       - name: "1:5"
       - name: "1:6"
 
@@ -367,6 +379,40 @@ changed:
   description: Indicates whether any changes were made.
   returned: always
   type: bool
+before:
+  description:
+    - Global settings and per-port overrides on the device before the task ran.
+    - Captured for every state except C(gathered).
+  returned: when state is not gathered
+  type: dict
+  contains:
+    global_settings:
+      description: Global autosense configuration (snake_case keys).
+      returned: always
+      type: dict
+    ports:
+      description: Per-port autosense overrides.
+      returned: always
+      type: list
+      elements: dict
+after:
+  description:
+    - Global settings and per-port overrides on the device after the task ran.
+    - Re-read from the device, so it reflects what the device actually applied
+      rather than what was requested. Not returned when nothing changed or in
+      check mode, since it would repeat C(before).
+  returned: when the task changed the device and not in check mode
+  type: dict
+  contains:
+    global_settings:
+      description: Global autosense configuration (snake_case keys).
+      returned: always
+      type: dict
+    ports:
+      description: Per-port autosense overrides.
+      returned: always
+      type: list
+      elements: dict
 global_settings:
   description: Resulting global autosense configuration after any updates (snake_case keys).
   returned: when state == gathered or when global settings changed/queried
@@ -488,9 +534,16 @@ ARGUMENT_SPEC: Dict[str, Any] = {
             "wait_interval": {"type": "int"},
         },
     },
-    "ports": {
+    # Renamed from 'ports' to 'config' so every resource module in the
+    # collection uses the same parameter name. The old name stays as a
+    # deprecated alias; Ansible resolves both to module.params["config"].
+    "config": {
         "type": "list",
         "elements": "dict",
+        "aliases": ["ports"],
+        "deprecated_aliases": [
+            {"name": "ports", "version": "1.2.1", "collection_name": "extreme.fe"},
+        ],
         "options": {
             "name": {"type": "str", "required": True},
             "enable": {"type": "bool"},
@@ -596,6 +649,66 @@ PORT_FIELD_MAP: Dict[str, str] = {
     "enable": "enable",
     "nsi": "nsi",
     "wait_interval": "waitInterval",
+}
+
+# Factory defaults for per-port autosense overrides -- used by replaced/overridden
+# to reset omitted fields rather than requiring all fields from the user.
+# Verified via device behavior: autosense is enabled by default, nsi=0 means
+# cleared, wait_interval=35 is the OpenAPI default.
+PORT_FULL_DEFAULTS: Dict[str, Any] = {
+    "enable": True,        # default: true (from OpenAPI PortAutoSenseSettings)
+    "nsi": 0,              # 0 clears the I-SID assignment
+    "waitInterval": 35,    # default: 35 (from OpenAPI PortAutoSenseSettings)
+}
+
+# Payload used to emulate a per-port DELETE on firmware that rejects the
+# method (VOSS 9.4 answers 405). Deliberately NOT PORT_FULL_DEFAULTS: that
+# dict holds the OpenAPI defaults for fields *inside* an override, where
+# enable is true, while removing an override means the port should stop being
+# autosense-managed. Resetting enable to true here would switch autosense ON
+# for every port a playbook asked to clear, so the two must not be merged.
+#
+# waitInterval is absent on purpose -- it only has meaning while autosense is
+# enabled, and _delete_port_override() carries the port's existing value over
+# so the PATCH does not touch a field the delete does not own.
+PORT_DELETE_RESET: Dict[str, Any] = {
+    "enable": False,       # no override -- autosense off for this port
+    "nsi": 0,              # 0 clears the I-SID assignment
+}
+
+# The only status that means "this firmware does not implement DELETE on the
+# per-port endpoint" and so justifies the PATCH fallback.
+HTTP_METHOD_NOT_ALLOWED = 405
+
+# Factory defaults for global autosense settings -- used by replaced/overridden
+# to reset omitted fields. Only includes fields with explicit OpenAPI defaults.
+# Fields without defaults (dot1xMultihost counts, l1Metric, waitInterval) are
+# left unchanged when omitted because device factory values are not documented.
+GLOBAL_FULL_DEFAULTS: Dict[str, Any] = {
+    "accessDiffservEnabled": True,       # default: true
+    "dataIsid": 0,                       # 0 means not set
+    "dhcpDetectionEnabled": True,        # default: true
+    "dot1pOverrideEnabled": True,        # default: true
+    "onboardingIsid": 0,                 # 0 means not set
+    "fabricAttach": {
+        "msgAuthEnabled": True,           # default: true
+        "camera": {"dot1xStatus": "AUTO", "isid": 0},
+        "ovs": {"isid": 0, "status": "AUTO"},
+        "proxy": {"mgmtCvid": 0, "mgmtIsid": 0, "noAuthIsid": 0},
+        "wapType1": {"isid": 0, "status": "AUTO"},
+    },
+    "isis": {
+        "helloAuth": {
+            "key": {"isEncrypted": False, "value": ""},
+            "keyId": 0,
+            "type": "NONE",
+        },
+    },
+    "voice": {
+        "cvid": 0,
+        "dot1xLldpAuthEnabled": False,     # default: false
+        "isid": 0,                         # 0 means not set
+    },
 }
 
 
@@ -734,15 +847,23 @@ def _transform_for_output(payload: Dict[str, Any], spec: Dict[str, Any]) -> Dict
     return result
 
 
-def _build_port_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _build_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]:
+    """Build REST payload for a port entry.
+
+    For merged: only user-supplied fields.
+    For replaced/overridden: all fields, using PORT_FULL_DEFAULTS for omitted.
+    """
     payload: Dict[str, Any] = {}
     for param, rest_key in PORT_FIELD_MAP.items():
-        if param not in entry:
-            continue
+        # Ansible pre-populates every declared suboption, so "param in entry"
+        # is always true and cannot tell a supplied value from an omitted one.
+        # Only a non-None value means the user actually supplied it.
         value = entry.get(param)
-        if value is None:
-            continue
-        payload[rest_key] = value
+        if value is not None:
+            payload[rest_key] = value
+        elif state in (STATE_REPLACED, STATE_OVERRIDDEN):
+            # Fill omitted fields with factory defaults
+            payload[rest_key] = PORT_FULL_DEFAULTS[rest_key]
     return payload
 
 
@@ -811,11 +932,44 @@ def apply_global_settings(
     connection: Connection,
     desired: Dict[str, Any],
     current: Dict[str, Any],
+    state: str = STATE_MERGED,
 ) -> Tuple[bool, Dict[str, Any]]:
-    if not desired:
+    """Apply global autosense settings.
+
+    For merged: only patch user-supplied fields.
+    For replaced/overridden: build target from GLOBAL_FULL_DEFAULTS + user
+    values, then diff against current to reset omitted fields.
+    """
+    if not desired and state == STATE_MERGED:
         return False, current
 
-    diff = _build_diff_from_module(desired, current, GLOBAL_SPEC)
+    if state in (STATE_REPLACED, STATE_OVERRIDDEN):
+        # Build complete desired state: defaults + user overlay
+        # First, build the full defaults payload in REST format
+        target = _deep_merge({}, GLOBAL_FULL_DEFAULTS)
+        # Overlay user-supplied values (convert from Ansible keys to REST keys)
+        if desired:
+            user_payload = _build_diff_from_module(desired, {}, GLOBAL_SPEC)
+            target = _deep_merge(target, user_payload)
+        # Now diff target against current
+        diff: Dict[str, Any] = {}
+        for key, desired_value in target.items():
+            current_value = current.get(key)
+            if isinstance(desired_value, dict) and isinstance(current_value, dict):
+                sub_diff: Dict[str, Any] = {}
+                for sk, sv in desired_value.items():
+                    if current_value.get(sk) != sv:
+                        sub_diff[sk] = sv
+                if sub_diff:
+                    diff[key] = sub_diff
+            elif current_value != desired_value:
+                diff[key] = desired_value
+    else:
+        # Merged: only user-supplied fields
+        if not desired:
+            return False, current
+        diff = _build_diff_from_module(desired, current, GLOBAL_SPEC)
+
     if not diff:
         return False, current
 
@@ -840,20 +994,9 @@ def apply_port_settings(
 
     changed = False
     updated_ports: List[str] = []
-    require_full_definition = state_mode in (STATE_REPLACED, STATE_OVERRIDDEN)
     for entry in operations:
         port_name = _normalize_port_name(entry["name"])
-        if require_full_definition:
-            missing = [param for param in PORT_FIELD_MAP if param not in entry]
-            if missing:
-                raise FeAutosenseError(
-                    "Port '{port}' requires values for {fields} when state is '{state}'.".format(
-                        port=port_name,
-                        fields=", ".join(sorted(missing)),
-                        state=state_mode,
-                    )
-                )
-        payload = _build_port_payload(entry)
+        payload = _build_port_payload(entry, state_mode)
         if not payload:
             continue
         current_settings = current_map.get(port_name, {})
@@ -870,12 +1013,12 @@ def apply_port_settings(
             continue
         response = connection.send_request(
             diff,
-            path=f"/v0/configuration/autosense/port/{port_name}",
+            path="/v0/configuration/autosense/port/%s" % port_name,
             method="PATCH",
         )
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeAutosenseError(
-                f"Failed to update autosense settings for port {port_name}",
+                "Failed to update autosense settings for port %s" % port_name,
                 details=response,
             )
         changed = True
@@ -891,33 +1034,56 @@ def _delete_port_override(
     current_map: Dict[str, Dict[str, Any]],
 ) -> bool:
     existing_settings = current_map.get(port_name)
-    if module.check_mode:
-        if existing_settings is not None:
-            current_map.pop(port_name, None)
-            return True
+    # No entry for this port means the device holds no override to remove, so
+    # there is nothing to do. Returning before either write keeps deleted
+    # idempotent -- in particular on the PATCH fallback below, which would
+    # otherwise push defaults and report a change on an untouched port.
+    if existing_settings is None:
         return False
 
-    try:
-        connection.send_request(None, path=f"/v0/configuration/autosense/port/{port_name}", method="DELETE")
+    if module.check_mode:
         current_map.pop(port_name, None)
-        return existing_settings is not None or True
-    except ConnectionError:
-        # Fall back to PATCH if DELETE is not supported.
-        payload: Dict[str, Any] = {"enable": False, "nsi": 0}
+        return True
+
+    try:
+        connection.send_request(None, path="/v0/configuration/autosense/port/%s" % port_name, method="DELETE")
+        current_map.pop(port_name, None)
+        return True
+    except ConnectionError as exc:
+        # Only 405 means "this device does not implement DELETE here". Any
+        # other failure -- a 5xx, an auth problem, or a timeout, which the
+        # httpapi plugin raises as a codeless ConnectionError after exhausting
+        # retries -- says nothing about method support, and falling back would
+        # write the reset payload off the back of an error that never reached
+        # the device.
+        if getattr(exc, "code", None) != HTTP_METHOD_NOT_ALLOWED:
+            raise
+        # DELETE returns 405 on VOSS 9.4 — fall back to PATCH with the
+        # removal payload. See PORT_DELETE_RESET for why this is not
+        # PORT_FULL_DEFAULTS.
+        payload: Dict[str, Any] = dict(PORT_DELETE_RESET)
         if isinstance(existing_settings, dict) and "waitInterval" in existing_settings:
             payload["waitInterval"] = existing_settings["waitInterval"]
+        # Idempotency: if existing settings already match the reset payload,
+        # the port is already in the desired state — skip the PATCH.
+        if isinstance(existing_settings, dict):
+            already_reset = all(
+                existing_settings.get(k) == v for k, v in payload.items()
+            )
+            if already_reset:
+                current_map.pop(port_name, None)
+                return False
         response = connection.send_request(
             payload,
-            path=f"/v0/configuration/autosense/port/{port_name}",
+            path="/v0/configuration/autosense/port/%s" % port_name,
             method="PATCH",
         )
         if isinstance(response, dict) and response.get("errorCode"):
             raise FeAutosenseError(
-                f"Failed to remove autosense overrides for port {port_name}",
+                "Failed to remove autosense overrides for port %s" % port_name,
                 details=response,
             )
         current_map.pop(port_name, None)
-        # Treat the operation as changed even when the port was previously absent.
         return True
 
 
@@ -976,7 +1142,136 @@ def gather_autosense_state(
     return results
 
 
+def _handle_gathered(
+    connection: Connection,
+    gather_filter: Optional[List[str]],
+    gather_state: bool,
+    current_global: Dict[str, Any],
+    port_map: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Handle state=gathered: read-only."""
+    result: Dict[str, Any] = {"changed": False}
+    result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
+    result["ports_settings"] = _transform_ports_output(port_map, gather_filter)
+    if gather_state:
+        result["ports_state"] = gather_autosense_state(connection, gather_filter)
+    return result
+
+
+def _handle_action_states(
+    module: AnsibleModule,
+    connection: Connection,
+    state: str,
+    current_global: Dict[str, Any],
+    port_map: Dict[str, Dict[str, Any]],
+    gather_state: bool,
+    gather_filter: Optional[List[str]],
+) -> Dict[str, Any]:
+    """Handle merged/replaced/overridden/deleted states."""
+    result: Dict[str, Any] = {"changed": False}
+
+    # Before snapshot
+    before_global = _transform_for_output(current_global, GLOBAL_SPEC)
+    before_ports = _transform_ports_output(port_map)
+    result["before"] = {"global_settings": before_global, "ports": before_ports}
+
+    raw_global = module.params.get("global_settings")
+    desired_global = raw_global or {}
+    desired_ports = module.params.get("config") or []
+    initial_port_names = set(port_map.keys())
+
+    # Global settings.
+    #
+    # Only touched when the task actually mentions them. The global settings
+    # are a separate resource from the per-port overrides in 'config', so a
+    # task managing only ports must not reset them -- under replaced and
+    # overridden that would rewrite device-wide configuration the playbook
+    # never referred to.
+    #
+    # 'global_settings' is a dict with suboptions, so Ansible fills it in as
+    # soon as the key appears and an explicit 'global_settings: {}' arrives
+    # non-None. That makes the three cases distinguishable:
+    #   key omitted            -> globals left alone
+    #   global_settings: {}    -> under replaced/overridden, all globals reset
+    #   global_settings: {...} -> supplied fields applied, and under
+    #                             replaced/overridden the omitted ones reset
+    if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN) \
+            and raw_global is not None:
+        changed_global, current_global = apply_global_settings(
+            module, connection, desired_global, current_global, state)
+        if changed_global:
+            result["changed"] = True
+        if changed_global or (desired_global and module.check_mode):
+            result["global_settings"] = _transform_for_output(
+                current_global, GLOBAL_SPEC)
+    elif state == STATE_DELETED:
+        if desired_global:
+            raise FeAutosenseError(
+                "Global settings cannot be supplied when state='deleted'.")
+
+    # Port operations
+    updated_ports: List[str] = []
+    removed_ports: List[str] = []
+
+    if state == STATE_DELETED:
+        changed_ports, port_map, removed_ports = delete_port_settings(
+            module, connection, desired_ports, port_map)
+    else:
+        changed_ports, port_map, updated_ports = apply_port_settings(
+            module, connection, desired_ports, port_map, state)
+        if state == STATE_OVERRIDDEN:
+            desired_port_names = {
+                _normalize_port_name(entry["name"])
+                for entry in desired_ports if "name" in entry
+            }
+            to_remove = [name for name in initial_port_names
+                         if name not in desired_port_names]
+            if to_remove:
+                removal_entries = [{"name": name} for name in to_remove]
+                removal_changed, port_map, removal_list = delete_port_settings(
+                    module, connection, removal_entries, port_map)
+                if removal_changed:
+                    changed_ports = True
+                removed_ports.extend(removal_list)
+
+    if changed_ports:
+        result["changed"] = True
+    if updated_ports:
+        result["port_updates"] = updated_ports
+    if removed_ports:
+        result["port_removals"] = removed_ports
+
+    if (changed_ports or (desired_ports and module.check_mode)) and updated_ports:
+        result["ports_settings"] = _transform_ports_output(
+            {name: port_map.get(name, {}) for name in updated_ports},
+            updated_ports,
+        )
+
+    # After snapshot
+    if result["changed"] and not module.check_mode:
+        after_global, after_port_map = fetch_autosense_config(connection)
+        result["after"] = {
+            "global_settings": _transform_for_output(after_global, GLOBAL_SPEC),
+            "ports": _transform_ports_output(after_port_map),
+        }
+
+    # Optional state collection
+    if gather_state:
+        if gather_filter:
+            state_filter: Optional[List[str]] = gather_filter
+        elif updated_ports:
+            state_filter = updated_ports
+        elif removed_ports:
+            state_filter = removed_ports
+        else:
+            state_filter = None
+        result["ports_state"] = gather_autosense_state(connection, state_filter)
+
+    return result
+
+
 def run_module() -> None:
+    """Module entry point with state dispatch."""
     module = AnsibleModule(argument_spec=ARGUMENT_SPEC, supports_check_mode=True)
 
     try:
@@ -984,8 +1279,6 @@ def run_module() -> None:
     except FeAutosenseError as exc:
         module.fail_json(**exc.to_fail_kwargs())
         return
-
-    result: Dict[str, Any] = {"changed": False}
 
     try:
         state = module.params.get("state")
@@ -995,91 +1288,17 @@ def run_module() -> None:
         current_global, port_map = fetch_autosense_config(connection)
 
         if state == STATE_GATHERED:
-            result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
-            result["ports_settings"] = _transform_ports_output(port_map, gather_filter)
-            if gather_state:
-                result["ports_state"] = gather_autosense_state(connection, gather_filter)
-            module.exit_json(**result)
-
-        desired_global = module.params.get("global_settings") or {}
-        desired_ports = module.params.get("ports") or []
-        initial_port_names = set(port_map.keys())
-
-        if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN):
-            changed_global, current_global = apply_global_settings(
-                module,
-                connection,
-                desired_global,
-                current_global,
-            )
-            if changed_global:
-                result["changed"] = True
-            if changed_global or (desired_global and module.check_mode):
-                result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
-        elif state == STATE_DELETED:
-            if desired_global:
-                raise FeAutosenseError("Global settings cannot be supplied when state='deleted'.")
+            result = _handle_gathered(
+                connection, gather_filter, gather_state,
+                current_global, port_map)
+        elif state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN,
+                       STATE_DELETED):
+            result = _handle_action_states(
+                module, connection, state, current_global, port_map,
+                gather_state, gather_filter)
         else:
-            raise FeAutosenseError(f"Unsupported state '{state}' supplied.")
-
-        updated_ports: List[str] = []
-        removed_ports: List[str] = []
-
-        if state == STATE_DELETED:
-            changed_ports, port_map, removed_ports = delete_port_settings(
-                module,
-                connection,
-                desired_ports,
-                port_map,
-            )
-        else:
-            changed_ports, port_map, updated_ports = apply_port_settings(
-                module,
-                connection,
-                desired_ports,
-                port_map,
-                state,
-            )
-            if state == STATE_OVERRIDDEN:
-                desired_port_names = {
-                    _normalize_port_name(entry["name"]) for entry in desired_ports if "name" in entry
-                }
-                to_remove = [name for name in initial_port_names if name not in desired_port_names]
-                if to_remove:
-                    removal_entries = [{"name": name} for name in to_remove]
-                    removal_changed, port_map, removal_list = delete_port_settings(
-                        module,
-                        connection,
-                        removal_entries,
-                        port_map,
-                    )
-                    if removal_changed:
-                        changed_ports = True
-                    removed_ports.extend(removal_list)
-
-        if changed_ports:
-            result["changed"] = True
-        if updated_ports:
-            result["port_updates"] = updated_ports
-        if removed_ports:
-            result["port_removals"] = removed_ports
-
-        if (changed_ports or (desired_ports and module.check_mode)) and updated_ports:
-            result["ports_settings"] = _transform_ports_output(
-                {name: port_map.get(name, {}) for name in updated_ports},
-                updated_ports,
-            )
-
-        if gather_state:
-            if gather_filter:
-                state_filter: Optional[List[str]] = gather_filter
-            elif updated_ports:
-                state_filter = updated_ports
-            elif removed_ports:
-                state_filter = removed_ports
-            else:
-                state_filter = None
-            result["ports_state"] = gather_autosense_state(connection, state_filter)
+            raise FeAutosenseError(
+                "Unsupported state '%s' supplied." % state)
 
         module.exit_json(**result)
     except ConnectionError as exc:

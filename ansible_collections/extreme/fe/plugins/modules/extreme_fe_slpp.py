@@ -16,7 +16,8 @@ The module supports three configuration scopes:
 
 Supported states:
   - merged     : Incremental update (add/change settings, keep the rest)
-  - replaced   : Authoritative for specified resources (all fields required)
+  - replaced   : Authoritative for specified resources (omitted fields are
+                 reset to factory defaults)
   - overridden : Full replacement (unspecified entries get removed)
   - deleted    : Reset specified entries back to factory defaults
   - gathered   : Read-only, returns current config + optional live state
@@ -36,7 +37,7 @@ from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
 
 # ── Type hints for readability ────────────────────────────────────────────────
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 DOCUMENTATION = r"""
 ---
@@ -56,6 +57,10 @@ description:
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
+    - SLPP manages two resource types, VLANs and ports, and a task may configure
+      both in one run. They are grouped under the C(config) dict. The former
+      top-level C(vlans) and C(ports) parameters still work and emit a
+      deprecation warning; the two forms cannot be mixed in one task.
     - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin
       shipped with this project.
     - Port identifiers must use slot:port notation such as C(1:5).
@@ -70,8 +75,11 @@ options:
             - Desired module operation.
             - C(merged) applies the provided settings as an incremental merge.
             - C(replaced) makes the supplied values authoritative for the targeted resources.
+              Fields omitted from an entry are reset to their factory defaults, so a partial
+              configuration is valid input.
             - C(overridden) replaces the running configuration with the supplied values and
-              removes entries that are not provided.
+              removes entries that are not provided. Omitted fields are reset to their
+              factory defaults, the same as C(replaced).
             - C(deleted) removes the specified per-port and per-VLAN overrides.
             - C(gathered) returns the current configuration (and optional state payloads)
               without making changes.
@@ -87,8 +95,57 @@ options:
                 description:
                     - Enable or disable SLPP globally on the switch.
                 type: bool
+    config:
+        description:
+          - SLPP configuration. Groups the two resource types SLPP manages;
+            a task may configure either or both in one run.
+        type: dict
+        suboptions:
+            vlans:
+                description:
+                  - Per-VLAN SLPP settings applied through C(/v0/configuration/slpp/vlan/{vlan_id}).
+                type: list
+                elements: dict
+                suboptions:
+                  vlan_id:
+                    description:
+                      - VLAN identifier (1-4094).
+                    type: int
+                    required: true
+                  enabled:
+                    description:
+                      - Enable or disable SLPP on this VLAN.
+                    type: bool
+            ports:
+                description:
+                  - Per-port SLPP settings applied through C(/v0/configuration/slpp/ports/{port}).
+                type: list
+                elements: dict
+                suboptions:
+                  name:
+                    description:
+                      - Port identifier (slot:port notation such as C(1:5)).
+                    type: str
+                    required: true
+                  enable_guard:
+                    description:
+                      - Enable SLPP guard on the specified port.  When a loop is detected the port is disabled.  Cannot be enabled at the same time as C(enable_packet_rx).
+                    type: bool
+                  guard_timeout:
+                    description:
+                      - Time in seconds a port remains disabled after SLPP guard triggers. A value of C(0) means the port will never be automatically re-enabled. Valid range is C(0) or C(10-65535).
+                    type: int
+                  enable_packet_rx:
+                    description:
+                      - Enable SLPP packet reception detection on the specified port. This setting is applicable to Fabric Engine (VOSS) only. Cannot be enabled at the same time as C(enable_guard).
+                    type: bool
+                  packet_rx_threshold:
+                    description:
+                      - Number of SLPP packets received before action is taken. Valid range is C(1-500).  Default is C(1). This setting is applicable to Fabric Engine (VOSS) only.
+                    type: int
     vlans:
         description:
+          - Deprecated. Use C(config.vlans) instead.
             - Per-VLAN SLPP settings applied through C(/v0/configuration/slpp/vlan/{vlan_id}).
         type: list
         elements: dict
@@ -104,6 +161,7 @@ options:
                 type: bool
     ports:
         description:
+          - Deprecated. Use C(config.ports) instead.
             - Per-port SLPP settings applied through C(/v0/configuration/slpp/ports/{port}).
         type: list
         elements: dict
@@ -188,11 +246,12 @@ EXAMPLES = r"""
     state: merged
     global_settings:
       enabled: true
-    vlans:
-      - vlan_id: 100
-        enabled: true
-      - vlan_id: 200
-        enabled: true
+    config:
+      vlans:
+        - vlan_id: 100
+          enabled: true
+        - vlan_id: 200
+          enabled: true
 
 # -------------------------------------------------------------------------
 # Task 2: Configure SLPP guard on edge ports
@@ -211,13 +270,14 @@ EXAMPLES = r"""
 - name: Enable SLPP guard with 120-second recovery on edge ports
   extreme.fe.extreme_fe_slpp:
     state: merged
-    ports:
-      - name: "1:5"
-        enable_guard: true
-        guard_timeout: 120
-      - name: "1:6"
-        enable_guard: true
-        guard_timeout: 120
+    config:
+      ports:
+        - name: "1:5"
+          enable_guard: true
+          guard_timeout: 120
+        - name: "1:6"
+          enable_guard: true
+          guard_timeout: 120
 
 # -------------------------------------------------------------------------
 # Task 3: Configure SLPP packet-rx detection
@@ -235,10 +295,11 @@ EXAMPLES = r"""
 - name: Enable SLPP packet-rx detection on port 1:10
   extreme.fe.extreme_fe_slpp:
     state: merged
-    ports:
-      - name: "1:10"
-        enable_packet_rx: true
-        packet_rx_threshold: 3
+    config:
+      ports:
+        - name: "1:10"
+          enable_packet_rx: true
+          packet_rx_threshold: 3
 
 # -------------------------------------------------------------------------
 # Task 4: Configure SLPP guard with no auto-recovery (manual restore)
@@ -253,10 +314,11 @@ EXAMPLES = r"""
 - name: Enable SLPP guard with manual recovery on port 1:7
   extreme.fe.extreme_fe_slpp:
     state: merged
-    ports:
-      - name: "1:7"
-        enable_guard: true
-        guard_timeout: 0
+    config:
+      ports:
+        - name: "1:7"
+          enable_guard: true
+          guard_timeout: 0
 
 # -------------------------------------------------------------------------
 # Task 5: Replace per-port SLPP configuration
@@ -271,12 +333,13 @@ EXAMPLES = r"""
 - name: Enforce exact SLPP guard settings on port 1:5
   extreme.fe.extreme_fe_slpp:
     state: replaced
-    ports:
-      - name: "1:5"
-        enable_guard: true
-        guard_timeout: 60
-        enable_packet_rx: false
-        packet_rx_threshold: 1
+    config:
+      ports:
+        - name: "1:5"
+          enable_guard: true
+          guard_timeout: 60
+          enable_packet_rx: false
+          packet_rx_threshold: 1
 
 # -------------------------------------------------------------------------
 # Task 6: Delete SLPP overrides from ports and VLANs
@@ -291,12 +354,13 @@ EXAMPLES = r"""
 - name: Remove SLPP configuration from ports and VLANs
   extreme.fe.extreme_fe_slpp:
     state: deleted
-    ports:
-      - name: "1:5"
-      - name: "1:6"
-    vlans:
-      - vlan_id: 100
-      - vlan_id: 200
+    config:
+      ports:
+        - name: "1:5"
+        - name: "1:6"
+      vlans:
+        - vlan_id: 100
+        - vlan_id: 200
 
 # -------------------------------------------------------------------------
 # Task 7: Gather SLPP configuration and state
@@ -323,6 +387,64 @@ changed:
   description: Indicates whether any changes were made.
   returned: always
   type: bool
+before:
+  description:
+    - Full SLPP configuration before changes, captured prior to any write.
+    - Contains the global settings plus all per-port and per-VLAN overrides,
+      unfiltered.
+    - Returned for action states (merged, replaced, overridden, deleted).
+  returned: when state is merged, replaced, overridden, or deleted
+  type: dict
+  contains:
+    global_settings:
+      description: Global SLPP configuration.
+      type: dict
+    ports_settings:
+      description: Per-port SLPP settings.
+      type: list
+      elements: dict
+    vlans_settings:
+      description: Per-VLAN SLPP settings.
+      type: list
+      elements: dict
+after:
+  description:
+    - Full SLPP configuration after changes, re-read from the device.
+    - Same structure as C(before).
+    - Only returned when the module made changes outside check mode.
+  returned: when changed
+  type: dict
+  contains:
+    global_settings:
+      description: Global SLPP configuration.
+      type: dict
+    ports_settings:
+      description: Per-port SLPP settings.
+      type: list
+      elements: dict
+    vlans_settings:
+      description: Per-VLAN SLPP settings.
+      type: list
+      elements: dict
+gathered:
+  description:
+    - SLPP configuration gathered from the device.
+    - Same structure as C(before), narrowed by C(gather_filter) and
+      C(gather_vlan_filter) when those are supplied.
+  returned: when state is gathered
+  type: dict
+  contains:
+    global_settings:
+      description: Global SLPP configuration.
+      type: dict
+    ports_settings:
+      description: Per-port SLPP settings.
+      type: list
+      elements: dict
+    vlans_settings:
+      description: Per-VLAN SLPP settings.
+      type: list
+      elements: dict
 global_settings:
   description: Resulting global SLPP configuration after any updates.
   returned: when state == gathered or when global settings changed/queried
@@ -361,6 +483,21 @@ ports_state:
 # Defines every parameter the module accepts.  Ansible validates user input
 # against this spec before the module code runs.
 
+# Per-resource entry shapes, shared by the 'config' dict and the deprecated
+# top-level 'vlans'/'ports' parameters so the two can never drift apart.
+_VLAN_ENTRY_SPEC = {
+    "vlan_id": {"type": "int", "required": True},
+    "enabled": {"type": "bool"},
+}
+
+_PORT_ENTRY_SPEC = {
+    "name": {"type": "str", "required": True},
+    "enable_guard": {"type": "bool"},
+    "guard_timeout": {"type": "int"},
+    "enable_packet_rx": {"type": "bool"},
+    "packet_rx_threshold": {"type": "int"},
+}
+
 ARGUMENT_SPEC: Dict[str, Any] = {
     "state": {
         "type": "str",
@@ -373,29 +510,77 @@ ARGUMENT_SPEC: Dict[str, Any] = {
             "enabled": {"type": "bool"},
         },
     },
+    # SLPP has two distinct resource types and a task legitimately configures
+    # both in one run (_handle_write applies global, then ports, then VLANs).
+    # They are therefore grouped under a 'config' dict rather than collapsed
+    # into one list -- the same shape extreme_fe_mlag uses for its 'peers' and
+    # 'rsmlt' sections. The former top-level 'vlans' and 'ports' remain as a
+    # deprecated form, folded into config by _config_from_params().
+    "config": {
+        "type": "dict",
+        "options": {
+            "vlans": {
+                "type": "list",
+                "elements": "dict",
+                "options": dict(_VLAN_ENTRY_SPEC),
+            },
+            "ports": {
+                "type": "list",
+                "elements": "dict",
+                "options": dict(_PORT_ENTRY_SPEC),
+            },
+        },
+    },
+    # Deprecated pre-1.2.1 form; folded into 'config' by _config_from_params().
     "vlans": {
         "type": "list",
         "elements": "dict",
-        "options": {
-            "vlan_id": {"type": "int", "required": True},
-            "enabled": {"type": "bool"},
-        },
+        "options": dict(_VLAN_ENTRY_SPEC),
     },
     "ports": {
         "type": "list",
         "elements": "dict",
-        "options": {
-            "name": {"type": "str", "required": True},
-            "enable_guard": {"type": "bool"},
-            "guard_timeout": {"type": "int"},
-            "enable_packet_rx": {"type": "bool"},
-            "packet_rx_threshold": {"type": "int"},
-        },
+        "options": dict(_PORT_ENTRY_SPEC),
     },
     "gather_filter": {"type": "list", "elements": "str"},
     "gather_vlan_filter": {"type": "list", "elements": "int"},
     "gather_state": {"type": "bool", "default": False},
 }
+
+
+def _config_from_params(module):
+    """Normalise both supported input forms into (vlans, ports).
+
+    The pre-1.2.1 form supplied 'vlans' and 'ports' at the top level. They are
+    accepted as a deprecated equivalent of the 'config' dict so existing
+    playbooks keep working; the two forms cannot be mixed in one task.
+    """
+    raw_config = module.params.get("config")
+    config = raw_config or {}
+    flat_vlans = module.params.get("vlans")
+    flat_ports = module.params.get("ports")
+    flat_used = flat_vlans is not None or flat_ports is not None
+
+    # Tested against raw_config, not the normalised copy: 'config' is a dict
+    # with suboptions, so Ansible fills it in as {'vlans': None, 'ports': None}
+    # and even an explicit 'config: {}' arrives truthy today. Keying the guard
+    # on "was it supplied" rather than "is it non-empty" keeps that true if the
+    # suboptions are ever restructured.
+    if raw_config is not None and flat_used:
+        module.fail_json(
+            msg="Use either the 'config' dict or the top-level 'vlans'/'ports' "
+                "parameters, not both. The top-level form is deprecated; move "
+                "its values into 'config'.")
+    if flat_used:
+        module.deprecate(
+            "Supplying 'vlans' and 'ports' at the top level is deprecated; use "
+            "the 'config' dict instead, for example "
+            "config: {vlans: [{vlan_id: 100}], ports: [{name: '1:5'}]}.",
+            version="2.0.0",
+            collection_name="extreme.fe",
+        )
+        return (flat_vlans or []), (flat_ports or [])
+    return (config.get("vlans") or []), (config.get("ports") or [])
 
 # ─── Field Maps ───────────────────────────────────────────────────────────────
 # These dictionaries translate between Ansible parameter names (snake_case)
@@ -415,11 +600,38 @@ VLAN_FIELD_MAP: Dict[str, str] = {
     "enabled": "enabled",  # SLPP on/off for a specific VLAN
 }
 
+# ─── Factory Defaults ─────────────────────────────────────────────────────────
+# Every writable field with its factory-default value, in REST API field names.
+#
+# These drive three things:
+#   - replaced / overridden: fields the user omits are reset to these values,
+#     so the resulting configuration is authoritative rather than additive
+#   - deleted: the reset payload sent to return a resource to factory state
+#   - the "already at defaults, nothing to do" idempotency check
+#
+# Getting a value wrong here silently corrupts all three, so each entry
+# records where it came from.
+
+PORT_FULL_DEFAULTS: Dict[str, Any] = {
+    "enableGuard": False,      # OpenAPI SlppPortSettings.enableGuard default: false
+    # No default in the OpenAPI spec (guardTimeout is an anyOf of 0 and
+    # 10-65535).  The User Guide states 60 seconds, but the device disagrees:
+    # verified via "show slpp-guard" on factory-default ports, which report
+    # Timeout 0.  0 means a guard-disabled port stays down until reenabled.
+    "guardTimeout": 0,
+    "enablePacketRx": False,   # OpenAPI SlppPortSettings.enablePacketRx default: false
+    "packetRxThreshold": 1,    # OpenAPI SlppPortSettings.packetRxThreshold default: 1
+}
+
+VLAN_FULL_DEFAULTS: Dict[str, Any] = {
+    "enabled": False,          # OpenAPI SlppVlanSettings.enabled default: false
+}
+
 # ─── State Constants ──────────────────────────────────────────────────────────
 # These match the 'state' parameter values the user provides in their playbook.
 
 STATE_MERGED = "merged"  # Incremental update (default)
-STATE_REPLACED = "replaced"  # Authoritative per-resource (all fields required)
+STATE_REPLACED = "replaced"  # Authoritative per-resource (omitted fields reset)
 STATE_OVERRIDDEN = "overridden"  # Full replace; unspecified entries get removed
 STATE_DELETED = "deleted"  # Reset entries to factory defaults
 STATE_GATHERED = "gathered"  # Read-only; no changes made
@@ -496,33 +708,43 @@ def _deep_merge(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]
 # format expected by the switch REST API.
 
 
-def _build_port_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert user-supplied port parameters to REST API JSON payload.
+def _build_payload(
+    entry: Dict[str, Any],
+    field_map: Dict[str, str],
+    full_defaults: Dict[str, Any],
+    state_mode: str,
+) -> Dict[str, Any]:
+    """Convert user-supplied parameters to a REST API JSON payload.
 
-    Only includes fields that the user actually specified (non-None).
+    merged: only the fields the user actually specified (non-None) are
+    included, so everything else on the device is left alone.
+
+    replaced / overridden: the payload is complete - every field the user
+    omitted is filled from *full_defaults*.  That is what makes these states
+    authoritative, and it means a partial config is valid input rather than
+    an error.
     """
     payload: Dict[str, Any] = {}
-    for param, rest_key in PORT_FIELD_MAP.items():
-        if param not in entry:
-            continue
+    authoritative = state_mode in (STATE_REPLACED, STATE_OVERRIDDEN)
+
+    for param, rest_key in field_map.items():
         value = entry.get(param)
-        if value is None:
-            continue
-        payload[rest_key] = value
+        if value is not None:
+            payload[rest_key] = value
+        elif authoritative:
+            # Omitted by the user - reset it to the factory default.
+            payload[rest_key] = full_defaults[rest_key]
     return payload
 
 
-def _build_vlan_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """Convert user-supplied VLAN parameters to REST API JSON payload."""
-    payload: Dict[str, Any] = {}
-    for param, rest_key in VLAN_FIELD_MAP.items():
-        if param not in entry:
-            continue
-        value = entry.get(param)
-        if value is None:
-            continue
-        payload[rest_key] = value
-    return payload
+def _build_port_payload(entry: Dict[str, Any], state_mode: str) -> Dict[str, Any]:
+    """Build the REST payload for one port entry."""
+    return _build_payload(entry, PORT_FIELD_MAP, PORT_FULL_DEFAULTS, state_mode)
+
+
+def _build_vlan_payload(entry: Dict[str, Any], state_mode: str) -> Dict[str, Any]:
+    """Build the REST payload for one VLAN entry."""
+    return _build_payload(entry, VLAN_FIELD_MAP, VLAN_FULL_DEFAULTS, state_mode)
 
 
 # ─── Output Transformation ────────────────────────────────────────────────────
@@ -582,6 +804,30 @@ def _transform_vlans_output(
                 transformed[param] = settings.get(rest_key)
         result.append({"vlan_id": vlan_id, "settings": transformed})
     return result
+
+
+def _capture_snapshot(
+    global_settings: Dict[str, Any],
+    port_map: Dict[str, Dict[str, Any]],
+    vlan_map: Dict[int, Dict[str, Any]],
+    port_filter: Optional[Iterable[str]] = None,
+    vlan_filter: Optional[Iterable[int]] = None,
+) -> Dict[str, Any]:
+    """Build a full SLPP configuration snapshot in Ansible output format.
+
+    SLPP spans three resource groups - one global toggle plus per-port and
+    per-VLAN overrides - so a snapshot bundles all three.  This is what the
+    standard 'before', 'after' and 'gathered' return keys contain.
+
+    The filters are only used by 'gathered', where the user explicitly asked
+    for a subset.  'before' and 'after' are always captured unfiltered so the
+    result shows the complete device configuration around the change.
+    """
+    return {
+        "global_settings": dict(global_settings),
+        "ports_settings": _transform_ports_output(port_map, port_filter),
+        "vlans_settings": _transform_vlans_output(vlan_map, vlan_filter),
+    }
 
 
 # ─── Connection ───────────────────────────────────────────────────────────────
@@ -692,7 +938,8 @@ def apply_global_settings(
 
 # ─── Apply VLAN Settings ──────────────────────────────────────────────────────
 # Iterates over the user's VLAN entries and applies changes one VLAN at a time.
-# For 'replaced'/'overridden' states, all VLAN fields must be specified.
+# For 'replaced'/'overridden', omitted fields are filled from VLAN_FULL_DEFAULTS
+# rather than being required from the user.
 # Only sends a PATCH when values actually differ from the switch (idempotent).
 
 
@@ -708,24 +955,12 @@ def apply_vlan_settings(
 
     changed = False
     updated_vlans: List[int] = []
-    require_full_definition = state_mode in (STATE_REPLACED, STATE_OVERRIDDEN)
 
     for entry in operations:
         vlan_id = entry["vlan_id"]
-        if require_full_definition:
-            missing = [
-                param for param in VLAN_FIELD_MAP
-                if param not in entry or entry[param] is None
-            ]
-            if missing:
-                raise FeSlppError(
-                    "VLAN {vlan} requires values for {fields} when state is '{state}'.".format(
-                        vlan=vlan_id,
-                        fields=", ".join(sorted(missing)),
-                        state=state_mode,
-                    )
-                )
-        payload = _build_vlan_payload(entry)
+        # Partial config is valid: for replaced/overridden the builder fills
+        # any omitted field with its factory default.
+        payload = _build_vlan_payload(entry, state_mode)
         if not payload:
             continue
 
@@ -762,7 +997,8 @@ def apply_vlan_settings(
 # ─── Apply Port Settings ──────────────────────────────────────────────────────
 # Iterates over the user's port entries and applies changes one port at a time.
 # Validates guard/packet-rx mutual exclusivity before touching the API.
-# For 'replaced'/'overridden' states, all port fields must be specified.
+# For 'replaced'/'overridden', omitted fields are filled from PORT_FULL_DEFAULTS
+# rather than being required from the user.
 # Only sends a PATCH when values actually differ from the switch (idempotent).
 
 
@@ -778,26 +1014,14 @@ def apply_port_settings(
 
     changed = False
     updated_ports: List[str] = []
-    require_full_definition = state_mode in (STATE_REPLACED, STATE_OVERRIDDEN)
 
     for entry in operations:
         port_name = _normalize_port_name(entry["name"])
         _validate_port_entry(entry)
 
-        if require_full_definition:
-            missing = [
-                param for param in PORT_FIELD_MAP
-                if param not in entry or entry[param] is None
-            ]
-            if missing:
-                raise FeSlppError(
-                    "Port '{port}' requires values for {fields} when state is '{state}'.".format(
-                        port=port_name,
-                        fields=", ".join(sorted(missing)),
-                        state=state_mode,
-                    )
-                )
-        payload = _build_port_payload(entry)
+        # Partial config is valid: for replaced/overridden the builder fills
+        # any omitted field with its factory default.
+        payload = _build_port_payload(entry, state_mode)
         if not payload:
             continue
 
@@ -864,12 +1088,8 @@ def _delete_port_override(
     current_map: Dict[str, Dict[str, Any]],
 ) -> bool:
     existing_settings = current_map.get(port_name)
-    defaults: Dict[str, Any] = {
-        "enableGuard": False,
-        "guardTimeout": 0,
-        "enablePacketRx": False,
-        "packetRxThreshold": 1,
-    }
+    # Same factory defaults that replaced/overridden fill omitted fields with.
+    defaults: Dict[str, Any] = dict(PORT_FULL_DEFAULTS)
 
     # Already at defaults — nothing to change
     if existing_settings is not None:
@@ -954,7 +1174,8 @@ def _delete_vlan_override(
     current_map: Dict[int, Dict[str, Any]],
 ) -> bool:
     existing_settings = current_map.get(vlan_id)
-    defaults: Dict[str, Any] = {"enabled": False}
+    # Same factory default that replaced/overridden fills an omitted field with.
+    defaults: Dict[str, Any] = dict(VLAN_FULL_DEFAULTS)
 
     # Already at defaults — nothing to change
     if existing_settings is not None:
@@ -1060,17 +1281,290 @@ def gather_slpp_state(
     return results
 
 
+# ─── State Handlers ───────────────────────────────────────────────────────────
+# Each state gets its own handler so run_module() stays a thin dispatcher.
+
+
+def _handle_gathered(
+    module: AnsibleModule,
+    connection: Connection,
+    current_global: Dict[str, Any],
+    port_map: Dict[str, Dict[str, Any]],
+    vlan_map: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """state=gathered - read-only; return current config, send no writes."""
+    gather_filter = module.params.get("gather_filter") or None
+    gather_vlan_filter = module.params.get("gather_vlan_filter") or None
+
+    # Honour the user's filters here - unlike before/after, 'gathered' is an
+    # explicit request for a specific subset of the configuration.
+    snapshot = _capture_snapshot(
+        current_global, port_map, vlan_map, gather_filter, gather_vlan_filter
+    )
+
+    result: Dict[str, Any] = {"changed": False}
+    result.update(snapshot)          # historic top-level keys, kept for compatibility
+    result["gathered"] = snapshot    # Ansible standard key
+
+    if module.params.get("gather_state"):
+        result["ports_state"] = gather_slpp_state(connection, gather_filter)
+    return result
+
+
+def _handle_global(
+    module: AnsibleModule,
+    connection: Connection,
+    state: str,
+    desired_global: Dict[str, Any],
+    current_global: Dict[str, Any],
+    result: Dict[str, Any],
+) -> None:
+    """Apply the global SLPP toggle (or reject it for state=deleted)."""
+    if state == STATE_DELETED:
+        # There is no per-device default to reset to, so deleting global
+        # settings is not a supported operation.
+        if desired_global:
+            raise FeSlppError(
+                "Global settings cannot be supplied when state='deleted'."
+            )
+        return
+
+    changed_global, updated_global = apply_global_settings(
+        module, connection, desired_global, current_global
+    )
+    if changed_global:
+        result["changed"] = True
+    if changed_global or (desired_global and module.check_mode):
+        result["global_settings"] = dict(updated_global)
+
+
+def _remove_unlisted_ports(
+    module: AnsibleModule,
+    connection: Connection,
+    desired_ports: List[Dict[str, Any]],
+    port_map: Dict[str, Dict[str, Any]],
+    initial_port_names: Set[str],
+) -> Tuple[bool, Dict[str, Dict[str, Any]], List[str]]:
+    """state=overridden pre-pass: reset every port the user did not list."""
+    desired_port_names = {
+        _normalize_port_name(entry["name"])
+        for entry in desired_ports
+        if "name" in entry
+    }
+    to_remove = [
+        name for name in initial_port_names if name not in desired_port_names
+    ]
+    if not to_remove:
+        return False, port_map, []
+
+    removal_entries = [{"name": name} for name in to_remove]
+    # graceful=True: a port with no override to clear is not an error here.
+    return delete_port_settings(
+        module, connection, removal_entries, port_map, graceful=True
+    )
+
+
+def _handle_port_ops(
+    module: AnsibleModule,
+    connection: Connection,
+    state: str,
+    desired_ports: List[Dict[str, Any]],
+    port_map: Dict[str, Dict[str, Any]],
+    initial_port_names: Set[str],
+    result: Dict[str, Any],
+) -> Tuple[Dict[str, Dict[str, Any]], List[str], List[str]]:
+    """Apply per-port SLPP settings for the current state.
+
+    Returns the updated port map plus the lists of updated and removed ports.
+    """
+    updated_ports: List[str] = []
+    removed_ports: List[str] = []
+
+    if state == STATE_DELETED:
+        # Reset the listed ports back to their factory defaults.
+        changed_ports, port_map, removed_ports = delete_port_settings(
+            module, connection, desired_ports, port_map
+        )
+    else:
+        changed_ports, port_map, updated_ports = apply_port_settings(
+            module, connection, desired_ports, port_map, state
+        )
+        if state == STATE_OVERRIDDEN:
+            extra_changed, port_map, extra_removed = _remove_unlisted_ports(
+                module, connection, desired_ports, port_map, initial_port_names
+            )
+            if extra_changed:
+                changed_ports = True
+            removed_ports.extend(extra_removed)
+
+    if changed_ports:
+        result["changed"] = True
+    if updated_ports:
+        result["port_updates"] = updated_ports
+    if removed_ports:
+        result["port_removals"] = removed_ports
+
+    if (changed_ports or (desired_ports and module.check_mode)) and updated_ports:
+        result["ports_settings"] = _transform_ports_output(
+            {name: port_map.get(name, {}) for name in updated_ports},
+            updated_ports,
+        )
+    return port_map, updated_ports, removed_ports
+
+
+def _remove_unlisted_vlans(
+    module: AnsibleModule,
+    connection: Connection,
+    desired_vlans: List[Dict[str, Any]],
+    vlan_map: Dict[int, Dict[str, Any]],
+    initial_vlan_ids: Set[int],
+) -> Tuple[bool, Dict[int, Dict[str, Any]], List[int]]:
+    """state=overridden pre-pass: reset every VLAN the user did not list."""
+    desired_vlan_ids = {
+        entry["vlan_id"] for entry in desired_vlans if "vlan_id" in entry
+    }
+    to_remove = [vid for vid in initial_vlan_ids if vid not in desired_vlan_ids]
+    if not to_remove:
+        return False, vlan_map, []
+
+    removal_entries = [{"vlan_id": vid} for vid in to_remove]
+    return delete_vlan_settings(module, connection, removal_entries, vlan_map)
+
+
+def _handle_vlan_ops(
+    module: AnsibleModule,
+    connection: Connection,
+    state: str,
+    desired_vlans: List[Dict[str, Any]],
+    vlan_map: Dict[int, Dict[str, Any]],
+    initial_vlan_ids: Set[int],
+    result: Dict[str, Any],
+) -> Dict[int, Dict[str, Any]]:
+    """Apply per-VLAN SLPP settings - same pattern as the port handler."""
+    updated_vlans: List[int] = []
+    removed_vlans: List[int] = []
+
+    if state == STATE_DELETED:
+        changed_vlans, vlan_map, removed_vlans = delete_vlan_settings(
+            module, connection, desired_vlans, vlan_map
+        )
+    else:
+        changed_vlans, vlan_map, updated_vlans = apply_vlan_settings(
+            module, connection, desired_vlans, vlan_map, state
+        )
+        if state == STATE_OVERRIDDEN:
+            extra_changed, vlan_map, extra_removed = _remove_unlisted_vlans(
+                module, connection, desired_vlans, vlan_map, initial_vlan_ids
+            )
+            if extra_changed:
+                changed_vlans = True
+            removed_vlans.extend(extra_removed)
+
+    if changed_vlans:
+        result["changed"] = True
+    if updated_vlans:
+        result["vlan_updates"] = updated_vlans
+    if removed_vlans:
+        result["vlan_removals"] = removed_vlans
+
+    if (changed_vlans or (desired_vlans and module.check_mode)) and updated_vlans:
+        result["vlans_settings"] = _transform_vlans_output(
+            {vid: vlan_map.get(vid, {}) for vid in updated_vlans},
+            updated_vlans,
+        )
+    return vlan_map
+
+
+def _capture_after_state(
+    module: AnsibleModule,
+    connection: Connection,
+    result: Dict[str, Any],
+) -> None:
+    """Re-read the device to populate the standard 'after' key.
+
+    Only done when something actually changed, and never in check mode -
+    nothing was written there, so 'after' would be misleading.
+    """
+    if not result.get("changed") or module.check_mode:
+        return
+    after_global, after_ports, after_vlans = fetch_slpp_config(connection)
+    result["after"] = _capture_snapshot(after_global, after_ports, after_vlans)
+
+
+def _maybe_gather_live_state(
+    module: AnsibleModule,
+    connection: Connection,
+    result: Dict[str, Any],
+    updated_ports: List[str],
+    removed_ports: List[str],
+) -> None:
+    """Optionally read /v0/state/slpp for real-time guard status."""
+    if not module.params.get("gather_state"):
+        return
+
+    gather_filter = module.params.get("gather_filter") or None
+    if gather_filter:
+        state_filter: Optional[List[str]] = list(gather_filter)
+    elif updated_ports:
+        state_filter = updated_ports
+    elif removed_ports:
+        state_filter = removed_ports
+    else:
+        state_filter = None
+    result["ports_state"] = gather_slpp_state(connection, state_filter)
+
+
+def _handle_action_states(
+    module: AnsibleModule,
+    connection: Connection,
+    state: str,
+    current_global: Dict[str, Any],
+    port_map: Dict[str, Dict[str, Any]],
+    vlan_map: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Handle merged / replaced / overridden / deleted."""
+    desired_global = module.params.get("global_settings") or {}
+    desired_vlans, desired_ports = _config_from_params(module)
+
+    # Entries present before we touch anything - 'overridden' uses these to
+    # work out which ports/VLANs the user left out and must therefore reset.
+    initial_port_names = set(port_map.keys())
+    initial_vlan_ids = set(vlan_map.keys())
+
+    # Standard 'before' key: full unfiltered snapshot taken prior to any write.
+    result: Dict[str, Any] = {
+        "changed": False,
+        "before": _capture_snapshot(current_global, port_map, vlan_map),
+    }
+
+    _handle_global(module, connection, state, desired_global, current_global, result)
+    port_map, updated_ports, removed_ports = _handle_port_ops(
+        module, connection, state, desired_ports,
+        port_map, initial_port_names, result,
+    )
+    vlan_map = _handle_vlan_ops(
+        module, connection, state, desired_vlans,
+        vlan_map, initial_vlan_ids, result,
+    )
+
+    # Standard 'after' key: re-read once, after every write has landed.
+    _capture_after_state(module, connection, result)
+    _maybe_gather_live_state(
+        module, connection, result, updated_ports, removed_ports
+    )
+    return result
+
+
 # ─── Main Module Logic ────────────────────────────────────────────────────────
 # This is the entry point.  The flow is:
 #   1. Create AnsibleModule and validate user input against ARGUMENT_SPEC
 #   2. Connect to the switch via httpapi
 #   3. Fetch current config from the switch (one GET call)
-#   4. Branch based on the requested state:
+#   4. Dispatch to the handler for the requested state:
 #      - gathered  → return current config, no changes
-#      - merged/replaced/overridden → apply global, port, and VLAN changes
-#      - deleted   → reset specified ports/VLANs to defaults
-#   5. Optionally fetch live state if gather_state=true
-#   6. Return results via module.exit_json()
+#      - merged/replaced/overridden/deleted → apply changes, snapshot
+#        before/after around them
+#   5. Return results via module.exit_json()
 
 
 def run_module() -> None:
@@ -1084,181 +1578,23 @@ def run_module() -> None:
         module.fail_json(**exc.to_fail_kwargs())
         return
 
-    result: Dict[str, Any] = {"changed": False}
-
     try:
-        # Step 3: Read user parameters
         state = module.params.get("state")
-        gather_filter = module.params.get("gather_filter") or None
-        gather_vlan_filter = module.params.get("gather_vlan_filter") or None
-        gather_state = bool(module.params.get("gather_state"))
 
-        # Step 4: Fetch the current SLPP configuration from the switch
+        # Step 3: Fetch the current SLPP configuration from the switch
         current_global, port_map, vlan_map = fetch_slpp_config(connection)
 
-        # ── Gathered (read-only — return current config, make no changes) ─
+        # Step 4: Dispatch on state
         if state == STATE_GATHERED:
-            result["global_settings"] = dict(current_global)
-            result["ports_settings"] = _transform_ports_output(port_map, gather_filter)
-            result["vlans_settings"] = _transform_vlans_output(
-                vlan_map, gather_vlan_filter
+            result = _handle_gathered(
+                module, connection, current_global, port_map, vlan_map
             )
-            if gather_state:
-                result["ports_state"] = gather_slpp_state(connection, gather_filter)
-            module.exit_json(**result)
-
-        # Collect the user's desired configuration
-        desired_global = module.params.get("global_settings") or {}
-        desired_ports = module.params.get("ports") or []
-        desired_vlans = module.params.get("vlans") or []
-        # Snapshot current entries (used by 'overridden' to detect extras to remove)
-        initial_port_names = set(port_map.keys())
-        initial_vlan_ids = set(vlan_map.keys())
-
-        # ── Merged / Replaced / Overridden — apply changes ───────────────
-        if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN):
-            # Global settings
-            changed_global, current_global = apply_global_settings(
-                module,
-                connection,
-                desired_global,
-                current_global,
+        elif state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DELETED):
+            result = _handle_action_states(
+                module, connection, state, current_global, port_map, vlan_map
             )
-            if changed_global:
-                result["changed"] = True
-            if changed_global or (desired_global and module.check_mode):
-                result["global_settings"] = dict(current_global)
-
-        elif state == STATE_DELETED:
-            if desired_global:
-                raise FeSlppError(
-                    "Global settings cannot be supplied when state='deleted'."
-                )
         else:
             raise FeSlppError(f"Unsupported state '{state}' supplied.")
-
-        # ── Port operations ──────────────────────────────────────────────
-        # For 'deleted': reset ports to defaults
-        # For 'overridden': apply desired + remove ports not in desired list
-        updated_ports: List[str] = []
-        removed_ports: List[str] = []
-
-        if state == STATE_DELETED:
-            changed_ports, port_map, removed_ports = delete_port_settings(
-                module,
-                connection,
-                desired_ports,
-                port_map,
-            )
-        else:
-            changed_ports, port_map, updated_ports = apply_port_settings(
-                module,
-                connection,
-                desired_ports,
-                port_map,
-                state,
-            )
-            if state == STATE_OVERRIDDEN:
-                desired_port_names = {
-                    _normalize_port_name(entry["name"])
-                    for entry in desired_ports
-                    if "name" in entry
-                }
-                to_remove = [
-                    name
-                    for name in initial_port_names
-                    if name not in desired_port_names
-                ]
-                if to_remove:
-                    removal_entries = [{"name": name} for name in to_remove]
-                    removal_changed, port_map, removal_list = delete_port_settings(
-                        module,
-                        connection,
-                        removal_entries,
-                        port_map,
-                        graceful=True,
-                    )
-                    if removal_changed:
-                        changed_ports = True
-                    removed_ports.extend(removal_list)
-
-        if changed_ports:
-            result["changed"] = True
-        if updated_ports:
-            result["port_updates"] = updated_ports
-        if removed_ports:
-            result["port_removals"] = removed_ports
-
-        if (changed_ports or (desired_ports and module.check_mode)) and updated_ports:
-            result["ports_settings"] = _transform_ports_output(
-                {name: port_map.get(name, {}) for name in updated_ports},
-                updated_ports,
-            )
-
-        # ── VLAN operations ──────────────────────────────────────────────
-        # Same pattern as ports: delete resets, overridden removes extras
-        updated_vlans: List[int] = []
-        removed_vlans: List[int] = []
-
-        if state == STATE_DELETED:
-            changed_vlans, vlan_map, removed_vlans = delete_vlan_settings(
-                module,
-                connection,
-                desired_vlans,
-                vlan_map,
-            )
-        else:
-            changed_vlans, vlan_map, updated_vlans = apply_vlan_settings(
-                module,
-                connection,
-                desired_vlans,
-                vlan_map,
-                state,
-            )
-            if state == STATE_OVERRIDDEN:
-                desired_vlan_ids = {
-                    entry["vlan_id"] for entry in desired_vlans if "vlan_id" in entry
-                }
-                to_remove = [
-                    vid for vid in initial_vlan_ids if vid not in desired_vlan_ids
-                ]
-                if to_remove:
-                    removal_entries = [{"vlan_id": vid} for vid in to_remove]
-                    removal_changed, vlan_map, removal_list = delete_vlan_settings(
-                        module,
-                        connection,
-                        removal_entries,
-                        vlan_map,
-                    )
-                    if removal_changed:
-                        changed_vlans = True
-                    removed_vlans.extend(removal_list)
-
-        if changed_vlans:
-            result["changed"] = True
-        if updated_vlans:
-            result["vlan_updates"] = updated_vlans
-        if removed_vlans:
-            result["vlan_removals"] = removed_vlans
-
-        if (changed_vlans or (desired_vlans and module.check_mode)) and updated_vlans:
-            result["vlans_settings"] = _transform_vlans_output(
-                {vid: vlan_map.get(vid, {}) for vid in updated_vlans},
-                updated_vlans,
-            )
-
-        # ── Optional live state gathering (from /v0/state/slpp) ──────────
-        # Shows real-time guard status (blocked ports, timers, etc.)
-        if gather_state:
-            if gather_filter:
-                state_filter: Optional[List[str]] = list(gather_filter)
-            elif updated_ports:
-                state_filter = updated_ports
-            elif removed_ports:
-                state_filter = removed_ports
-            else:
-                state_filter = None
-            result["ports_state"] = gather_slpp_state(connection, state_filter)
 
         module.exit_json(**result)
     except ConnectionError as exc:

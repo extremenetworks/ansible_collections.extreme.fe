@@ -92,7 +92,7 @@ This module manages VLANs on Fabric Engine devices using the REST API endpoints 
 |-------|-----------|-------------|
 | `merged` | Create VLAN if missing; add memberships incrementally. | GET, POST, PATCH |
 | `replaced` | Make supplied memberships authoritative for the VLAN. | GET, POST, PATCH |
-| `overridden` | Clear memberships not provided while applying supplied definitions. | GET, POST, PATCH, DELETE |
+| `overridden` | As `replaced` for the listed VLANs, and authoritative across the device — VLANs not listed are **deleted**. VLANs 1 and 4048 are never removed; refused deletes land in `skipped_vlans`. | GET, POST, PATCH, DELETE |
 | `deleted` | Remove the VLAN from the device. | GET, DELETE |
 | `gathered` | Read-only output. | GET |
 
@@ -103,8 +103,12 @@ This module manages VLANs on Fabric Engine devices using the REST API endpoints 
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
-| `vlan` | dict | VLAN details when applying configuration changes |
-| `vlans` | list | List of VLAN data when state is gathered |
+| `before` | list | Full VLAN configuration before the task ran. Returned for every state except `gathered` |
+| `after` | list | Full VLAN configuration after the task ran. Omitted when nothing changed or in check mode |
+| `vlans` | list | Under the action states, per-VLAN results (`vlan_id`, `before`, `after`, `changed`, `differences`). Under `gathered` it repeats `gathered` instead — the key this module used for that state up to 1.2.0, kept for compatibility and removed in 2.0.0. Prefer `gathered` |
+| `deleted_vlans` | list | VLAN IDs removed by `overridden` because the task did not list them. In check mode, those that would be removed |
+| `skipped_vlans` | list | Unlisted VLANs `overridden` could not delete, each as `vlan_id` and `reason`. Also raised as warnings |
+| `gathered` | list | VLAN data returned when state is `gathered` |
 
 ---
 
