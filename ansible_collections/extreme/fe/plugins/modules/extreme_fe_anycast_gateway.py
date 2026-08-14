@@ -52,8 +52,8 @@ description:
     Fabric Engine (VOSS) switches via the REST API.
   - Supports all five Ansible resource module states.
   - Each Anycast Gateway interface is identified by its C(vlan_id).
-  - Writable fields at creation (immutable after): C(ip_address), C(mask_length),
-    C(one_ip), C(vr_id).
+  - "Writable fields at creation (immutable after): C(ip_address),
+    C(mask_length), C(one_ip), C(vr_id)."
   - Only C(enabled) can be updated on an existing interface via PATCH.
 author:
   - Extreme Networks
@@ -68,8 +68,8 @@ notes:
     treated as "don't care" — only provided immutable fields are compared for
     differences. If you want to enforce specific immutable values on an existing
     interface, provide all immutable fields or use C(state=deleted) first.
-  - C(mask_length) can only be specified when C(one_ip=true). VOSS constraint:
-    "IP Address mask allowed only with Anycast Gateway ONE-IP."
+  - "C(mask_length) can only be specified when C(one_ip=true). VOSS constraint:
+    'IP Address mask allowed only with Anycast Gateway ONE-IP.'"
   - The module automatically disables an interface (C(enabled=false)) before
     deleting it, as required by VOSS.
   - IPv6 Anycast is currently not supported by the device firmware.
@@ -918,12 +918,19 @@ def _validate_entry(module: AnsibleModule, entry: Dict[str, Any]) -> None:
 
 def _predict_after_create(entry: Dict[str, Any]) -> Dict[str, Any]:
     """Predict the after state for a newly created interface."""
+    # Ansible pre-populates every declared suboption, so these keys are always
+    # present and get()'s default never fires -- an omitted field arrives as
+    # None. Test the value instead, the way _predict_after_patch() does.
+    # Otherwise check mode predicts enabled/one_ip as None while the device
+    # actually settles on the factory defaults, and the diff is misleading.
+    enabled = entry.get("enabled")
+    one_ip = entry.get("one_ip")
     predicted: Dict[str, Any] = {
         "vlan_id": entry["vlan_id"],
         "ip_address": entry.get("ip_address"),
         "mask_length": entry.get("mask_length"),
-        "enabled": entry.get("enabled", FACTORY_DEFAULTS["enabled"]),
-        "one_ip": entry.get("one_ip", FACTORY_DEFAULTS["one_ip"]),
+        "enabled": FACTORY_DEFAULTS["enabled"] if enabled is None else enabled,
+        "one_ip": FACTORY_DEFAULTS["one_ip"] if one_ip is None else one_ip,
         "vr_id": entry.get("vr_id"),
         "mac_address": None,
         "l2vsn_isid": None,

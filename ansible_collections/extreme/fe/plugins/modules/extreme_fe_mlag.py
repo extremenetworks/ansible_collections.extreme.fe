@@ -31,7 +31,7 @@ options:
     description:
     - Desired MLAG operation.
     type: str
-    choices: [present, absent, gathered, merged, replaced, deleted]
+    choices: [present, absent, gathered, merged, replaced, overridden, deleted]
     default: present
   config:
     description:
@@ -302,16 +302,22 @@ EXAMPLES = r"""
 
 RETURN = r"""
 before:
-  description: The configuration prior to the module execution.
-  returned: when changed
+  description:
+    - The MLAG configuration on the device before the task ran.
+    - Captured for every state except C(gathered).
+  returned: when state is not gathered
   type: dict
   sample:
     peers: []
     rsmlt: 
       instances: []
 after:
-  description: The resulting configuration after module execution.
-  returned: when changed
+  description:
+    - The MLAG configuration on the device after the task ran.
+    - Re-read from the device, so it reflects what the device actually applied
+      rather than what was requested. Not returned when nothing changed or in
+      check mode, since it would repeat C(before).
+  returned: when the task changed the device and not in check mode
   type: dict
   sample:
     peers:
@@ -372,110 +378,235 @@ class MlagModule:
     def run(self) -> Dict[str, Any]:
         """Execute the module."""
         state = self.module.params['state']
-        
-        # Validate input parameters
         self._validate_parameters()
-        
+
         try:
+            current = self._gather_facts()
+            self.result['before'] = current
+
             if state == 'gathered':
-                return self._handle_gathered()
-            elif state in ['present', 'merged']:
-                return self._handle_present()
+                self.result['gathered'] = current
+                # gathered reads nothing and writes nothing, so a snapshot pair
+                # would just repeat the facts already under 'gathered'.
+                self.result.pop('before', None)
+                self.result.pop('after', None)
+                return self.result
+
+            if state in ('present', 'merged'):
+                self._write(current, ports_authoritative=False, rsmlt_authoritative=False)
             elif state == 'replaced':
-                return self._handle_replaced()
-            elif state in ['absent', 'deleted']:
-                return self._handle_absent()
+                self._write(current, ports_authoritative=True, rsmlt_authoritative=False)
+            elif state == 'overridden':
+                self._write(current, ports_authoritative=True, rsmlt_authoritative=True)
+            elif state in ('absent', 'deleted'):
+                self._delete(current)
             else:
                 self.module.fail_json(msg=f"Unsupported state: {state}")
+
+            # after-snapshot: only re-read when a real change was applied.
+            # When nothing changed, or in check mode, 'after' would just repeat
+            # 'before', so it is omitted instead -- same convention as
+            # extreme_fe_interfaces and extreme_fe_autosense.
+            if self.result['changed'] and not self.module.check_mode:
+                self.result['after'] = self._gather_facts()
+            else:
+                self.result.pop('after', None)
+            return self.result
         except ConnectionError as e:
             self.module.fail_json(msg=f"Connection error: {to_text(e)}")
         except Exception as e:
             import traceback
             self.module.fail_json(msg=f"Unexpected error: {to_text(e)}\nTraceback: {traceback.format_exc()}")
 
-    def _handle_gathered(self) -> Dict[str, Any]:
-        """Handle gathered state."""
-        gathered_data = self._gather_facts()
-        self.result['gathered'] = gathered_data
-        return self.result
+    # ------------------------------------------------------------------
+    # Change application (central point for idempotency + check_mode)
+    # ------------------------------------------------------------------
+    def _apply(self, method: str, path: str, data: Any, desc: str, graceful: bool = False) -> Any:
+        """Record and send a mutating request.
 
-    def _handle_present(self) -> Dict[str, Any]:
-        """Handle present/merged state."""
-        current_config = self._gather_facts()
-        self.result['before'] = current_config
-        
-        desired_config = self.module.params.get('config', {})
-        if not desired_config:
-            self.result['after'] = current_config
-            return self.result
-
-        # Configure peers
-        if 'peers' in desired_config and desired_config['peers']:
-            for peer_config in desired_config['peers']:
-                self._configure_peer(peer_config)
-
-        # Configure RSMLT
-        if 'rsmlt' in desired_config and desired_config['rsmlt'] and 'instances' in desired_config['rsmlt']:
-            for rsmlt_config in desired_config['rsmlt']['instances']:
-                self._configure_rsmlt_instance(rsmlt_config)
-
-        if self.result['commands']:
+        Only called when a real difference exists. changed and the command
+        entry are recorded only after a successful apply (or in check_mode),
+        so a graceful failure (e.g. an unsupported peer-IP reset) does not
+        falsely report changed and stays idempotent on re-runs.
+        """
+        if self.module.check_mode:
             self.result['changed'] = True
-            self.result['after'] = self._gather_facts()
-        else:
-            self.result['after'] = current_config
-
-        return self.result
-
-    def _handle_replaced(self) -> Dict[str, Any]:
-        """Handle replaced state."""
-        current_config = self._gather_facts()
-        self.result['before'] = current_config
-        
-        desired_config = self.module.params.get('config', {})
-        
-        # First delete existing configuration
-        self._delete_all_configuration()
-        
-        # Then apply new configuration
-        if desired_config:
-            peers = desired_config.get('peers') or []
-            for peer_config in peers:
-                self._configure_peer(peer_config)
-            
-            rsmlt = desired_config.get('rsmlt')
-            if rsmlt:
-                instances = rsmlt.get('instances') or []
-                for rsmlt_config in instances:
-                    self._configure_rsmlt_instance(rsmlt_config)
-
+            self.result['commands'].append(desc)
+            return None
+        try:
+            response = self._send_request(method, path, data)
+        except ConnectionError as exc:
+            if graceful:
+                self.result.setdefault('warnings', []).append(f"{desc}: {to_text(exc)}")
+                return None
+            raise
         self.result['changed'] = True
-        self.result['after'] = self._gather_facts()
-        return self.result
+        self.result['commands'].append(desc)
+        return response
 
-    def _handle_absent(self) -> Dict[str, Any]:
-        """Handle absent/deleted state."""
-        current_config = self._gather_facts()
-        self.result['before'] = current_config
-        
-        desired_config = self.module.params.get('config', {})
-        
-        if self.module.params['state'] == 'deleted' or not desired_config:
-            # Delete all MLAG configuration
-            self._delete_all_configuration()
-        else:
-            # Delete specific configuration
-            peers = desired_config.get('peers') or []
-            for peer_config in peers:
-                self._delete_peer(peer_config['peer_id'])
+    # ------------------------------------------------------------------
+    # Current-state extraction helpers (VOSS exposes a single "Default" peer)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _norm_ip(value: Optional[str]) -> str:
+        return (value or '').strip() or '0.0.0.0'
 
-        if self.result['commands']:
-            self.result['changed'] = True
-            self.result['after'] = self._gather_facts()
-        else:
-            self.result['after'] = current_config
+    @staticmethod
+    def _port_sort_key(pid: str):
+        return (0, int(pid)) if str(pid).isdigit() else (1, str(pid))
 
-        return self.result
+    def _current_peer(self, current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        peers = current.get('peers') or []
+        return peers[0] if peers else None
+
+    def _current_ports_set(self, current: Dict[str, Any]) -> set:
+        peer = self._current_peer(current)
+        if not peer:
+            return set()
+        return {str(p['port_id']) for p in (peer.get('ports') or []) if p.get('port_id') is not None}
+
+    def _current_rsmlt_map(self, current: Dict[str, Any]) -> Dict[Any, Dict[str, Any]]:
+        result: Dict[Any, Dict[str, Any]] = {}
+        for inst in (current.get('rsmlt') or {}).get('instances', []):
+            vid = inst.get('vlan_id')
+            if vid is not None:
+                result[vid] = inst
+        return result
+
+    # ------------------------------------------------------------------
+    # Write states: merged / replaced / overridden
+    # ------------------------------------------------------------------
+    def _write(self, current: Dict[str, Any], ports_authoritative: bool, rsmlt_authoritative: bool) -> None:
+        config = self.module.params.get('config') or {}
+        for peer_cfg in (config.get('peers') or []):
+            self._apply_peer(peer_cfg, current)
+            if peer_cfg.get('ports') is not None:
+                self._apply_ports(peer_cfg, current, ports_authoritative)
+        rsmlt = config.get('rsmlt') or {}
+        instances = rsmlt.get('instances') or []
+        if instances or rsmlt_authoritative:
+            self._apply_rsmlt(instances, current, rsmlt_authoritative)
+
+    def _apply_peer(self, peer_cfg: Dict[str, Any], current: Dict[str, Any]) -> None:
+        """PATCH the peer scalar fields when they differ (idempotent).
+
+        VOSS requires peerIpAddress and vistVlanId to be set together, so both
+        are always sent when either changes; omitted fields fall back to the
+        current value.
+        """
+        cur = self._current_peer(current) or {}
+        cur_ip = self._norm_ip(cur.get('peer_ip_address'))
+        cur_vlan = cur.get('local_vlan_id')
+        desired_ip = peer_cfg.get('peer_ip_address')
+        desired_vlan = peer_cfg.get('local_vlan_id')
+        target_ip = self._norm_ip(desired_ip) if desired_ip is not None else cur_ip
+        target_vlan = desired_vlan if desired_vlan is not None else cur_vlan
+
+        if target_ip == cur_ip and target_vlan == cur_vlan:
+            return  # already in desired state
+
+        payload: Dict[str, Any] = {}
+        if target_ip and target_ip != '0.0.0.0':
+            payload['peerIpAddress'] = {'address': target_ip, 'ipAddressType': 'IPv4'}
+        if target_vlan is not None:
+            payload['vistVlanId'] = target_vlan
+        if payload:
+            self._apply('PATCH', '/v0/configuration/mlag/peers/Default', payload, "PATCH peer Default")
+
+    def _apply_ports(self, peer_cfg: Dict[str, Any], current: Dict[str, Any], authoritative: bool) -> None:
+        """Set MLAG ports. merged = additive (union); replaced/overridden = exact."""
+        requested = {str(p['port_id']) for p in (peer_cfg.get('ports') or []) if p.get('port_id') is not None}
+        cur_ports = self._current_ports_set(current)
+        target = requested if authoritative else (cur_ports | requested)
+        if target != cur_ports:
+            ports_data = [{'portId': pid} for pid in sorted(target, key=self._port_sort_key)]
+            self._apply('PUT', '/v0/configuration/mlag/peers/Default/ports', ports_data,
+                        "PUT peer Default ports")
+
+    def _apply_rsmlt(self, instances: List[Dict[str, Any]], current: Dict[str, Any], authoritative: bool) -> None:
+        cur_map = self._current_rsmlt_map(current)
+        desired_vids = set()
+        for inst in instances:
+            vid = inst.get('vlan_id')
+            desired_vids.add(vid)
+            desired = {
+                'enabled': inst.get('enabled', True),
+                'holdUpTimer': inst.get('hold_up_timer', 0),
+                'holdDownTimer': inst.get('hold_down_timer', 0),
+            }
+            cur = cur_map.get(vid)
+            if not cur or not self._rsmlt_matches(cur, desired):
+                self._apply('PATCH', f'/v0/configuration/mlag/rsmlt/vlan/{vid}', desired,
+                            f"PATCH rsmlt vlan {vid}")
+        if authoritative:
+            for vid, cur in cur_map.items():
+                if vid in desired_vids:
+                    continue
+                if cur.get('enabled') or cur.get('hold_up_timer') or cur.get('hold_down_timer'):
+                    self._apply('PATCH', f'/v0/configuration/mlag/rsmlt/vlan/{vid}',
+                                {'enabled': False, 'holdUpTimer': 0, 'holdDownTimer': 0},
+                                f"PATCH rsmlt vlan {vid} (reset)")
+
+    @staticmethod
+    def _rsmlt_matches(cur: Dict[str, Any], desired: Dict[str, Any]) -> bool:
+        return (cur.get('enabled') == desired['enabled']
+                and cur.get('hold_up_timer') == desired['holdUpTimer']
+                and cur.get('hold_down_timer') == desired['holdDownTimer'])
+
+    # ------------------------------------------------------------------
+    # Delete state: remove only what is specified (or all when no config)
+    # ------------------------------------------------------------------
+    def _delete(self, current: Dict[str, Any]) -> None:
+        config = self.module.params.get('config') or {}
+        peers = config.get('peers') or []
+        instances = (config.get('rsmlt') or {}).get('instances') or []
+
+        if not peers and not instances:
+            self._delete_all(current)
+            return
+
+        for peer_cfg in peers:
+            ports = peer_cfg.get('ports')
+            if ports is not None:
+                # remove only the listed ports
+                remove = {str(p['port_id']) for p in ports if p.get('port_id') is not None}
+                cur_ports = self._current_ports_set(current)
+                target = cur_ports - remove
+                if target != cur_ports:
+                    ports_data = [{'portId': pid} for pid in sorted(target, key=self._port_sort_key)]
+                    self._apply('PUT', '/v0/configuration/mlag/peers/Default/ports', ports_data,
+                                "PUT peer Default ports (remove)")
+            else:
+                # delete the whole peer: clear ports + reset scalars
+                self._clear_peer(current)
+
+        for inst in instances:
+            self._reset_rsmlt(inst.get('vlan_id'), current)
+
+    def _delete_all(self, current: Dict[str, Any]) -> None:
+        self._clear_peer(current)
+        for vid in self._current_rsmlt_map(current):
+            self._reset_rsmlt(vid, current)
+
+    def _clear_peer(self, current: Dict[str, Any]) -> None:
+        if self._current_ports_set(current):
+            self._apply('PUT', '/v0/configuration/mlag/peers/Default/ports', [],
+                        "PUT peer Default ports (clear)")
+        peer = self._current_peer(current)
+        if peer and self._norm_ip(peer.get('peer_ip_address')) != '0.0.0.0':
+            # Peer IP reset is not always permitted on VOSS; do it gracefully.
+            self._apply('PATCH', '/v0/configuration/mlag/peers/Default',
+                        {'peerIpAddress': {'address': '0.0.0.0', 'ipAddressType': 'IPv4'}},
+                        "PATCH peer Default (reset ip)", graceful=True)
+
+    def _reset_rsmlt(self, vid: Any, current: Dict[str, Any]) -> None:
+        if vid is None:
+            return
+        cur = self._current_rsmlt_map(current).get(vid)
+        if cur and (cur.get('enabled') or cur.get('hold_up_timer') or cur.get('hold_down_timer')):
+            self._apply('PATCH', f'/v0/configuration/mlag/rsmlt/vlan/{vid}',
+                        {'enabled': False, 'holdUpTimer': 0, 'holdDownTimer': 0},
+                        f"PATCH rsmlt vlan {vid} (reset)")
 
     def _validate_parameters(self) -> None:
         """Validate module parameters."""
@@ -483,7 +614,7 @@ class MlagModule:
         config = self.module.params.get('config')
         
         # Validate state-specific requirements
-        if state in ['present', 'merged', 'replaced'] and not config:
+        if state in ['present', 'merged', 'replaced', 'overridden'] and not config:
             self.module.fail_json(msg="config is required for state: {}".format(state))
         
         if config:
@@ -668,133 +799,15 @@ class MlagModule:
 
         return facts
 
-    def _configure_peer(self, peer_config: Dict[str, Any]) -> None:
-        """Configure MLAG peer."""
-        # MLAG API uses a single "Default" peer that we configure via PATCH
-        peer_id = "Default"
-        
-        # Prepare peer configuration data
-        peer_data = {}
-        
-        # Map configuration to API structure (VOSS-only fields)
-        # Note: Check for non-None values (not just key existence) to allow
-        # incremental configuration where only some fields are specified.
-        # Ansible's argument spec adds all keys with None values by default.
-        if peer_config.get('peer_ip_address') is not None:
-            peer_data['peerIpAddress'] = {
-                'address': peer_config['peer_ip_address'],
-                'ipAddressType': 'IPv4'
-            }
-        if peer_config.get('local_vlan_id') is not None:
-            peer_data['vistVlanId'] = peer_config['local_vlan_id']
-
-        # Always update the existing "Default" peer with PATCH
-        response = self._send_request('PATCH', f'/v0/configuration/mlag/peers/{peer_id}', peer_data)
-        self.result['commands'].append(f"PATCH /v0/configuration/mlag/peers/{peer_id}")
-
-        # Configure ports if specified
-        if 'ports' in peer_config and peer_config['ports']:
-            self._configure_peer_ports(peer_id, peer_config['ports'])
-
-    def _configure_peer_ports(self, peer_id: str, ports_config: List[Dict[str, Any]]) -> None:
-        """Configure MLAG ports for a peer (MLT IDs on VOSS)."""
-        ports_data = []
-        for port_config in ports_config:
-            # On VOSS, only portId (MLT ID) is used - mlagId is EXOS-only
-            port_data = {
-                'portId': port_config['port_id']
-            }
-            ports_data.append(port_data)
-
-        response = self._send_request('PUT', f'/v0/configuration/mlag/peers/{peer_id}/ports', ports_data)
-        self.result['commands'].append(f"PUT /v0/configuration/mlag/peers/{peer_id}/ports")
-
-    def _configure_rsmlt_instance(self, rsmlt_config: Dict[str, Any]) -> None:
-        """Configure RSMLT instance."""
-        vlan_id = rsmlt_config['vlan_id']
-        
-        instance_data = {
-            'enabled': rsmlt_config.get('enabled', True),
-            'holdUpTimer': rsmlt_config.get('hold_up_timer', 0),
-            'holdDownTimer': rsmlt_config.get('hold_down_timer', 0)
-        }
-
-        response = self._send_request('PATCH', f'/v0/configuration/mlag/rsmlt/vlan/{vlan_id}', instance_data)
-        self.result['commands'].append(f"PATCH /v0/configuration/mlag/rsmlt/vlan/{vlan_id}")
-
-    def _delete_peer(self, peer_id: str) -> None:
-        """Delete MLAG peer configuration.
-
-        On VOSS, the "Default" peer cannot be truly deleted via REST API.
-        Instead, we clear ports and mark as reset. Use CLI for full removal.
-        Note: VOSS only supports "Default" as peer_id - any other value is mapped to "Default".
-        """
-        # On VOSS, always use "Default" peer - any other peer_id is not supported
-        api_peer_id = "Default"
-        deleted_ports = False
-
-        # First, clear all ports by sending empty list
+    def _send_request(self, method: str, path: str, data: Optional[Any] = None) -> Any:
+        """Send an HTTP request. Returns None for 404 on GET; raises otherwise."""
         try:
-            self._send_request('PUT', f'/v0/configuration/mlag/peers/{api_peer_id}/ports', [])
-            self.result['commands'].append(f"PUT /v0/configuration/mlag/peers/{api_peer_id}/ports (clear)")
-            deleted_ports = True
-        except Exception:
-            pass  # Ports may not exist or endpoint not available
-
-        # On VOSS, DELETE and PATCH to /mlag/peers/{peer_id} may not be available
-        # The DELETE and PATCH endpoints are often not supported on VOSS firmware
-        # Just note that we cleared ports and provide CLI alternative
-        if deleted_ports:
-            self.result['warnings'] = self.result.get('warnings', [])
-            self.result['warnings'].append(
-                "MLAG ports cleared. To fully remove MLAG config on VOSS, use CLI: 'no virtual-ist peer-ip <ip>'"
-            )
-        else:
-            self.result['warnings'] = self.result.get('warnings', [])
-            self.result['warnings'].append(
-                "Could not delete MLAG configuration via REST API. On VOSS, use CLI: 'no virtual-ist peer-ip <ip>'"
-            )
-
-    def _delete_all_configuration(self) -> None:
-        """Delete all MLAG configuration."""
-        # Get current peers and delete them
-        try:
-            current_peers = self._send_request('GET', '/v0/configuration/mlag/peers')
-            if current_peers:
-                for peer in current_peers:
-                    peer_id = peer.get('peerId')
-                    if peer_id:
-                        self._delete_peer(peer_id)
-        except Exception:
-            pass
-
-    def _send_request(self, method: str, path: str, data: Optional[Dict[str, Any]] = None) -> Any:
-        """Send HTTP request to the device."""
-        try:
-            response = self.connection.send_request(data, path=path, method=method)
-            return response
+            return self.connection.send_request(data, path=path, method=method)
         except ConnectionError as e:
             error_msg = to_text(e)
-            # Check for specific API errors and provide meaningful messages
-            if "Method not found" in error_msg:
-                self.module.fail_json(msg=f"MLAG API endpoint {path} not supported on this device")
-            elif "404" in error_msg:
-                if method == 'GET':
-                    return None  # Resource not found is acceptable for GET requests
-                else:
-                    self.module.fail_json(msg=f"Resource not found: {path}")
-            elif "400" in error_msg:
-                self.module.fail_json(msg=f"Bad request to {path}: {error_msg}")
-            elif "401" in error_msg:
-                self.module.fail_json(msg=f"Authentication failed for {path}")
-            elif "403" in error_msg:
-                self.module.fail_json(msg=f"Access forbidden for {path}")
-            elif "500" in error_msg:
-                self.module.fail_json(msg=f"Internal server error for {path}: {error_msg}")
-            else:
-                self.module.fail_json(msg=f"HTTP request failed for {path}: {error_msg}")
-
-
+            if method == 'GET' and ("404" in error_msg or "Method not found" in error_msg):
+                return None  # absent resource is acceptable for reads
+            raise ConnectionError(f"{method} {path}: {error_msg}")
 
 
 def main():
@@ -802,7 +815,7 @@ def main():
     argument_spec = {
         'state': {
             'type': 'str',
-            'choices': ['present', 'absent', 'gathered', 'merged', 'replaced', 'deleted'],
+            'choices': ['present', 'absent', 'gathered', 'merged', 'replaced', 'overridden', 'deleted'],
             'default': 'present'
         },
         'config': {
@@ -860,15 +873,13 @@ def main():
             ('state', 'present', ['config']),
             ('state', 'merged', ['config']),
             ('state', 'replaced', ['config']),
+            ('state', 'overridden', ['config']),
         ]
     )
 
-    if module.check_mode:
-        module.exit_json(**{'changed': False, 'commands': []})
-
     mlag_module = MlagModule(module)
     result = mlag_module.run()
-    
+
     module.exit_json(**result)
 
 

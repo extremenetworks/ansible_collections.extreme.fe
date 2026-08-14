@@ -544,19 +544,26 @@ def main() -> None:
                 "port": port,
                 "capability": capability,
                 "current": current,
+                "before": current,
             }
             runtime_state = _fetch_port_state(module, connection, port)
             if runtime_state is not None:
                 port_result["state"] = runtime_state
 
             target_payload = _default_payload(capability)
-            differences = {}
+
+            differences: Dict[str, Dict[str, Any]] = {}
+            after = dict(current)
+
             patch_payload: Dict[str, Any] = {}
             for field, target in target_payload.items():
                 existing = current.get(field)
                 if existing != target:
                     differences[field] = {"before": existing, "after": target}
+                    after[field] = target
                     patch_payload[field] = target
+
+            port_result["after"] = after
 
             if differences:
                 changed = True
@@ -573,6 +580,7 @@ def main() -> None:
                     )
                     current = _fetch_port_settings(module, connection, port)
                     port_result["current"] = current
+                    port_result["after"] = current
             else:
                 port_result["differences"] = {}
 
@@ -588,6 +596,7 @@ def main() -> None:
             "port": port,
             "capability": capability,
             "current": current,
+            "before": current,
             "requested": config_by_port[port].get("requested", {}),
         }
         runtime_state = _fetch_port_state(module, connection, port)
@@ -596,14 +605,20 @@ def main() -> None:
 
         desired_payload = config_by_port[port]["payload"]
 
+        # Merged handling (state=merged)
         if state == STATE_MERGED:
             differences: Dict[str, Dict[str, Any]] = {}
+            after = dict(current)
+
             patch_payload: Dict[str, Any] = {}
             for field, desired in desired_payload.items():
                 existing = current.get(field)
                 if existing != desired:
                     differences[field] = {"before": existing, "after": desired}
+                    after[field] = desired
                     patch_payload[field] = desired
+
+            port_result["after"] = after
 
             if differences:
                 changed = True
@@ -620,22 +635,29 @@ def main() -> None:
                     )
                     current = _fetch_port_settings(module, connection, port)
                     port_result["current"] = current
+                    port_result["after"] = current
             else:
                 port_result["differences"] = {}
 
             results.append(port_result)
             continue
 
+        ##OVERRIDEN HANDLING STARTS HERE
         target_payload = _default_payload(capability)
         target_payload.update(desired_payload)
 
-        differences = {}
+        differences: Dict[str, Dict[str, Any]] = {}
+        after = dict(current)
+
         patch_payload: Dict[str, Any] = {}
         for field, target in target_payload.items():
             existing = current.get(field)
             if existing != target:
                 differences[field] = {"before": existing, "after": target}
+                after[field] = target
                 patch_payload[field] = target
+
+        port_result["after"] = after
 
         if differences:
             changed = True
@@ -652,6 +674,7 @@ def main() -> None:
                 )
                 current = _fetch_port_settings(module, connection, port)
                 port_result["current"] = current
+                port_result["after"] = current
         else:
             port_result["differences"] = {}
 
@@ -667,19 +690,27 @@ def main() -> None:
                 "port": port,
                 "capability": capability,
                 "current": current,
+                "before": current,
             }
             runtime_state = _fetch_port_state(module, connection, port)
             if runtime_state is not None:
                 port_result["state"] = runtime_state
 
             target_payload = _default_payload(capability)
-            differences = {}
+
+            differences: Dict[str, Dict[str, Any]] = {}
+
+            after = dict(current)
+
             patch_payload: Dict[str, Any] = {}
             for field, target in target_payload.items():
                 existing = current.get(field)
                 if existing != target:
                     differences[field] = {"before": existing, "after": target}
+                    after[field] = target
                     patch_payload[field] = target
+
+            port_result["after"] = after
 
             if differences:
                 changed = True
@@ -696,6 +727,7 @@ def main() -> None:
                     )
                     current = _fetch_port_settings(module, connection, port)
                     port_result["current"] = current
+                    port_result["after"] = current
             else:
                 port_result["differences"] = {}
 

@@ -107,11 +107,11 @@ This module manages global autosense settings and per-port overrides on Fabric E
 | `global_settings.voice.dot1x_lldp_auth_enabled` | bool | No | - | Enable LLDP-based 802.1X authentication for voice endpoints |
 | `global_settings.voice.isid` | int | No | - | Voice I-SID used by autosense ports. `0` clears the association |
 | `global_settings.wait_interval` | int | No | - | Global wait interval (seconds) used by the autosense state machine |
-| `ports` | list of dict | No | - | Per-port autosense overrides |
-| `ports[].name` | str | Yes | - | Port identifier (slot:port notation such as `1:5`) |
-| `ports[].enable` | bool | No | - | Enable or disable autosense on the specified port |
-| `ports[].nsi` | int | No | - | Network service identifier (I-SID). `0` clears the association |
-| `ports[].wait_interval` | int | No | - | Port-specific wait interval in seconds (overrides global timer) |
+| `config` | list of dict | No | - | Per-port autosense overrides. Aliased as `ports`, the pre-1.2.1 name, which is deprecated but still accepted |
+| `config[].name` | str | Yes | - | Port identifier (slot:port notation such as `1:5`) |
+| `config[].enable` | bool | No | - | Enable or disable autosense on the specified port |
+| `config[].nsi` | int | No | - | Network service identifier (I-SID). `0` clears the association |
+| `config[].wait_interval` | int | No | - | Port-specific wait interval in seconds (overrides global timer) |
 | `gather_filter` | list of str | No | - | Port identifiers to limit gathered output |
 | `gather_state` | bool | No | `false` | Include data from `/v0/state/autosense/ports` in the result |
 
@@ -134,6 +134,8 @@ This module manages global autosense settings and per-port overrides on Fabric E
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
+| `before` | dict | Global settings and per-port overrides before the task ran (`global_settings`, `ports`). Returned for every state except `gathered` |
+| `after` | dict | The same, re-read from the device after the task ran. Omitted when nothing changed or in check mode |
 | `global_settings` | dict | Resulting global autosense configuration (snake_case keys) |
 | `ports_settings` | list | List of per-port autosense settings with normalized field names |
 | `port_updates` | list | Ports that were modified during execution |
@@ -150,7 +152,7 @@ This module manages global autosense settings and per-port overrides on Fabric E
 - name: Enable auto-sense on access port 1:15 with a shorter wait interval
   extreme.fe.extreme_fe_autosense:
     state: merged
-    ports:
+    config:
       - name: "1:15"
         enable: true
         wait_interval: 15
@@ -178,7 +180,7 @@ This module manages global autosense settings and per-port overrides on Fabric E
 - name: Reset custom overrides on ports 1:5 and 1:6
   extreme.fe.extreme_fe_autosense:
     state: deleted
-    ports:
+    config:
       - name: "1:5"
       - name: "1:6"
 ```

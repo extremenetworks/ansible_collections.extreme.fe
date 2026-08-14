@@ -151,11 +151,11 @@ Copy this playbook and fill in the inventory.
         config:
           - port: "1:10"
             enable: true
-            power_limit: 42000
+            power_limit: 15000
             priority: HIGH
           - port: "1:11"
             enable: true
-            power_limit: 30000
+            power_limit: 15000
 
     - name: Override PoE configuration globally
       extreme.fe.extreme_fe_poe:
@@ -163,7 +163,7 @@ Copy this playbook and fill in the inventory.
         config:
           - port: "1:10"
             enable: true
-            power_limit: 42000
+            power_limit: 30000
           - port: "1:11"
             enable: true
             power_limit: 30000
@@ -172,8 +172,8 @@ Copy this playbook and fill in the inventory.
       extreme.fe.extreme_fe_poe:
         state: deleted
         config:
-          - port: "1:5"
-          - port: "1:6"
+          - port: "1:10"
+          - port: "1:11"
 ```
 
 

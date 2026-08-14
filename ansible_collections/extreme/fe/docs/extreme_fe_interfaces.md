@@ -69,23 +69,23 @@ Through this module administrative state, global interface settings, and per-por
 | `admin` | list of dict | No | - | Bulk admin enable/disable operations |
 | `admin[].name` | str | Yes | - | Port identifier (slot:port) |
 | `admin[].enabled` | bool | Yes | - | Administrative status |
-| `ports` | list of dict | No | - | Per-port configuration settings |
-| `ports[].name` | str | Yes | - | Port identifier (slot:port) |
-| `ports[].enabled` | bool | No | - | Administrative status |
-| `ports[].description` | str | No | - | Interface description (max 255 chars) |
-| `ports[].speed` | str | No | - | Speed override (`0M`, `10M`, `100M`, `1G`, `2.5G`, `5G`, `10G`, `20G`, `25G`, `40G`, `50G`, `100G`, `400G`, `AUTO`) |
-| `ports[].duplex` | str | No | - | Duplex setting (`HALF_DUPLEX`, `FULL_DUPLEX`, `NONE`) |
-| `ports[].auto_negotiation` | bool | No | - | Toggle auto-negotiation |
-| `ports[].auto_advertisements` | list of str | No | - | Authoritative list of auto-negotiation advertisements |
-| `ports[].flow_control` | str | No | - | Flow control mode (`ENABLE`, `DISABLE`) |
-| `ports[].debounce_timer` | int | No | - | Debounce timer in ms (0-300000) |
-| `ports[].channelized` | bool | No | - | Enable/disable channelization on supported fiber ports |
-| `ports[].fec` | str | No | - | Forward error correction mode (`NONE`, `CLAUSE_74`, `CLAUSE_91_108`, `AUTO`) |
-| `ports[].eee` | bool | No | - | Energy Efficient Ethernet |
-| `ports[].port_mode` | bool | No | - | Tagging mode (true = trunk) |
-| `ports[].flex_uni` | bool | No | - | Flex UNI mode |
-| `ports[].native_vlan` | int | No | - | Native VLAN for trunk ports (0 to clear) |
-| `ports[].ip_arp_inspection_trusted` | bool | No | - | Mark interface as trusted for ARP inspection |
+| `config` | list of dict | No | - | Per-port configuration settings. Aliased as `ports`, the pre-1.2.1 name, which is deprecated but still accepted |
+| `config[].name` | str | Yes | - | Port identifier (slot:port) |
+| `config[].enabled` | bool | No | - | Administrative status |
+| `config[].description` | str | No | - | Interface description (max 255 chars) |
+| `config[].speed` | str | No | - | Speed override (`0M`, `10M`, `100M`, `1G`, `2.5G`, `5G`, `10G`, `20G`, `25G`, `40G`, `50G`, `100G`, `400G`, `AUTO`) |
+| `config[].duplex` | str | No | - | Duplex setting (`HALF_DUPLEX`, `FULL_DUPLEX`, `NONE`) |
+| `config[].auto_negotiation` | bool | No | - | Toggle auto-negotiation |
+| `config[].auto_advertisements` | list of str | No | - | Authoritative list of auto-negotiation advertisements |
+| `config[].flow_control` | str | No | - | Flow control mode (`ENABLE`, `DISABLE`) |
+| `config[].debounce_timer` | int | No | - | Debounce timer in ms (0-300000) |
+| `config[].channelized` | bool | No | - | Enable/disable channelization on supported fiber ports |
+| `config[].fec` | str | No | - | Forward error correction mode (`NONE`, `CLAUSE_74`, `CLAUSE_91_108`, `AUTO`) |
+| `config[].eee` | bool | No | - | Energy Efficient Ethernet |
+| `config[].port_mode` | bool | No | - | Tagging mode (true = trunk) |
+| `config[].flex_uni` | bool | No | - | Flex UNI mode |
+| `config[].native_vlan` | int | No | - | Native VLAN for trunk ports (1-4094). `0` is accepted but is currently a no-op: the device rejects every value the module could use to clear the assignment (`0` with HTTP 422, JSON null with "None is not of type integer", and `1` unless the port is already a VLAN 1 member), so the field is omitted instead. **No state can clear an existing assignment** — `replaced` and `overridden` leave it in place when omitted, and `deleted` drops it from the reset payload for the same reason, so removing a native VLAN has to be done from the CLI. Other values are rejected before the request is sent |
+| `config[].ip_arp_inspection_trusted` | bool | No | - | Mark interface as trusted for ARP inspection |
 | `gather_filter` | list of str | No | - | Limit gathered output to these ports |
 
 ---
@@ -107,6 +107,8 @@ Through this module administrative state, global interface settings, and per-por
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
+| `before` | list | Per-port configuration before the task ran. Returned for every state except `gathered`. Ports named in `config` are re-read individually so they carry the full field set; elsewhere the bulk listing may omit fields it treats as unset (typically `description`) — missing means not reported, not cleared |
+| `after` | list | Per-port configuration after the task ran, re-read from the device. Omitted when nothing changed or in check mode. Built the same way as `before`, so the two are directly comparable |
 | `global_settings` | dict | Resulting global port configuration |
 | `admin_updates` | list | Ports whose admin status was changed |
 | `port_updates` | list | Ports whose attributes were modified |
@@ -136,7 +138,7 @@ Through this module administrative state, global interface settings, and per-por
 - name: Tune interface attributes
   extreme.fe.extreme_fe_interfaces:
     state: replaced
-    ports:
+    config:
       - name: "1:5"
         description: Server uplink
         auto_negotiation: false
@@ -189,7 +191,7 @@ Copy this playbook and fill in the inventory.
     - name: Configure server uplink
       extreme.fe.extreme_fe_interfaces:
         state: replaced
-        ports:
+        config:
           - name: "1:10"
             description: Server uplink
             speed: 1G

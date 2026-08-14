@@ -64,7 +64,7 @@ This module manages Multi-switch Link Aggregation (MLAG) configuration on Fabric
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `state` | str | No | `present` | Operation state: `present`, `absent`, `gathered`, `merged`, `replaced`, `deleted` |
+| `state` | str | No | `present` | Operation state: `present`, `absent`, `gathered`, `merged`, `replaced`, `overridden`, `deleted` |
 | `config` | dict | No | - | MLAG configuration parameters |
 | `config.peers` | list of dict | No | - | List of MLAG peers to configure |
 | `config.peers[].peer_id` | str | Yes | - | MLAG peer identifier |
@@ -94,7 +94,8 @@ This module manages Multi-switch Link Aggregation (MLAG) configuration on Fabric
 | `present` | Create/update MLAG peers and RSMLT instances. | GET, PATCH, PUT |
 | `absent` | Remove MLAG configuration. | GET, PATCH, PUT |
 | `merged` | Apply MLAG settings incrementally. | GET, PATCH, PUT |
-| `replaced` | Make supplied values authoritative for listed peers/RSMLT instances. | GET, PATCH, PUT |
+| `replaced` | Make supplied values authoritative for listed peers/RSMLT instances. Peer ports become exactly the supplied set; RSMLT instances not listed are left alone. | GET, PATCH, PUT |
+| `overridden` | As `replaced`, and additionally authoritative over RSMLT — instances not listed in `config` are reset to their defaults. | GET, PATCH, PUT |
 | `deleted` | Remove specified MLAG/RSMLT configuration. | GET, PATCH, PUT |
 | `gathered` | Read-only — return current MLAG configuration and optional state. | GET |
 
@@ -105,8 +106,8 @@ This module manages Multi-switch Link Aggregation (MLAG) configuration on Fabric
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
-| `before` | dict | Configuration prior to execution |
-| `after` | dict | Configuration after execution |
+| `before` | dict | Configuration before the task ran. Returned for every state except `gathered` |
+| `after` | dict | Configuration after the task ran, re-read from the device. Omitted when nothing changed or in check mode |
 | `commands` | list | REST operations that were executed |
 | `gathered` | dict | MLAG facts (gathered state) |
 
