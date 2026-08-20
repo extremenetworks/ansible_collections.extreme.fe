@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage PoE settings on ExtremeNetworks Fabric Engine switches."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
-
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from collections.abc import Iterable
+from typing import Any
 from urllib.parse import quote
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -20,7 +20,6 @@ description:
   - Supports the standard Ansible network resource states to merge, replace, override, delete, or gather PoE configuration across PoE-capable ports.
 notes:
   - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-  - Applicable only to Fabric Engine (VOSS) devices. Switch Engine (EXOS) attributes are intentionally excluded.
 requirements:
   - ansible.netcommon
 options:
@@ -97,7 +96,7 @@ EXAMPLES = r"""
 # ## If you get "This PoE power limit is not available on this device", reduce
 # ## the power_limit to match your port's maximum capability.
 #
-# ## Range for VOSS: 3000-98000 mW (3W to 98W)
+# ## Range for Fabric Engine: 3000-98000 mW (3W to 98W)
 #
 # ## Verify Configuration
 # # show poe-main-status
@@ -273,24 +272,24 @@ STATE_OVERRIDDEN = "overridden"
 STATE_DELETED = "deleted"
 STATE_GATHERED = "gathered"
 
-REQUIRES_CONFIG: Set[str] = {STATE_MERGED, STATE_REPLACED, STATE_DELETED}
+REQUIRES_CONFIG: set[str] = {STATE_MERGED, STATE_REPLACED, STATE_DELETED}
 
 
 class FePoeError(Exception):
     """Raised for module validation issues."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -311,7 +310,7 @@ def _call_api(
     *,
     method: str,
     path: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
     try:
@@ -333,12 +332,12 @@ def _call_api(
     return response
 
 
-def _fetch_port_capabilities(module: AnsibleModule, connection: Connection) -> Dict[str, Dict[str, Any]]:
+def _fetch_port_capabilities(module: AnsibleModule, connection: Connection) -> dict[str, dict[str, Any]]:
     data = _call_api(module, connection, method="GET", path=PORT_CAPABILITIES_PATH) or []
     if not isinstance(data, list):
         raise FePoeError("Unexpected capabilities response", details={"payload": data})
 
-    result: Dict[str, Dict[str, Any]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for entry in data:
         if not isinstance(entry, dict):
             continue
@@ -348,7 +347,7 @@ def _fetch_port_capabilities(module: AnsibleModule, connection: Connection) -> D
     return result
 
 
-def _poe_capable(capability: Dict[str, Any]) -> bool:
+def _poe_capable(capability: dict[str, Any]) -> bool:
     caps = capability.get("capabilities")
     if isinstance(caps, dict):
         if caps.get("poe"):
@@ -362,12 +361,12 @@ def _poe_capable(capability: Dict[str, Any]) -> bool:
 
 def _normalize_config(
     state: str,
-    raw_config: Optional[Iterable[Any]],
-    available_ports: Set[str],
-) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
-    order: List[str] = []
-    config_by_port: Dict[str, Dict[str, Any]] = {}
-    seen: Set[str] = set()
+    raw_config: Iterable[Any] | None,
+    available_ports: set[str],
+) -> tuple[list[str], dict[str, dict[str, Any]]]:
+    order: list[str] = []
+    config_by_port: dict[str, dict[str, Any]] = {}
+    seen: set[str] = set()
 
     entries = list(raw_config or [])
     if state in REQUIRES_CONFIG and not entries:
@@ -390,8 +389,8 @@ def _normalize_config(
         if port not in available_ports:
             raise FePoeError("Port is not PoE-capable", details={"port": port})
 
-        payload: Dict[str, Any] = {}
-        requested: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
+        requested: dict[str, Any] = {}
 
         for param, field in SETTABLE_FIELDS.items():
             if param not in item:
@@ -407,7 +406,7 @@ def _normalize_config(
                 min_limit, max_limit = POWER_LIMIT_RANGE
                 if not (min_limit <= value <= max_limit):
                     raise FePoeError(
-                        "power_limit must be between {0} and {1} mW".format(min_limit, max_limit),
+                        f"power_limit must be between {min_limit} and {max_limit} mW",
                         details={"port": port, "received": value},
                     )
             payload[field] = value
@@ -440,14 +439,14 @@ def _port_state_path(port: str) -> str:
     return f"{PORT_STATE_BASE_PATH}/{quote(port, safe='')}"
 
 
-def _fetch_port_settings(module: AnsibleModule, connection: Connection, port: str) -> Dict[str, Any]:
+def _fetch_port_settings(module: AnsibleModule, connection: Connection, port: str) -> dict[str, Any]:
     response = _call_api(module, connection, method="GET", path=_port_path(port))
     if isinstance(response, dict):
         return response
     raise FePoeError("Unexpected port settings response", details={"port": port, "payload": response})
 
 
-def _fetch_port_state(module: AnsibleModule, connection: Connection, port: str) -> Optional[Dict[str, Any]]:
+def _fetch_port_state(module: AnsibleModule, connection: Connection, port: str) -> dict[str, Any] | None:
     response = _call_api(module, connection, method="GET", path=_port_state_path(port))
     if response in (None, ""):
         return None
@@ -460,7 +459,7 @@ def _fetch_port_state(module: AnsibleModule, connection: Connection, port: str) 
     return None
 
 
-def _default_payload(capability: Dict[str, Any]) -> Dict[str, Any]:
+def _default_payload(capability: dict[str, Any]) -> dict[str, Any]:
     caps = capability.get("capabilities") if isinstance(capability, dict) else {}
     power_limit = caps.get("poeMaxPower") if isinstance(caps, dict) else None
     if isinstance(power_limit, (int, float)):
@@ -483,10 +482,10 @@ def _port_snapshot(
     module: AnsibleModule,
     connection: Connection,
     port: str,
-    capability: Dict[str, Any],
-) -> Dict[str, Any]:
+    capability: dict[str, Any],
+) -> dict[str, Any]:
     current_settings = _fetch_port_settings(module, connection, port)
-    port_result: Dict[str, Any] = {
+    port_result: dict[str, Any] = {
         "port": port,
         "capability": capability,
         "current": current_settings,
@@ -525,8 +524,8 @@ def main() -> None:
     except FePoeError as exc:
         module.fail_json(**exc.to_fail_kwargs())
 
-    results: List[Dict[str, Any]] = []
-    submitted: Dict[str, Dict[str, Any]] = {}
+    results: list[dict[str, Any]] = []
+    submitted: dict[str, dict[str, Any]] = {}
     changed = False
 
     if state == STATE_GATHERED:
@@ -552,17 +551,17 @@ def main() -> None:
 
             target_payload = _default_payload(capability)
 
-            differences: Dict[str, Dict[str, Any]] = {}
+            differences: dict[str, dict[str, Any]] = {}
             after = dict(current)
 
-            patch_payload: Dict[str, Any] = {}
+            patch_payload: dict[str, Any] = {}
             for field, target in target_payload.items():
                 existing = current.get(field)
                 if existing != target:
                     differences[field] = {"before": existing, "after": target}
                     after[field] = target
                     patch_payload[field] = target
-
+            
             port_result["after"] = after
 
             if differences:
@@ -592,7 +591,7 @@ def main() -> None:
     for port in managed_ports:
         capability = poe_capabilities[port]
         current = _fetch_port_settings(module, connection, port)
-        port_result: Dict[str, Any] = {
+        port_result: dict[str, Any] = {
             "port": port,
             "capability": capability,
             "current": current,
@@ -607,17 +606,17 @@ def main() -> None:
 
         # Merged handling (state=merged)
         if state == STATE_MERGED:
-            differences: Dict[str, Dict[str, Any]] = {}
+            differences: dict[str, dict[str, Any]] = {}
             after = dict(current)
 
-            patch_payload: Dict[str, Any] = {}
+            patch_payload: dict[str, Any] = {}
             for field, desired in desired_payload.items():
                 existing = current.get(field)
                 if existing != desired:
                     differences[field] = {"before": existing, "after": desired}
                     after[field] = desired
                     patch_payload[field] = desired
-
+            
             port_result["after"] = after
 
             if differences:
@@ -646,10 +645,10 @@ def main() -> None:
         target_payload = _default_payload(capability)
         target_payload.update(desired_payload)
 
-        differences: Dict[str, Dict[str, Any]] = {}
+        differences: dict[str, dict[str, Any]] = {}
         after = dict(current)
 
-        patch_payload: Dict[str, Any] = {}
+        patch_payload: dict[str, Any] = {}
         for field, target in target_payload.items():
             existing = current.get(field)
             if existing != target:
@@ -698,11 +697,11 @@ def main() -> None:
 
             target_payload = _default_payload(capability)
 
-            differences: Dict[str, Dict[str, Any]] = {}
-
+            differences: dict[str, dict[str, Any]] = {}
+  
             after = dict(current)
 
-            patch_payload: Dict[str, Any] = {}
+            patch_payload: dict[str, Any] = {}
             for field, target in target_payload.items():
                 existing = current.get(field)
                 if existing != target:

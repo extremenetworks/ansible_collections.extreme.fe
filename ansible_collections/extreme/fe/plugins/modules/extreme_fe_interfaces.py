@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage ExtremeNetworks Fabric Engine Ethernet interfaces."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
+from collections.abc import Iterable
+from typing import Any
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -533,7 +533,7 @@ PORT_FULL_DEFAULTS = {
 # see the nativeVlan note above. Shared by the reset itself and by the
 # hydration that decides whether a port needs an individual read first, so the
 # two can never disagree about which fields matter.
-PORT_RESET_PAYLOAD: Dict[str, Any] = {
+PORT_RESET_PAYLOAD: dict[str, Any] = {
     key: value for key, value in PORT_FULL_DEFAULTS.items() if value is not None
 }
 
@@ -541,12 +541,12 @@ PORT_RESET_PAYLOAD: Dict[str, Any] = {
 class FeInterfacesError(Exception):
     """Base exception for interface module errors."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -561,7 +561,7 @@ def _normalize_port_name(raw: str) -> str:
     return value
 
 
-def _list_equal(first: Optional[Iterable[Any]], second: Optional[Iterable[Any]]) -> bool:
+def _list_equal(first: Iterable[Any] | None, second: Iterable[Any] | None) -> bool:
     if first is None and second is None:
         return True
     if first is None or second is None:
@@ -573,8 +573,8 @@ def _list_equal(first: Optional[Iterable[Any]], second: Optional[Iterable[Any]])
     return sorted(first_list) == sorted(second_list)
 
 
-def _bulk_record_answers(payload: Dict[str, Any],
-                         settings: Optional[Dict[str, Any]]) -> bool:
+def _bulk_record_answers(payload: dict[str, Any],
+                         settings: dict[str, Any] | None) -> bool:
     """True when the bulk record carries every key this payload compares.
 
     The bulk ports listing omits fields it treats as unset -- description is
@@ -590,8 +590,8 @@ def _bulk_record_answers(payload: Dict[str, Any],
 
 def _hydrate_ports(
     connection: Connection,
-    current_map: Dict[str, Dict[str, Any]],
-    entries: List[Dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
+    entries: list[dict[str, Any]],
     state: str,
 ) -> None:
     """Re-read the individual ports whose bulk record is not good enough.
@@ -621,8 +621,8 @@ def _hydrate_ports(
 
 
 def _already_at_defaults(
-    existing_settings: Optional[Dict[str, Any]],
-    default_payload: Dict[str, Any],
+    existing_settings: dict[str, Any] | None,
+    default_payload: dict[str, Any],
 ) -> bool:
     """True when a reset would be a no-op for this port.
 
@@ -651,7 +651,7 @@ def get_connection(module: AnsibleModule) -> Connection:
     return Connection(module._socket_path)
 
 
-def fetch_port_config_map(connection: Connection) -> Dict[str, Dict[str, Any]]:
+def fetch_port_config_map(connection: Connection) -> dict[str, dict[str, Any]]:
     """GET /v0/configuration/ports -- retrieve all port settings (bulk)."""
     data = connection.send_request(None, path="/v0/configuration/ports", method="GET")
     if data is None:
@@ -661,7 +661,7 @@ def fetch_port_config_map(connection: Connection) -> Dict[str, Dict[str, Any]]:
             "Unexpected response when retrieving port configuration",
             details={"response": data},
         )
-    result: Dict[str, Dict[str, Any]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for item in data:
         if not isinstance(item, dict):
             continue
@@ -675,7 +675,7 @@ def fetch_port_config_map(connection: Connection) -> Dict[str, Dict[str, Any]]:
     return result
 
 
-def _fetch_single_port(connection: Connection, port_name: str) -> Dict[str, Any]:
+def _fetch_single_port(connection: Connection, port_name: str) -> dict[str, Any]:
     """GET /v0/configuration/ports/{port} -- retrieve full settings for one port.
 
     The per-port endpoint returns all fields including description,
@@ -695,7 +695,7 @@ def _fetch_single_port(connection: Connection, port_name: str) -> Dict[str, Any]
     return {}
 
 
-def fetch_global_config(connection: Connection) -> Dict[str, Any]:
+def fetch_global_config(connection: Connection) -> dict[str, Any]:
     try:
         data = connection.send_request(None, path="/v0/configuration/ports/global", method="GET")
     except ConnectionError as exc:
@@ -715,10 +715,10 @@ def fetch_global_config(connection: Connection) -> Dict[str, Any]:
 def apply_global_settings(
     module: AnsibleModule,
     connection: Connection,
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
+    desired: dict[str, Any],
+    current: dict[str, Any],
     state: str,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     if state == STATE_DELETED:
         if desired:
             raise FeInterfacesError("Global settings cannot be supplied when state is 'deleted'.")
@@ -726,7 +726,7 @@ def apply_global_settings(
     if not desired:
         return False, current
 
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     for param, rest_key in GLOBAL_FIELD_MAP.items():
         if param not in desired:
             continue
@@ -753,15 +753,15 @@ def apply_global_settings(
 def apply_port_admin(
     module: AnsibleModule,
     connection: Connection,
-    operations: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
+    operations: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
     state: str,
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     if not operations:
         return False, []
 
-    updates: List[Dict[str, Any]] = []
-    changed_ports: List[str] = []
+    updates: list[dict[str, Any]] = []
+    changed_ports: list[str] = []
     for op in operations:
         port_name = _normalize_port_name(op["name"])
         desired_enabled = op.get("enabled")
@@ -793,7 +793,7 @@ def apply_port_admin(
     return True, changed_ports
 
 
-def _validate_native_vlan(module: AnsibleModule, ports: List[Dict[str, Any]]) -> None:
+def _validate_native_vlan(module: AnsibleModule, ports: list[dict[str, Any]]) -> None:
     """Reject out-of-range native_vlan values before any REST call is made.
 
     Valid input is 0 (clear the assignment) or a real VLAN ID 1-4094.
@@ -817,7 +817,7 @@ def _validate_native_vlan(module: AnsibleModule, ports: List[Dict[str, Any]]) ->
             )
 
 
-def _normalize_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]:
+def _normalize_port_payload(entry: dict[str, Any], state: str) -> dict[str, Any]:
     """Build REST payload from user config entry.
 
     For merged: only user-supplied fields are included.
@@ -827,11 +827,11 @@ def _normalize_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]
     Note: Ansible pre-populates all sub-options with None even when the
     user did not supply them. We detect "user supplied" via value != None.
     """
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     for param, rest_key in PORT_FIELD_MAP.items():
         value = entry.get(param)
         if value is not None:
-            # native_vlan=0 requests "clear". VOSS has no clean clear that
+            # native_vlan=0 requests "clear". Fabric Engine has no clean clear that
             # works regardless of VLAN 1 membership (nativeVlan=0 is rejected,
             # and nativeVlan=1 fails when the port is not a member of VLAN 1),
             # so omit the field: no-op in merged, harmless on reset. Clearing
@@ -855,14 +855,14 @@ def _normalize_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]
 def apply_port_settings(
     module: AnsibleModule,
     connection: Connection,
-    ports: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
+    ports: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
     state: str,
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     if not ports:
         return False, []
 
-    changed_ports: List[str] = []
+    changed_ports: list[str] = []
     for entry in ports:
         port_name = _normalize_port_name(entry["name"])
         payload = _normalize_port_payload(entry, state)
@@ -888,7 +888,7 @@ def apply_port_settings(
                 current_settings = full_settings
                 current_map[port_name] = full_settings
 
-        diff: Dict[str, Any] = {}
+        diff: dict[str, Any] = {}
         for key, desired_value in payload.items():
             if key == "autoAdvertisementsList":
                 current_value = current_settings.get(key)
@@ -924,17 +924,17 @@ def apply_port_settings(
 def delete_port_settings(
     module: AnsibleModule,
     connection: Connection,
-    ports: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
+    ports: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
     graceful: bool = False,
-) -> Tuple[bool, List[str]]:
+) -> tuple[bool, list[str]]:
     if not ports:
         return False, []
 
     default_payload = PORT_RESET_PAYLOAD
 
     changed = False
-    removed_ports: List[str] = []
+    removed_ports: list[str] = []
     for entry in ports:
         if "name" not in entry:
             raise FeInterfacesError("Each item in 'config' must define 'name' when state is 'deleted'.")
@@ -1031,11 +1031,11 @@ def delete_port_settings(
 
 def gather_interface_state(
     connection: Connection,
-    gather_filter: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
-    params: Optional[List[str]] = gather_filter or None
+    gather_filter: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    params: list[str] | None = gather_filter or None
     if params:
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for raw in params:
             port_name = _normalize_port_name(raw)
             data = connection.send_request(None, path=f"/v1/state/ports/{port_name}", method="GET")
@@ -1054,7 +1054,7 @@ def gather_interface_state(
     return data
 
 
-def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str, Any]:
+def _handle_gathered(module: AnsibleModule, connection: Connection) -> dict[str, Any]:
     """Handle state=gathered: read-only, return interface state."""
     ports_state = gather_interface_state(
         connection, module.params.get("gather_filter"))
@@ -1064,11 +1064,11 @@ def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str,
 def _handle_overridden_prepass(
     module: AnsibleModule,
     connection: Connection,
-    desired_ports: List[Dict[str, Any]],
+    desired_ports: list[dict[str, Any]],
     initial_port_names: Iterable[str],
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
-) -> List[str]:
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
+) -> list[str]:
     """Reset ports not listed in desired_ports (overridden pre-pass)."""
     desired_port_names = {
         _normalize_port_name(entry["name"])
@@ -1087,17 +1087,17 @@ def _handle_overridden_prepass(
     return removed_ports
 
 
-def _to_ansible_port_output(name: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+def _to_ansible_port_output(name: str, settings: dict[str, Any]) -> dict[str, Any]:
     """Convert port settings to Ansible output format."""
-    out: Dict[str, Any] = {"name": name}
+    out: dict[str, Any] = {"name": name}
     for ansible_key, rest_key in PORT_FIELD_MAP.items():
         out[ansible_key] = settings.get(rest_key)
     return out
 
 
 def _capture_before_snapshot(
-    current_map: Dict[str, Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    current_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Capture before-state snapshot from current port config map."""
     return [_to_ansible_port_output(name, settings)
             for name, settings in sorted(current_map.items())]
@@ -1107,7 +1107,7 @@ def _handle_action_states(
     module: AnsibleModule,
     connection: Connection,
     state: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handle merged/replaced/overridden/deleted states."""
     # Pre-flight range check -- fail before touching the device.
     _validate_native_vlan(module, module.params.get("config") or [])
@@ -1128,7 +1128,7 @@ def _handle_action_states(
     # Sub-issue F fix: capture before snapshot
     before_snapshot = _capture_before_snapshot(current_map)
 
-    result: Dict[str, Any] = {"changed": False, "before": before_snapshot}
+    result: dict[str, Any] = {"changed": False, "before": before_snapshot}
 
     # Global settings
     if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN):
@@ -1151,8 +1151,8 @@ def _handle_action_states(
             result["admin_updates"] = admin_ports
 
     # Port operations
-    port_removals: List[str] = []
-    port_updates: List[str] = []
+    port_removals: list[str] = []
+    port_updates: list[str] = []
 
     if state == STATE_DELETED:
         port_changed, removed_ports = delete_port_settings(

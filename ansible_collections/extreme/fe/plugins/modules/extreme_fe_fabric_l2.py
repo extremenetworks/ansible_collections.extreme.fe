@@ -1,15 +1,14 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage ExtremeNetworks Fabric Engine ISIDs via HTTPAPI."""
 
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import quote
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_fabric_l2
@@ -216,7 +215,7 @@ deleted_isids:
   type: list
   sample: [700, 800]
 skipped_isids:
-  description: ISIDs that overridden could not delete (e.g. Auto-Sense FA I-SIDs).
+  description: ISIDs that overridden could not delete (e.g. Auto-Sense FA ISIDs).
   returned: when state == overridden
   type: list
   elements: dict
@@ -253,7 +252,7 @@ gathered:
 # ── Flat-parameter names that were used in the old API ──
 _OLD_FLAT_PARAMS = frozenset({"isid", "isid_type", "cvlan", "name"})
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "state": {
         "type": "str",
         "choices": ["merged", "replaced", "overridden", "deleted", "gathered"],
@@ -328,13 +327,13 @@ class FeFabricL2Error(Exception):
     """Base exception for the Fabric L2 module."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
+        self, message: str, *, details: dict[str, object] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -343,7 +342,7 @@ class FeFabricL2Error(Exception):
 # ── REST helpers ──
 
 
-def _is_not_found_response(payload: Optional[object]) -> bool:
+def _is_not_found_response(payload: object | None) -> bool:
     if not isinstance(payload, dict):
         return False
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -361,11 +360,11 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
     return False
 
 
-def _extract_cvlan(data: Optional[Dict[str, object]]) -> Optional[int]:
+def _extract_cvlan(data: dict[str, object] | None) -> int | None:
     if not isinstance(data, dict):
         return None
     interfaces = data.get("interfaces")
-    platform_vlan: Optional[object] = None
+    platform_vlan: object | None = None
     if isinstance(interfaces, dict):
         platform_vlan = interfaces.get("platformVlanId") or interfaces.get(
             "platform_vlan_id"
@@ -380,7 +379,7 @@ def _extract_cvlan(data: Optional[Dict[str, object]]) -> Optional[int]:
         return None
 
 
-def _index_suni_endpoints(raw: object) -> Dict[Any, Dict[str, Any]]:
+def _index_suni_endpoints(raw: object) -> dict[Any, dict[str, Any]]:
     """Group the SUNI endpoint rows of a GET response by c-vid.
 
     A c-vid does not identify a single device record. For the untagged
@@ -389,7 +388,7 @@ def _index_suni_endpoints(raw: object) -> Dict[Any, Dict[str, Any]]:
     report ``cvid: 4096``. Union their membership, and keep BPDU per member
     because that is how the device stores it.
     """
-    index: Dict[Any, Dict[str, Any]] = {}
+    index: dict[Any, dict[str, Any]] = {}
     if not isinstance(raw, list):
         return index
     for row in raw:
@@ -408,7 +407,7 @@ def _index_suni_endpoints(raw: object) -> Dict[Any, Dict[str, Any]]:
     return index
 
 
-def _normalize_endpoint_list(raw: object) -> List[Dict[str, object]]:
+def _normalize_endpoint_list(raw: object) -> list[dict[str, object]]:
     """Normalise the SUNI endpoint list from a GET response.
 
     Rows sharing a c-vid are presented as the single endpoint the module
@@ -430,7 +429,7 @@ def _normalize_endpoint_list(raw: object) -> List[Dict[str, object]]:
     ]
 
 
-def _record_isid_type(data: Optional[Dict[str, object]]) -> str:
+def _record_isid_type(data: dict[str, object] | None) -> str:
     """Best-effort ISID type of a device record ('' when unknown)."""
     if not isinstance(data, dict):
         return ""
@@ -438,8 +437,8 @@ def _record_isid_type(data: Optional[Dict[str, object]]) -> str:
 
 
 def _normalize_isid_record(
-    data: Optional[Dict[str, object]], isid: Optional[int] = None
-) -> Optional[Dict[str, object]]:
+    data: dict[str, object] | None, isid: int | None = None
+) -> dict[str, object] | None:
     """Normalise an API record so ``isid`` and ``platformVlanId`` are top-level.
 
     The device returns the type-specific membership under ``interfaces`` (a
@@ -476,7 +475,7 @@ def _normalize_isid_record(
 
 
 def _assert_isid_type(
-    before_raw: Optional[Dict[str, object]], isid: int, expected: str
+    before_raw: dict[str, object] | None, isid: int, expected: str
 ) -> None:
     """Refuse to operate on an ISID that exists with a different type.
 
@@ -491,7 +490,7 @@ def _assert_isid_type(
         )
 
 
-def _endpoints_fingerprint(endpoints: object) -> List[tuple]:
+def _endpoints_fingerprint(endpoints: object) -> list[tuple]:
     """Order-independent comparable form of a SUNI endpoint list."""
     out = []
     if isinstance(endpoints, list):
@@ -517,7 +516,7 @@ def _cvlan_delete_path(isid: int, cvlan: int) -> str:
     )
 
 
-def _ensure_list(payload: Optional[object]) -> List[Dict[str, object]]:
+def _ensure_list(payload: object | None) -> list[dict[str, object]]:
     if isinstance(payload, list):
         return [item for item in payload if isinstance(item, dict)]
     if isinstance(payload, dict):
@@ -529,7 +528,7 @@ def _ensure_list(payload: Optional[object]) -> List[Dict[str, object]]:
         # Flatten all sub-lists into a single list of ISID records.
         type_keys = ("cvlan", "suni", "tuni")
         if any(k in payload for k in type_keys):
-            combined: List[Dict[str, object]] = []
+            combined: list[dict[str, object]] = []
             for tk in type_keys:
                 sub = payload.get(tk)
                 if isinstance(sub, list):
@@ -542,7 +541,7 @@ def _ensure_list(payload: Optional[object]) -> List[Dict[str, object]]:
 # ── Device I/O ──
 
 
-def get_isid(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
+def get_isid(connection: Connection, isid: int) -> dict[str, object] | None:
     path = _isid_path(isid)
     try:
         data = connection.send_request(None, path=path, method="GET")
@@ -559,7 +558,7 @@ def get_isid(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
     return _normalize_isid_record(data, isid)
 
 
-def list_isids(connection: Connection) -> List[Dict[str, object]]:
+def list_isids(connection: Connection) -> list[dict[str, object]]:
     try:
         payload = connection.send_request(None, path=ISID_BASE_PATH, method="GET")
     except ConnectionError as exc:
@@ -572,7 +571,7 @@ def list_isids(connection: Connection) -> List[Dict[str, object]]:
     return [_normalize_isid_record(r, r.get("isid")) for r in raw]
 
 
-def _list_cvlan_isids_raw(connection: Connection) -> List[Dict[str, object]]:
+def _list_cvlan_isids_raw(connection: Connection) -> list[dict[str, object]]:
     """Return only CVLAN-type ISIDs from the device.
 
     The list endpoint may return ``{cvlan: [...], suni: [...], tuni: [...]}``.
@@ -611,10 +610,10 @@ def create_isid(
     *,
     isid: int,
     isid_type: str,
-    cvlan: Optional[int],
-    name: Optional[str],
+    cvlan: int | None,
+    name: str | None,
 ) -> None:
-    payload: Dict[str, object] = {"isidType": isid_type, "isid": isid}
+    payload: dict[str, object] = {"isidType": isid_type, "isid": isid}
     if isid_type == "CVLAN":
         if cvlan is None:
             raise FeFabricL2Error(
@@ -645,11 +644,11 @@ def _suni_base_path(isid: int) -> str:
 
 def add_suni_endpoint(
     connection: Connection, isid: int, cvid: int,
-    ports: Optional[List[str]], lags: Optional[List[str]],
+    ports: list[str] | None, lags: list[str] | None,
     bpdu_enabled: bool = False,
 ) -> None:
     """POST /v0/configuration/spbm/l2/isid/{isid}/suni"""
-    payload: Dict[str, object] = {"cvid": cvid, "bpduEnabled": bpdu_enabled}
+    payload: dict[str, object] = {"cvid": cvid, "bpduEnabled": bpdu_enabled}
     if ports:
         payload["portIds"] = ports
     if lags:
@@ -658,7 +657,7 @@ def add_suni_endpoint(
 
 
 def update_suni_ports(
-    connection: Connection, isid: int, cvid: int, ports: List[str],
+    connection: Connection, isid: int, cvid: int, ports: list[str],
 ) -> None:
     """PUT /v0/configuration/spbm/l2/isid/{isid}/suni/cvid/{cvid}/ports"""
     path = "%s/cvid/%s/ports" % (_suni_base_path(isid), quote(str(cvid), safe=""))
@@ -666,7 +665,7 @@ def update_suni_ports(
 
 
 def update_suni_lags(
-    connection: Connection, isid: int, cvid: int, lags: List[str],
+    connection: Connection, isid: int, cvid: int, lags: list[str],
 ) -> None:
     """PUT /v0/configuration/spbm/l2/isid/{isid}/suni/cvid/{cvid}/lag"""
     path = "%s/cvid/%s/lag" % (_suni_base_path(isid), quote(str(cvid), safe=""))
@@ -697,7 +696,7 @@ def delete_suni(connection: Connection, isid: int) -> None:
     connection.send_request(None, path=_suni_base_path(isid), method="DELETE")
 
 
-def get_suni(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
+def get_suni(connection: Connection, isid: int) -> dict[str, object] | None:
     """GET /v0/configuration/spbm/l2/isid/{isid}/suni"""
     try:
         data = connection.send_request(None, path=_suni_base_path(isid), method="GET")
@@ -712,7 +711,7 @@ def get_suni(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
     return None
 
 
-def list_all_suni(connection: Connection) -> List[Dict[str, object]]:
+def list_all_suni(connection: Connection) -> list[dict[str, object]]:
     """GET /v0/configuration/spbm/l2/isid/suni"""
     path = ISID_BASE_PATH + "/suni"
     try:
@@ -736,7 +735,7 @@ def _tuni_base_path(isid: int) -> str:
 
 
 def update_tuni_ports(
-    connection: Connection, isid: int, ports: List[str],
+    connection: Connection, isid: int, ports: list[str],
 ) -> None:
     """PUT /v0/configuration/spbm/l2/isid/{isid}/tuni/ports"""
     path = _tuni_base_path(isid) + "/ports"
@@ -744,7 +743,7 @@ def update_tuni_ports(
 
 
 def update_tuni_lags(
-    connection: Connection, isid: int, lags: List[str],
+    connection: Connection, isid: int, lags: list[str],
 ) -> None:
     """PUT /v0/configuration/spbm/l2/isid/{isid}/tuni/lag"""
     path = _tuni_base_path(isid) + "/lag"
@@ -756,7 +755,7 @@ def delete_tuni(connection: Connection, isid: int) -> None:
     connection.send_request(None, path=_tuni_base_path(isid), method="DELETE")
 
 
-def get_tuni(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
+def get_tuni(connection: Connection, isid: int) -> dict[str, object] | None:
     """GET /v0/configuration/spbm/l2/isid/{isid}/tuni"""
     try:
         data = connection.send_request(None, path=_tuni_base_path(isid), method="GET")
@@ -771,7 +770,7 @@ def get_tuni(connection: Connection, isid: int) -> Optional[Dict[str, object]]:
     return None
 
 
-def list_all_tuni(connection: Connection) -> List[Dict[str, object]]:
+def list_all_tuni(connection: Connection) -> list[dict[str, object]]:
     """GET /v0/configuration/spbm/l2/isid/tuni"""
     path = ISID_BASE_PATH + "/tuni"
     try:
@@ -791,9 +790,9 @@ def list_all_tuni(connection: Connection) -> List[Dict[str, object]]:
 
 
 def _simulate_after_creation(
-    isid: int, isid_type: str, cvlan: Optional[int], name: Optional[str]
-) -> Dict[str, object]:
-    simulated: Dict[str, object] = {"isid": isid, "isidType": isid_type}
+    isid: int, isid_type: str, cvlan: int | None, name: str | None
+) -> dict[str, object]:
+    simulated: dict[str, object] = {"isid": isid, "isidType": isid_type}
     if cvlan is not None:
         simulated["platformVlanId"] = cvlan
     if name is not None:
@@ -805,8 +804,8 @@ def _simulate_after_creation(
 
 
 def _process_entry_merged(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     """Merged: apply supplied fields, leave unspecified unchanged."""
     isid = entry["isid"]
     isid_type = entry.get("isid_type") or "CVLAN"
@@ -845,8 +844,8 @@ def _process_entry_merged(
 
 
 def _process_entry_replaced(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     """Replaced: apply supplied fields; clear name when omitted, leave cvlan unchanged."""
     isid = entry["isid"]
     isid_type = entry.get("isid_type") or "CVLAN"
@@ -883,14 +882,14 @@ def _process_entry_replaced(
 
 
 def _apply_updates(
-    entry: Dict[str, Any],
-    before: Dict[str, object],
-    before_data: Optional[Dict[str, object]],
+    entry: dict[str, Any],
+    before: dict[str, object],
+    before_data: dict[str, object] | None,
     connection: Connection,
     check_mode: bool,
     *,
     clear_name_on_omit: bool,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Apply CVLAN and name changes to an existing ISID."""
     isid = entry["isid"]
     isid_type = entry.get("isid_type") or "CVLAN"
@@ -936,7 +935,7 @@ def _apply_updates(
             refresh_after = True
 
     # ── Name change ──
-    target_name: Optional[str]
+    target_name: str | None
     if clear_name_on_omit and desired_name is None:
         # Reset to the device's factory default, not an empty string — an
         # unnamed ISID is named after itself, so "" would never converge.
@@ -974,8 +973,8 @@ def _apply_updates(
 
 
 def _process_entry_deleted(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     """Delete a single ISID."""
     isid = entry["isid"]
     supplied_cvlan = entry.get("cvlan")
@@ -1004,7 +1003,7 @@ def _process_entry_deleted(
 # ── SUNI entry processing ──
 
 
-def _normalize_suni_state(data: Dict[str, object]) -> Dict[str, object]:
+def _normalize_suni_state(data: dict[str, object]) -> dict[str, object]:
     """Normalize a SUNI GET response into a consistent output dict."""
     return {
         "isid_type": "SUNI",
@@ -1013,7 +1012,7 @@ def _normalize_suni_state(data: Dict[str, object]) -> Dict[str, object]:
     }
 
 
-def _validate_suni_bpdu(isid: int, cvid: int, raw_bpdu: Optional[bool]) -> None:
+def _validate_suni_bpdu(isid: int, cvid: int, raw_bpdu: bool | None) -> None:
     """The device only accepts BPDU forwarding on the untagged endpoint."""
     if raw_bpdu and cvid != SUNI_UNTAGGED_CVID:
         raise FeFabricL2Error(
@@ -1030,10 +1029,10 @@ def _default_isid_name(isid: int) -> str:
     'MLT-<id>'. Creating an ISID without a name does not leave it blank — the
     device derives this one — so it is the value an omitted name resets to.
     """
-    return "ISID-{0}".format(isid)
+    return f"ISID-{isid}"
 
 
-def _replaced_target_name(desired_name: Optional[str], isid: int) -> str:
+def _replaced_target_name(desired_name: str | None, isid: int) -> str:
     """The name an ISID should carry after replaced/overridden.
 
     These states treat the supplied config as authoritative, so an omitted
@@ -1042,7 +1041,7 @@ def _replaced_target_name(desired_name: Optional[str], isid: int) -> str:
     return desired_name if desired_name is not None else _default_isid_name(isid)
 
 
-def _validate_new_endpoint_members(isid: int, ep: Dict[str, Any]) -> None:
+def _validate_new_endpoint_members(isid: int, ep: dict[str, Any]) -> None:
     """A new SUNI endpoint must bind at least one port or LAG.
 
     The device refuses a create with no interface mapping ("Cannot create ISID
@@ -1060,12 +1059,12 @@ def _validate_new_endpoint_members(isid: int, ep: Dict[str, Any]) -> None:
 
 def _simulate_suni_after(
     isid: int,
-    before_state: Optional[Dict[str, object]],
-    desired_name: Optional[str],
-    endpoints: List[Dict[str, Any]],
-) -> Dict[str, object]:
+    before_state: dict[str, object] | None,
+    desired_name: str | None,
+    endpoints: list[dict[str, Any]],
+) -> dict[str, object]:
     """Project the merged SUNI result for check mode (no device writes)."""
-    merged: Dict[int, Dict[str, object]] = {
+    merged: dict[int, dict[str, object]] = {
         ep["cvid"]: dict(ep) for ep in ((before_state or {}).get("endpoints") or [])
     }
     for ep in endpoints:
@@ -1095,8 +1094,8 @@ def _simulate_suni_after(
 
 
 def _process_suni_merged(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Merged SUNI: create ISID if missing, then add/update endpoints."""
     isid = entry["isid"]
     desired_name = entry.get("name")
@@ -1196,8 +1195,8 @@ def _process_suni_merged(
 
 
 def _process_suni_replaced(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Replaced SUNI: delete and recreate with exact desired state."""
     isid = entry["isid"]
     desired_name = entry.get("name")
@@ -1268,8 +1267,8 @@ def _process_suni_replaced(
 
 
 def _process_suni_deleted(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Delete a SUNI ISID instance."""
     isid = entry["isid"]
     suni_data = get_suni(connection, isid)
@@ -1287,9 +1286,9 @@ def _process_suni_deleted(
 # ── TUNI entry processing ──
 
 
-def _normalize_tuni_state(data: Dict[str, object]) -> Dict[str, object]:
+def _normalize_tuni_state(data: dict[str, object]) -> dict[str, object]:
     """Normalize a TUNI GET response into a consistent output dict."""
-    out: Dict[str, object] = {"isid_type": "TUNI"}
+    out: dict[str, object] = {"isid_type": "TUNI"}
     out["name"] = data.get("name")
     out["ports"] = sorted(data.get("portMembers") or [])
     out["lags"] = sorted(data.get("lagIds") or [])
@@ -1297,8 +1296,8 @@ def _normalize_tuni_state(data: Dict[str, object]) -> Dict[str, object]:
 
 
 def _process_tuni_merged(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Merged TUNI: create ISID if missing, then set ports/lags."""
     isid = entry["isid"]
     desired_name = entry.get("name")
@@ -1361,8 +1360,8 @@ def _process_tuni_merged(
 
 
 def _process_tuni_replaced(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Replaced TUNI: enforce exact ports/lags membership."""
     isid = entry["isid"]
     desired_name = entry.get("name")
@@ -1405,8 +1404,8 @@ def _process_tuni_replaced(
 
 
 def _process_tuni_deleted(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool,
+) -> dict[str, object]:
     """Delete a TUNI ISID instance."""
     isid = entry["isid"]
     tuni_data = get_tuni(connection, isid)
@@ -1425,8 +1424,8 @@ def _process_tuni_deleted(
 
 
 def _dispatch_entry(
-    entry: Dict[str, Any], connection: Connection, check_mode: bool, state: str,
-) -> Dict[str, object]:
+    entry: dict[str, Any], connection: Connection, check_mode: bool, state: str,
+) -> dict[str, object]:
     """Route an entry to the correct type-specific handler."""
     isid_type = (entry.get("isid_type") or "CVLAN").upper()
     if isid_type == "SUNI":
@@ -1453,8 +1452,8 @@ def _dispatch_entry(
 
 
 def handle_merged(
-    config: List[Dict[str, Any]], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    config: list[dict[str, Any]], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     results = []
     changed = False
     for entry in config:
@@ -1466,8 +1465,8 @@ def handle_merged(
 
 
 def handle_replaced(
-    config: List[Dict[str, Any]], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    config: list[dict[str, Any]], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     results = []
     changed = False
     for entry in config:
@@ -1479,13 +1478,13 @@ def handle_replaced(
 
 
 def _override_delete_unlisted_cvlan(
-    config: List[Dict[str, Any]], connection: Connection, check_mode: bool,
+    config: list[dict[str, Any]], connection: Connection, check_mode: bool,
     wanted_isids: set,
-) -> Tuple[bool, List[int], List[Dict[str, object]]]:
+) -> tuple[bool, list[int], list[dict[str, object]]]:
     """Delete CVLAN ISIDs not in wanted_isids."""
     all_cvlan_isids = _list_cvlan_isids_raw(connection)
-    deleted_isids: List[int] = []
-    skipped_isids: List[Dict[str, object]] = []
+    deleted_isids: list[int] = []
+    skipped_isids: list[dict[str, object]] = []
     changed = False
 
     for record in all_cvlan_isids:
@@ -1512,11 +1511,11 @@ def _override_delete_unlisted_cvlan(
 
 def _override_delete_unlisted_suni(
     connection: Connection, check_mode: bool, wanted_isids: set,
-) -> Tuple[bool, List[int], List[Dict[str, object]]]:
+) -> tuple[bool, list[int], list[dict[str, object]]]:
     """Delete SUNI ISIDs not in wanted_isids."""
     all_suni = list_all_suni(connection)
-    deleted: List[int] = []
-    skipped: List[Dict[str, object]] = []
+    deleted: list[int] = []
+    skipped: list[dict[str, object]] = []
     changed = False
     for record in all_suni:
         device_isid = record.get("isid")
@@ -1537,11 +1536,11 @@ def _override_delete_unlisted_suni(
 
 def _override_delete_unlisted_tuni(
     connection: Connection, check_mode: bool, wanted_isids: set,
-) -> Tuple[bool, List[int], List[Dict[str, object]]]:
+) -> tuple[bool, list[int], list[dict[str, object]]]:
     """Delete TUNI ISIDs not in wanted_isids."""
     all_tuni = list_all_tuni(connection)
-    deleted: List[int] = []
-    skipped: List[Dict[str, object]] = []
+    deleted: list[int] = []
+    skipped: list[dict[str, object]] = []
     changed = False
     for record in all_tuni:
         device_isid = record.get("isid")
@@ -1559,14 +1558,14 @@ def _override_delete_unlisted_tuni(
 
 
 def handle_overridden(
-    config: List[Dict[str, Any]], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    config: list[dict[str, Any]], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     """Delete unlisted ISIDs (scoped to types in config), then apply replaced."""
     wanted_isids = {e["isid"] for e in config}
     types_in_config = {(e.get("isid_type") or "CVLAN").upper() for e in config}
 
-    deleted_isids: List[int] = []
-    skipped_isids: List[Dict[str, object]] = []
+    deleted_isids: list[int] = []
+    skipped_isids: list[dict[str, object]] = []
     changed = False
 
     # Phase 1: delete unlisted ISIDs — scoped to types present in config
@@ -1611,8 +1610,8 @@ def handle_overridden(
 
 
 def handle_deleted(
-    config: List[Dict[str, Any]], connection: Connection, check_mode: bool
-) -> Dict[str, object]:
+    config: list[dict[str, Any]], connection: Connection, check_mode: bool
+) -> dict[str, object]:
     results = []
     changed = False
     for entry in config:
@@ -1623,10 +1622,10 @@ def handle_deleted(
     return {"changed": changed, "isids": results}
 
 
-def handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str, object]:
-    gather_filter: Optional[List[int]] = module.params.get("gather_filter")
+def handle_gathered(module: AnsibleModule, connection: Connection) -> dict[str, object]:
+    gather_filter: list[int] | None = module.params.get("gather_filter")
 
-    gathered: List[Dict[str, object]] = []
+    gathered: list[dict[str, object]] = []
 
     if gather_filter:
         for candidate in gather_filter:

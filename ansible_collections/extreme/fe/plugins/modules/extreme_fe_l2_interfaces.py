@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage L2 interface settings on Fabric Engine switches.
 
 Manages VLAN membership (access/trunk mode, tagged/untagged VLANs)
@@ -13,16 +12,18 @@ REST API endpoints used:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 # -- Standard library imports --------------------------------------------------
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import quote
+
+import yaml
 
 # -- Ansible SDK imports -------------------------------------------------------
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
-
-import yaml
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -30,8 +31,7 @@ module: extreme_fe_l2_interfaces
 short_description: Manages L2 interface settings on ExtremeNetworks Fabric Engine switches
 version_added: 1.0.0
 description:
-- Configure L2 interface settings on ExtremeNetworks Fabric Engine
-  (VOSS) switches using the C(extreme_fe) HTTPAPI connection plugin.
+- Configure L2 interface settings on ExtremeNetworks Fabric Engine switches using the C(extreme_fe) HTTPAPI connection plugin.
 - Supports VLAN membership (access/trunk mode, tagged/untagged VLANs)
   on one or more interfaces per task via the C(config) list parameter.
 author:
@@ -250,7 +250,7 @@ skipped_interfaces:
     elements: str
 """
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "config": {
         "type": "list",
         "elements": "dict",
@@ -270,7 +270,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
     },
 }
 
-KNOWN_INTERFACE_TYPES: Set[str] = {"PORT", "LAG"}
+KNOWN_INTERFACE_TYPES: set[str] = {"PORT", "LAG"}
 
 STATE_MERGED = "merged"
 STATE_REPLACED = "replaced"
@@ -279,8 +279,8 @@ STATE_DELETED = "deleted"
 STATE_GATHERED = "gathered"
 
 # Default L2 settings used when resetting ports (overridden state).
-# Verified against VOSS factory defaults: TRUNK mode, portVlan=1.
-DEFAULTS: Dict[str, Any] = {
+# Verified against Fabric Engine factory defaults: TRUNK mode, portVlan=1.
+DEFAULTS: dict[str, Any] = {
     "portType": "TRUNK",
     "portVlan": 1,
     "allowedVlans": [1],
@@ -296,13 +296,13 @@ class FeL2InterfacesError(Exception):
     """Base exception for the L2 interface module."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
+        self, message: str, *, details: dict[str, object] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -313,7 +313,7 @@ class FeL2InterfacesError(Exception):
 # --------------------------------------------------------------------------
 
 
-def _is_not_found_response(payload: Optional[object]) -> bool:
+def _is_not_found_response(payload: object | None) -> bool:
     if not isinstance(payload, dict):
         return False
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -329,7 +329,7 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
     return False
 
 
-def parse_interface_name(name: str) -> Tuple[str, str]:
+def parse_interface_name(name: str) -> tuple[str, str]:
     """Parse 'PORT:1:5', '1:5', or 'LAG:10' into (type, name)."""
     raw = name.strip()
     if not raw:
@@ -347,7 +347,7 @@ def parse_interface_name(name: str) -> Tuple[str, str]:
     return "PORT", raw
 
 
-def _normalize_vlan_list(value: Optional[Iterable[object]]) -> List[int]:
+def _normalize_vlan_list(value: Iterable[object] | None) -> list[int]:
     if value is None:
         return []
     if isinstance(value, str):
@@ -359,7 +359,7 @@ def _normalize_vlan_list(value: Optional[Iterable[object]]) -> List[int]:
             value = parsed
         else:
             value = [value]
-    result: List[int] = []
+    result: list[int] = []
     for item in value:
         if item is None:
             continue
@@ -372,7 +372,7 @@ def _normalize_vlan_list(value: Optional[Iterable[object]]) -> List[int]:
     return result
 
 
-def _normalize_port_type(value: Optional[object]) -> Optional[str]:
+def _normalize_port_type(value: object | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -381,7 +381,7 @@ def _normalize_port_type(value: Optional[object]) -> Optional[str]:
     raise FeL2InterfacesError(f"Unsupported port_type value '{value}' supplied")
 
 
-def _normalize_vlan_value(value: Optional[object]) -> Optional[int]:
+def _normalize_vlan_value(value: object | None) -> int | None:
     if value in (None, ""):
         return None
     try:
@@ -408,7 +408,7 @@ def _interface_path(iface_type: str, iface_name: str) -> str:
 
 def get_interface_settings(
     connection: Connection, iface_type: str, iface_name: str
-) -> Optional[Dict[str, object]]:
+) -> dict[str, object] | None:
     try:
         data = connection.send_request(
             None, path=_interface_path(iface_type, iface_name), method="GET"
@@ -433,7 +433,7 @@ def get_interface_settings(
 
 def get_all_interface_settings(
     connection: Connection,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """GET /v0/configuration/vlan/interfaces -- returns all interfaces."""
     try:
         data = connection.send_request(None, path=COLLECTION_PATH, method="GET")
@@ -454,7 +454,7 @@ def replace_interface_settings(
     connection: Connection,
     iface_type: str,
     iface_name: str,
-    payload: Dict[str, object],
+    payload: dict[str, object],
 ) -> None:
     connection.send_request(
         payload, path=_interface_path(iface_type, iface_name), method="PUT"
@@ -467,8 +467,8 @@ def replace_interface_settings(
 
 
 def _to_ansible_state(
-    raw: Optional[Dict[str, Any]],
-) -> Dict[str, Any]:
+    raw: dict[str, Any] | None,
+) -> dict[str, Any]:
     """Normalise a raw API response into a stable dict for before/after."""
     if raw is None:
         return {"port_type": None, "untagged_vlan": None, "tagged_vlans": []}
@@ -483,10 +483,10 @@ def _to_ansible_state(
 
 
 def _compute_differences(
-    before: Dict[str, Any],
-    after: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    diffs: List[Dict[str, Any]] = []
+    before: dict[str, Any],
+    after: dict[str, Any],
+) -> list[dict[str, Any]]:
+    diffs: list[dict[str, Any]] = []
     for key in ("port_type", "untagged_vlan", "tagged_vlans"):
         bval = before.get(key)
         aval = after.get(key)
@@ -501,9 +501,9 @@ def _compute_differences(
 
 
 def _build_merged_payload(
-    entry: Dict[str, Any],
-    existing: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    entry: dict[str, Any],
+    existing: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build desired payload for merged state (additive)."""
     current_port_type = _normalize_port_type(existing.get("portType"))
     current_untagged = _normalize_vlan_value(existing.get("portVlan"))
@@ -551,7 +551,7 @@ def _build_merged_payload(
     ):
         target_allowed.add(target_untagged)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "portType": desired_port_type,
         "allowedVlans": sorted(target_allowed),
     }
@@ -567,9 +567,9 @@ def _build_merged_payload(
 
 
 def _build_replaced_payload(
-    entry: Dict[str, Any],
-    existing: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    entry: dict[str, Any],
+    existing: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build desired payload for replaced state (authoritative per-interface)."""
     add_tagged = entry.get("add_tagged_vlans")
     remove_tagged = entry.get("remove_tagged_vlans")
@@ -583,7 +583,7 @@ def _build_replaced_payload(
     tagged_vlans = entry.get("tagged_vlans")
     target_untagged = _normalize_vlan_value(entry.get("untagged_vlan"))
 
-    target_allowed: Set[int] = set(_normalize_vlan_list(tagged_vlans))
+    target_allowed: set[int] = set(_normalize_vlan_list(tagged_vlans))
 
     # When untagged_vlan is omitted, default from existing to avoid a
     # perpetual diff (the device always reports a real portVlan).
@@ -607,7 +607,7 @@ def _build_replaced_payload(
     ):
         target_allowed.add(target_untagged)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "portType": desired_port_type,
         "allowedVlans": sorted(target_allowed),
     }
@@ -623,9 +623,9 @@ def _build_replaced_payload(
 
 
 def _build_deleted_payload(
-    entry: Dict[str, Any],
-    existing: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    entry: dict[str, Any],
+    existing: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build desired payload for deleted state."""
     add_tagged = entry.get("add_tagged_vlans")
     if add_tagged not in (None, []):
@@ -674,7 +674,7 @@ def _build_deleted_payload(
     ):
         target_allowed.add(target_untagged)
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "portType": desired_port_type,
         "allowedVlans": sorted(target_allowed),
         "portVlan": target_untagged if target_untagged is not None else 0,
@@ -688,7 +688,7 @@ def _build_deleted_payload(
     return payload, comparison
 
 
-def _build_defaults_payload() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def _build_defaults_payload() -> tuple[dict[str, Any], dict[str, Any]]:
     """Build default-reset payload for overridden unlisted interfaces."""
     payload = dict(DEFAULTS)
     comparison = {
@@ -704,7 +704,7 @@ def _build_defaults_payload() -> Tuple[Dict[str, Any], Dict[str, Any]]:
 # --------------------------------------------------------------------------
 
 
-def _current_state_key(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _current_state_key(raw: dict[str, Any]) -> dict[str, Any]:
     """Build a comparison dict from existing device data."""
     return {
         "portType": _normalize_port_type(raw.get("portType")),
@@ -719,12 +719,12 @@ def _apply_interface(
     connection: Connection,
     iface_type: str,
     iface_name: str,
-    existing: Dict[str, Any],
-    payload: Dict[str, Any],
-    comparison: Dict[str, Any],
+    existing: dict[str, Any],
+    payload: dict[str, Any],
+    comparison: dict[str, Any],
     *,
     check_mode: bool,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """Apply payload to one interface. Returns (changed, final_raw)."""
     current = _current_state_key(existing)
     if current == comparison:
@@ -756,11 +756,11 @@ def _apply_interface(
 
 def _process_config_entry(
     connection: Connection,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     state: str,
     *,
     check_mode: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Process a single config entry. Returns per-interface result dict."""
     name = entry["name"]
     iface_type, iface_name = parse_interface_name(name)
@@ -825,9 +825,9 @@ def _process_config_entry(
 
 def _handle_gathered(
     module: AnsibleModule, connection: Connection
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     config = module.params.get("config") or []
-    interfaces: List[Dict[str, Any]] = []
+    interfaces: list[dict[str, Any]] = []
 
     if config:
         for entry in config:
@@ -875,7 +875,7 @@ def _handle_gathered(
 
 def _handle_overridden(
     module: AnsibleModule, connection: Connection
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     config = module.params.get("config") or []
     if not config:
         raise FeL2InterfacesError(
@@ -884,12 +884,12 @@ def _handle_overridden(
 
     check_mode = module.check_mode
     overall_changed = False
-    interfaces: List[Dict[str, Any]] = []
-    reset_interfaces: List[str] = []
-    skipped_interfaces: List[str] = []
+    interfaces: list[dict[str, Any]] = []
+    reset_interfaces: list[str] = []
+    skipped_interfaces: list[str] = []
 
     # Build set of configured interface keys for comparison.
-    config_keys: Set[Tuple[str, str]] = set()
+    config_keys: set[tuple[str, str]] = set()
     for entry in config:
         itype, iname = parse_interface_name(entry["name"])
         config_keys.add((itype, iname))
@@ -897,7 +897,7 @@ def _handle_overridden(
     # Phase 1: Reset unlisted interfaces to defaults.
     all_ifaces = get_all_interface_settings(connection)
     # Build a lookup of existing (type, name) for pre-validation.
-    existing_keys: Set[Tuple[str, str]] = set()
+    existing_keys: set[tuple[str, str]] = set()
     for item in all_ifaces:
         etype = str(item.get("interfaceType") or "PORT").strip().upper()
         ename = str(item.get("interfaceName") or "").strip()
@@ -977,7 +977,7 @@ def _handle_overridden(
 
 def _handle_config_states(
     module: AnsibleModule, connection: Connection, state: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handle merged, replaced, deleted states."""
     config = module.params.get("config") or []
     if not config:
@@ -987,7 +987,7 @@ def _handle_config_states(
 
     check_mode = module.check_mode
     overall_changed = False
-    interfaces: List[Dict[str, Any]] = []
+    interfaces: list[dict[str, Any]] = []
 
     for entry in config:
         result = _process_config_entry(

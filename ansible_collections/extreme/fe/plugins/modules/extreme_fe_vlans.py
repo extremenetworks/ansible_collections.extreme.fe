@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Ansible module to manage ExtremeNetworks Fabric Engine VLANs via HTTPAPI.
 
@@ -17,8 +16,8 @@ from __future__ import annotations
 import copy
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 # -- Documentation -------------------------------------------------------------
 
@@ -54,7 +53,7 @@ notes:
     C(replaced); under C(overridden) an unmentioned type is cleared anyway.
   - C(overridden) deletes every VLAN not listed in C(config), so an
     incomplete C(config) removes working configuration. VLANs carrying L3
-    interfaces, SPBM I-SIDs or RSMLT instances may be refused by the
+    interfaces, SPBM ISIDs or RSMLT instances may be refused by the
     device; those are reported in C(skipped_vlans) and raised as warnings
     rather than aborting the run.
 requirements:
@@ -297,80 +296,78 @@ options:
 """
 
 EXAMPLES = r"""
-# - name: Manage VLANs on Fabric Engine devices
-#   hosts: switches
-#   gather_facts: false
-#   collections:
-#     - extreme.fe
-#   tasks:
-      - name: Create or update multiple VLANs (merged)
-        extreme.fe.extreme_fe_vlans:
-          state: merged
-          config:
-            - vlan_id: 20
-              vlan_name: Campus-20
-              vr_name: GlobalRouter
-              lag_interfaces:
-                - name: "10"
-                  tag: tagged
-            - vlan_id: 30
-              vlan_name: Campus-30
-              vr_name: GlobalRouter
+- name: Manage VLANs on Fabric Engine devices
+  hosts: switches
+  gather_facts: false
+  tasks:
+    - name: Create or update multiple VLANs (merged)
+      extreme.fe.extreme_fe_vlans:
+        state: merged
+        config:
+          - vlan_id: 20
+            vlan_name: Campus-20
+            vr_name: GlobalRouter
+            lag_interfaces:
+              - name: "10"
+                tag: tagged
+          - vlan_id: 30
+            vlan_name: Campus-30
+            vr_name: GlobalRouter
 
-      - name: Enforce VLAN 200 membership (replaced)
-        extreme.fe.extreme_fe_vlans:
-          state: replaced
-          config:
-            - vlan_id: 200
-              vr_name: GlobalRouter
-              lag_interfaces:
-                - name: "10"
-                  tag: tagged
+    - name: Enforce VLAN 200 membership (replaced)
+      extreme.fe.extreme_fe_vlans:
+        state: replaced
+        config:
+          - vlan_id: 200
+            vr_name: GlobalRouter
+            lag_interfaces:
+              - name: "10"
+                tag: tagged
 
       # Deletes every other user VLAN on the device. VLANs 1 and 4048 are
       # left alone; anything the device refuses to delete is reported in
       # skipped_vlans.
-      - name: Override all VLANs - only these should exist (overridden)
-        extreme.fe.extreme_fe_vlans:
-          state: overridden
-          config:
-            - vlan_id: 20
-              vlan_name: Campus-20
-              vr_name: GlobalRouter
-            - vlan_id: 30
-              vlan_name: Campus-30
-              vr_name: GlobalRouter
+    - name: Override all VLANs - only these should exist (overridden)
+      extreme.fe.extreme_fe_vlans:
+        state: overridden
+        config:
+          - vlan_id: 20
+            vlan_name: Campus-20
+            vr_name: GlobalRouter
+          - vlan_id: 30
+            vlan_name: Campus-30
+            vr_name: GlobalRouter
 
-      - name: Remove specific LAG from VLAN 200 (merged with remove)
-        extreme.fe.extreme_fe_vlans:
-          state: merged
-          config:
-            - vlan_id: 200
-              vr_name: GlobalRouter
-              remove_lag_interfaces:
-                - name: "11"
-                  tag: tagged
+    - name: Remove specific LAG from VLAN 200 (merged with remove)
+      extreme.fe.extreme_fe_vlans:
+        state: merged
+        config:
+          - vlan_id: 200
+            vr_name: GlobalRouter
+            remove_lag_interfaces:
+              - name: "11"
+                tag: tagged
 
-      - name: Delete VLAN 200
-        extreme.fe.extreme_fe_vlans:
-          state: deleted
-          config:
-            - vlan_id: 200
-              vr_name: GlobalRouter
+    - name: Delete VLAN 200
+      extreme.fe.extreme_fe_vlans:
+        state: deleted
+        config:
+          - vlan_id: 200
+            vr_name: GlobalRouter
 
-      - name: Delete all user-created VLANs
-        extreme.fe.extreme_fe_vlans:
-          state: deleted
+    - name: Delete all user-created VLANs
+      extreme.fe.extreme_fe_vlans:
+        state: deleted
 
-      - name: Gather specific VLANs
-        extreme.fe.extreme_fe_vlans:
-          state: gathered
-          gather_filter: [20, 30]
+    - name: Gather specific VLANs
+      extreme.fe.extreme_fe_vlans:
+        state: gathered
+        gather_filter: [20, 30]
         register: vlan_info
 
-      - name: Display VLAN configuration
-        ansible.builtin.debug:
-          var: vlan_info.gathered
+    - name: Display VLAN configuration
+      ansible.builtin.debug:
+        var: vlan_info.gathered
 """
 
 RETURN = r"""
@@ -399,7 +396,7 @@ deleted_vlans:
 skipped_vlans:
   description:
     - Unlisted VLANs that C(state=overridden) could not delete, typically
-      because an L3 interface, SPBM I-SID or RSMLT instance still
+      because an L3 interface, SPBM ISID or RSMLT instance still
       references them. Each is also raised as a warning.
   returned: when state is overridden and a delete was refused
   type: list
@@ -469,7 +466,7 @@ STATE_GATHERED = "gathered"
 # Factory defaults for scalar attributes -- used by replaced/overridden to
 # reset omitted fields. Verified via OpenAPI spec:
 #   - name: device auto-assigns "VLAN-{id}" when not specified
-#   - vlanType: PORT_MSTP_RSTP is the standard VOSS type for port-based VLANs
+#   - vlanType: PORT_MSTP_RSTP is the standard Fabric Engine type for port-based VLANs
 #   - stpName: empty string -> STP instance 0 (OpenAPI: "an empty or not present
 #     string indicates the VLAN is assigned to STP instance 0")
 FULL_DEFAULTS = {
@@ -660,7 +657,7 @@ def _is_not_found_response(payload):
 def _raise_for_error_payload(payload, method, path):
     """Fail when the device answers with a success status but an error body.
 
-    The httpapi plugin raises for HTTP status codes, but VOSS can also return
+    The httpapi plugin raises for HTTP status codes, but Fabric Engine can also return
     a 2xx carrying an error document. The scalar writes ignored the response
     entirely, so a rejected create, update or delete was reported as applied.
     That matters most for the overridden delete pre-pass, which would list a
@@ -1416,12 +1413,12 @@ def _handle_overridden_prepass(module, connection, config, all_vlans):
     junos_vlans. Use state=replaced to confine changes to listed VLANs.
 
     System VLANs (1, 4048) are skipped. The reference implementations do
-    delete their reserved VLANs, but on VOSS these are the default and
+    delete their reserved VLANs, but on Fabric Engine these are the default and
     reserved management VLANs and removing them is not recoverable from a
     playbook.
 
     A VLAN the device refuses to delete -- typically because an L3
-    interface, SPBM I-SID or RSMLT instance still references it -- is
+    interface, SPBM ISID or RSMLT instance still references it -- is
     reported instead of failing the run, so one stuck VLAN does not abort
     an otherwise valid sweep.
 

@@ -67,7 +67,7 @@ This module manages global autosense settings and per-port overrides on Fabric E
 | `state` | str | No | `merged` | Desired module operation. See State Behaviour Summary below. |
 | `global_settings` | dict | No | - | Global autosense settings applied through `/v0/configuration/autosense` |
 | `global_settings.access_diffserv_enabled` | bool | No | - | Enable the access DiffServ profile for autosense ports |
-| `global_settings.data_isid` | int | No | - | Data I-SID assigned to autosense data roles. `0` clears the value |
+| `global_settings.data_isid` | int | No | - | Data ISID assigned to autosense data roles. `0` clears the value |
 | `global_settings.dhcp_detection_enabled` | bool | No | - | Enable DHCP detection on autosense ports |
 | `global_settings.dot1p_override_enabled` | bool | No | - | Enable 802.1p override for autosense traffic classes |
 | `global_settings.dot1x_multihost` | dict | No | - | 802.1X multihost client limits for autosense ports |
@@ -81,16 +81,16 @@ This module manages global autosense settings and per-port overrides on Fabric E
 | `global_settings.fabric_attach.msg_auth_enabled` | bool | No | - | Enable Fabric Attach message authentication |
 | `global_settings.fabric_attach.camera` | dict | No | - | Camera role Fabric Attach settings |
 | `global_settings.fabric_attach.camera.dot1x_status` | str | No | - | 802.1X status for camera ports (`AUTO` or `FORCE_AUTHORIZED`) |
-| `global_settings.fabric_attach.camera.isid` | int | No | - | Fabric Attach camera I-SID. `0` clears the association |
+| `global_settings.fabric_attach.camera.isid` | int | No | - | Fabric Attach camera ISID. `0` clears the association |
 | `global_settings.fabric_attach.ovs` | dict | No | - | Open vSwitch Fabric Attach profile |
-| `global_settings.fabric_attach.ovs.isid` | int | No | - | Fabric Attach OVS I-SID. `0` clears the association |
+| `global_settings.fabric_attach.ovs.isid` | int | No | - | Fabric Attach OVS ISID. `0` clears the association |
 | `global_settings.fabric_attach.ovs.status` | str | No | - | 802.1X status for the OVS role (`AUTO` or `FORCE_AUTHORIZED`) |
 | `global_settings.fabric_attach.proxy` | dict | No | - | Fabric Attach proxy defaults |
 | `global_settings.fabric_attach.proxy.mgmt_cvid` | int | No | - | Management CVID used for Fabric Attach proxy traffic |
-| `global_settings.fabric_attach.proxy.mgmt_isid` | int | No | - | Management I-SID used for proxy traffic. `0` clears the value |
-| `global_settings.fabric_attach.proxy.no_auth_isid` | int | No | - | Proxy I-SID used when authentication is not required |
+| `global_settings.fabric_attach.proxy.mgmt_isid` | int | No | - | Management ISID used for proxy traffic. `0` clears the value |
+| `global_settings.fabric_attach.proxy.no_auth_isid` | int | No | - | Proxy ISID used when authentication is not required |
 | `global_settings.fabric_attach.wap_type1` | dict | No | - | Wireless access point (type 1) Fabric Attach settings |
-| `global_settings.fabric_attach.wap_type1.isid` | int | No | - | WAP I-SID. `0` clears the association |
+| `global_settings.fabric_attach.wap_type1.isid` | int | No | - | WAP ISID. `0` clears the association |
 | `global_settings.fabric_attach.wap_type1.status` | str | No | - | 802.1X status for the WAP role (`AUTO` or `FORCE_AUTHORIZED`) |
 | `global_settings.isis` | dict | No | - | ISIS parameters applied to autosense ports |
 | `global_settings.isis.hello_auth` | dict | No | - | ISIS Hello authentication profile |
@@ -101,16 +101,16 @@ This module manages global autosense settings and per-port overrides on Fabric E
 | `global_settings.isis.hello_auth.type` | str | No | - | Authentication type (`HMAC_MD5`, `HMAC_SHA_256`, `SIMPLE`, `NONE`) |
 | `global_settings.isis.l1_metric` | int | No | - | ISIS Level-1 metric applied to autosense interfaces |
 | `global_settings.isis.l1_metric_auto_enabled` | bool | No | - | Enable automatic calculation of the ISIS Level-1 metric |
-| `global_settings.onboarding_isid` | int | No | - | Onboarding I-SID used while autosense negotiations complete. `0` clears the value |
+| `global_settings.onboarding_isid` | int | No | - | Onboarding ISID used while autosense negotiations complete. `0` clears the value |
 | `global_settings.voice` | dict | No | - | Voice autosense profile defaults |
 | `global_settings.voice.cvid` | int | No | - | Voice CVID applied to autosense ports handling tagged voice traffic |
 | `global_settings.voice.dot1x_lldp_auth_enabled` | bool | No | - | Enable LLDP-based 802.1X authentication for voice endpoints |
-| `global_settings.voice.isid` | int | No | - | Voice I-SID used by autosense ports. `0` clears the association |
+| `global_settings.voice.isid` | int | No | - | Voice ISID used by autosense ports. `0` clears the association |
 | `global_settings.wait_interval` | int | No | - | Global wait interval (seconds) used by the autosense state machine |
 | `config` | list of dict | No | - | Per-port autosense overrides. Aliased as `ports`, the pre-1.2.1 name, which is deprecated but still accepted |
 | `config[].name` | str | Yes | - | Port identifier (slot:port notation such as `1:5`) |
 | `config[].enable` | bool | No | - | Enable or disable autosense on the specified port |
-| `config[].nsi` | int | No | - | Network service identifier (I-SID). `0` clears the association |
+| `config[].nsi` | int | No | - | Network service identifier (ISID). `0` clears the association |
 | `config[].wait_interval` | int | No | - | Port-specific wait interval in seconds (overrides global timer) |
 | `gather_filter` | list of str | No | - | Port identifiers to limit gathered output |
 | `gather_state` | bool | No | `false` | Include data from `/v0/state/autosense/ports` in the result |

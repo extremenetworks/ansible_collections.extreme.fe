@@ -1,13 +1,13 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage Extreme Fabric Engine autosense settings."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
+from collections.abc import Iterable
+from typing import Any
 
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -58,7 +58,7 @@ options:
                 type: bool
             data_isid:
                 description:
-                    - Data I-SID assigned to autosense data roles. C(0) clears the value.
+                    - Data ISID assigned to autosense data roles. C(0) clears the value.
                 type: int
             dhcp_detection_enabled:
                 description:
@@ -119,7 +119,7 @@ options:
                                 choices: [AUTO, FORCE_AUTHORIZED]
                             isid:
                                 description:
-                                    - Fabric Attach camera I-SID. C(0) clears the association.
+                                    - Fabric Attach camera ISID. C(0) clears the association.
                                 type: int
                     ovs:
                         description:
@@ -128,7 +128,7 @@ options:
                         suboptions:
                             isid:
                                 description:
-                                    - Fabric Attach OVS I-SID. C(0) clears the association.
+                                    - Fabric Attach OVS ISID. C(0) clears the association.
                                 type: int
                             status:
                                 description:
@@ -146,11 +146,11 @@ options:
                                 type: int
                             mgmt_isid:
                                 description:
-                                    - Management I-SID used for proxy traffic. C(0) clears the value.
+                                    - Management ISID used for proxy traffic. C(0) clears the value.
                                 type: int
                             no_auth_isid:
                                 description:
-                                    - Fabric Attach proxy I-SID used when authentication is not required.
+                                    - Fabric Attach proxy ISID used when authentication is not required.
                                 type: int
                     wap_type1:
                         description:
@@ -159,7 +159,7 @@ options:
                         suboptions:
                             isid:
                                 description:
-                                    - WAP I-SID. C(0) clears the association.
+                                    - WAP ISID. C(0) clears the association.
                                 type: int
                             status:
                                 description:
@@ -208,7 +208,7 @@ options:
                         type: bool
             onboarding_isid:
                 description:
-                    - Onboarding I-SID used while autosense negotiations complete. C(0) clears the value.
+                    - Onboarding ISID used while autosense negotiations complete. C(0) clears the value.
                 type: int
             voice:
                 description:
@@ -225,7 +225,7 @@ options:
                         type: bool
                     isid:
                         description:
-                            - Voice I-SID used by autosense ports. C(0) clears the association.
+                            - Voice ISID used by autosense ports. C(0) clears the association.
                         type: int
             wait_interval:
                 description:
@@ -250,7 +250,7 @@ options:
                 type: bool
             nsi:
                 description:
-                    - Network service identifier (I-SID). C(0) clears the association.
+                    - Network service identifier (ISID). C(0) clears the association.
                 type: int
             wait_interval:
                 description:
@@ -435,7 +435,7 @@ ports_state:
   type: list
 """
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "state": {
         "type": "str",
         "choices": ["merged", "replaced", "overridden", "deleted", "gathered"],
@@ -542,7 +542,7 @@ ARGUMENT_SPEC: Dict[str, Any] = {
         "elements": "dict",
         "aliases": ["ports"],
         "deprecated_aliases": [
-            {"name": "ports", "version": "1.2.1", "collection_name": "extreme.fe"},
+            {"name": "ports", "version": "2.0.0", "collection_name": "extreme.fe"},
         ],
         "options": {
             "name": {"type": "str", "required": True},
@@ -556,9 +556,9 @@ ARGUMENT_SPEC: Dict[str, Any] = {
 }
 
 
-GLOBAL_SPEC: Dict[str, Any] = {
+GLOBAL_SPEC: dict[str, Any] = {
     "access_diffserv_enabled": {"rest": "accessDiffservEnabled"},
-    "data_isid": {"rest": "dataIsid"},
+    "data_isid": {"rest": "dataISID"},
     "dhcp_detection_enabled": {"rest": "dhcpDetectionEnabled"},
     "dot1p_override_enabled": {"rest": "dot1pOverrideEnabled"},
     "dot1x_multihost": {
@@ -598,8 +598,8 @@ GLOBAL_SPEC: Dict[str, Any] = {
                 "rest": "proxy",
                 "spec": {
                     "mgmt_cvid": {"rest": "mgmtCvid"},
-                    "mgmt_isid": {"rest": "mgmtIsid"},
-                    "no_auth_isid": {"rest": "noAuthIsid"},
+                    "mgmt_isid": {"rest": "mgmtISID"},
+                    "no_auth_isid": {"rest": "noAuthISID"},
                 },
             },
             "wap_type1": {
@@ -632,7 +632,7 @@ GLOBAL_SPEC: Dict[str, Any] = {
             "l1_metric_auto_enabled": {"rest": "l1MetricAutoEnabled"},
         },
     },
-    "onboarding_isid": {"rest": "onboardingIsid"},
+    "onboarding_isid": {"rest": "onboardingISID"},
     "voice": {
         "rest": "voice",
         "spec": {
@@ -645,7 +645,7 @@ GLOBAL_SPEC: Dict[str, Any] = {
 }
 
 
-PORT_FIELD_MAP: Dict[str, str] = {
+PORT_FIELD_MAP: dict[str, str] = {
     "enable": "enable",
     "nsi": "nsi",
     "wait_interval": "waitInterval",
@@ -655,14 +655,14 @@ PORT_FIELD_MAP: Dict[str, str] = {
 # to reset omitted fields rather than requiring all fields from the user.
 # Verified via device behavior: autosense is enabled by default, nsi=0 means
 # cleared, wait_interval=35 is the OpenAPI default.
-PORT_FULL_DEFAULTS: Dict[str, Any] = {
+PORT_FULL_DEFAULTS: dict[str, Any] = {
     "enable": True,        # default: true (from OpenAPI PortAutoSenseSettings)
-    "nsi": 0,              # 0 clears the I-SID assignment
+    "nsi": 0,              # 0 clears the ISID assignment
     "waitInterval": 35,    # default: 35 (from OpenAPI PortAutoSenseSettings)
 }
 
 # Payload used to emulate a per-port DELETE on firmware that rejects the
-# method (VOSS 9.4 answers 405). Deliberately NOT PORT_FULL_DEFAULTS: that
+# method (Fabric Engine 9.4 answers 405). Deliberately NOT PORT_FULL_DEFAULTS: that
 # dict holds the OpenAPI defaults for fields *inside* an override, where
 # enable is true, while removing an override means the port should stop being
 # autosense-managed. Resetting enable to true here would switch autosense ON
@@ -671,9 +671,9 @@ PORT_FULL_DEFAULTS: Dict[str, Any] = {
 # waitInterval is absent on purpose -- it only has meaning while autosense is
 # enabled, and _delete_port_override() carries the port's existing value over
 # so the PATCH does not touch a field the delete does not own.
-PORT_DELETE_RESET: Dict[str, Any] = {
+PORT_DELETE_RESET: dict[str, Any] = {
     "enable": False,       # no override -- autosense off for this port
-    "nsi": 0,              # 0 clears the I-SID assignment
+    "nsi": 0,              # 0 clears the ISID assignment
 }
 
 # The only status that means "this firmware does not implement DELETE on the
@@ -684,17 +684,17 @@ HTTP_METHOD_NOT_ALLOWED = 405
 # to reset omitted fields. Only includes fields with explicit OpenAPI defaults.
 # Fields without defaults (dot1xMultihost counts, l1Metric, waitInterval) are
 # left unchanged when omitted because device factory values are not documented.
-GLOBAL_FULL_DEFAULTS: Dict[str, Any] = {
+GLOBAL_FULL_DEFAULTS: dict[str, Any] = {
     "accessDiffservEnabled": True,       # default: true
-    "dataIsid": 0,                       # 0 means not set
+    "dataISID": 0,                       # 0 means not set
     "dhcpDetectionEnabled": True,        # default: true
     "dot1pOverrideEnabled": True,        # default: true
-    "onboardingIsid": 0,                 # 0 means not set
+    "onboardingISID": 0,                 # 0 means not set
     "fabricAttach": {
         "msgAuthEnabled": True,           # default: true
         "camera": {"dot1xStatus": "AUTO", "isid": 0},
         "ovs": {"isid": 0, "status": "AUTO"},
-        "proxy": {"mgmtCvid": 0, "mgmtIsid": 0, "noAuthIsid": 0},
+        "proxy": {"mgmtCvid": 0, "mgmtISID": 0, "noAuthISID": 0},
         "wapType1": {"isid": 0, "status": "AUTO"},
     },
     "isis": {
@@ -722,12 +722,12 @@ STATE_GATHERED = "gathered"
 class FeAutosenseError(Exception):
     """Base exception for autosense module errors."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -742,7 +742,7 @@ def _normalize_port_name(raw: str) -> str:
     return value
 
 
-def _deep_merge(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in updates.items():
         if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
@@ -753,11 +753,11 @@ def _deep_merge(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _build_diff_from_module(
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
-    spec: Dict[str, Any],
-) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
+    desired: dict[str, Any],
+    current: dict[str, Any],
+    spec: dict[str, Any],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
     for param, mapping in spec.items():
         if param not in desired:
             continue
@@ -775,7 +775,7 @@ def _build_diff_from_module(
             # Special handling for authKey: API requires both isEncrypted and value
             # We must send the complete object even if only one field changed
             if rest_key == "authKey":
-                complete_authkey: Dict[str, Any] = {}
+                complete_authkey: dict[str, Any] = {}
                 complete_authkey["isEncrypted"] = desired_value.get(
                     "is_encrypted", current_value.get("isEncrypted", False)
                 )
@@ -789,12 +789,12 @@ def _build_diff_from_module(
             # Special handling for helloAuth: API requires key, keyId, and type together
             # The nested key object also requires both isEncrypted and value
             elif rest_key == "helloAuth":
-                complete_helloauth: Dict[str, Any] = {}
+                complete_helloauth: dict[str, Any] = {}
                 # Build the nested key object (requires isEncrypted and value together)
                 key_desired = desired_value.get("key", {})
                 key_current = current_value.get("key", {})
                 if key_desired or key_current:
-                    complete_key: Dict[str, Any] = {}
+                    complete_key: dict[str, Any] = {}
                     complete_key["isEncrypted"] = key_desired.get(
                         "is_encrypted", key_current.get("isEncrypted", False)
                     )
@@ -828,8 +828,8 @@ def _build_diff_from_module(
     return payload
 
 
-def _transform_for_output(payload: Dict[str, Any], spec: Dict[str, Any]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
+def _transform_for_output(payload: dict[str, Any], spec: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     for param, mapping in spec.items():
         rest_key = mapping["rest"]
         if rest_key not in payload:
@@ -847,13 +847,13 @@ def _transform_for_output(payload: Dict[str, Any], spec: Dict[str, Any]) -> Dict
     return result
 
 
-def _build_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]:
+def _build_port_payload(entry: dict[str, Any], state: str) -> dict[str, Any]:
     """Build REST payload for a port entry.
 
     For merged: only user-supplied fields.
     For replaced/overridden: all fields, using PORT_FULL_DEFAULTS for omitted.
     """
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
     for param, rest_key in PORT_FIELD_MAP.items():
         # Ansible pre-populates every declared suboption, so "param in entry"
         # is always true and cannot tell a supplied value from an omitted one.
@@ -868,9 +868,9 @@ def _build_port_payload(entry: Dict[str, Any], state: str) -> Dict[str, Any]:
 
 
 def _transform_ports_output(
-    port_map: Dict[str, Dict[str, Any]],
-    gather_filter: Optional[Iterable[str]] = None,
-) -> List[Dict[str, Any]]:
+    port_map: dict[str, dict[str, Any]],
+    gather_filter: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     names: Iterable[str]
     if gather_filter:
         normalized = []
@@ -882,12 +882,12 @@ def _transform_ports_output(
         names = normalized
     else:
         names = sorted(port_map.keys())
-    result: List[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     for name in names:
         settings = port_map.get(name)
         if not isinstance(settings, dict):
             continue
-        transformed: Dict[str, Any] = {}
+        transformed: dict[str, Any] = {}
         for param, rest_key in PORT_FIELD_MAP.items():
             if rest_key in settings:
                 transformed[param] = settings.get(rest_key)
@@ -901,7 +901,7 @@ def get_connection(module: AnsibleModule) -> Connection:
     return Connection(module._socket_path)
 
 
-def fetch_autosense_config(connection: Connection) -> Tuple[Dict[str, Any], Dict[str, Dict[str, Any]]]:
+def fetch_autosense_config(connection: Connection) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
     data = connection.send_request(None, path="/v0/configuration/autosense", method="GET")
     if data is None:
         return {}, {}
@@ -911,7 +911,7 @@ def fetch_autosense_config(connection: Connection) -> Tuple[Dict[str, Any], Dict
             details={"response": data},
         )
     ports_payload = data.get("ports")
-    port_map: Dict[str, Dict[str, Any]] = {}
+    port_map: dict[str, dict[str, Any]] = {}
     if isinstance(ports_payload, list):
         for entry in ports_payload:
             if not isinstance(entry, dict):
@@ -930,10 +930,10 @@ def fetch_autosense_config(connection: Connection) -> Tuple[Dict[str, Any], Dict
 def apply_global_settings(
     module: AnsibleModule,
     connection: Connection,
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
+    desired: dict[str, Any],
+    current: dict[str, Any],
     state: str = STATE_MERGED,
-) -> Tuple[bool, Dict[str, Any]]:
+) -> tuple[bool, dict[str, Any]]:
     """Apply global autosense settings.
 
     For merged: only patch user-supplied fields.
@@ -952,11 +952,11 @@ def apply_global_settings(
             user_payload = _build_diff_from_module(desired, {}, GLOBAL_SPEC)
             target = _deep_merge(target, user_payload)
         # Now diff target against current
-        diff: Dict[str, Any] = {}
+        diff: dict[str, Any] = {}
         for key, desired_value in target.items():
             current_value = current.get(key)
             if isinstance(desired_value, dict) and isinstance(current_value, dict):
-                sub_diff: Dict[str, Any] = {}
+                sub_diff: dict[str, Any] = {}
                 for sk, sv in desired_value.items():
                     if current_value.get(sk) != sv:
                         sub_diff[sk] = sv
@@ -985,22 +985,22 @@ def apply_global_settings(
 def apply_port_settings(
     module: AnsibleModule,
     connection: Connection,
-    operations: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
+    operations: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
     state_mode: str,
-) -> Tuple[bool, Dict[str, Dict[str, Any]], List[str]]:
+) -> tuple[bool, dict[str, dict[str, Any]], list[str]]:
     if not operations:
         return False, current_map, []
 
     changed = False
-    updated_ports: List[str] = []
+    updated_ports: list[str] = []
     for entry in operations:
         port_name = _normalize_port_name(entry["name"])
         payload = _build_port_payload(entry, state_mode)
         if not payload:
             continue
         current_settings = current_map.get(port_name, {})
-        diff: Dict[str, Any] = {}
+        diff: dict[str, Any] = {}
         for key, value in payload.items():
             if current_settings.get(key) != value:
                 diff[key] = value
@@ -1031,7 +1031,7 @@ def _delete_port_override(
     module: AnsibleModule,
     connection: Connection,
     port_name: str,
-    current_map: Dict[str, Dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
 ) -> bool:
     existing_settings = current_map.get(port_name)
     # No entry for this port means the device holds no override to remove, so
@@ -1058,10 +1058,10 @@ def _delete_port_override(
         # the device.
         if getattr(exc, "code", None) != HTTP_METHOD_NOT_ALLOWED:
             raise
-        # DELETE returns 405 on VOSS 9.4 — fall back to PATCH with the
+        # DELETE returns 405 on Fabric Engine 9.4 — fall back to PATCH with the
         # removal payload. See PORT_DELETE_RESET for why this is not
         # PORT_FULL_DEFAULTS.
-        payload: Dict[str, Any] = dict(PORT_DELETE_RESET)
+        payload: dict[str, Any] = dict(PORT_DELETE_RESET)
         if isinstance(existing_settings, dict) and "waitInterval" in existing_settings:
             payload["waitInterval"] = existing_settings["waitInterval"]
         # Idempotency: if existing settings already match the reset payload,
@@ -1090,14 +1090,14 @@ def _delete_port_override(
 def delete_port_settings(
     module: AnsibleModule,
     connection: Connection,
-    operations: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
-) -> Tuple[bool, Dict[str, Dict[str, Any]], List[str]]:
+    operations: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
+) -> tuple[bool, dict[str, dict[str, Any]], list[str]]:
     if not operations:
         return False, current_map, []
 
     changed = False
-    removed_ports: List[str] = []
+    removed_ports: list[str] = []
     for entry in operations:
         port_name = _normalize_port_name(entry["name"])
         if _delete_port_override(module, connection, port_name, current_map):
@@ -1108,8 +1108,8 @@ def delete_port_settings(
 
 def gather_autosense_state(
     connection: Connection,
-    gather_filter: Optional[Iterable[str]] = None,
-) -> List[Dict[str, Any]]:
+    gather_filter: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     data = connection.send_request(None, path="/v0/state/autosense/ports", method="GET")
     if data is None:
         return []
@@ -1118,10 +1118,10 @@ def gather_autosense_state(
             "Unexpected response when retrieving autosense state",
             details={"response": data},
         )
-    filter_set: Optional[set] = None
+    filter_set: set | None = None
     if gather_filter:
         filter_set = {_normalize_port_name(item) for item in gather_filter}
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for entry in data:
         if not isinstance(entry, dict):
             continue
@@ -1144,13 +1144,13 @@ def gather_autosense_state(
 
 def _handle_gathered(
     connection: Connection,
-    gather_filter: Optional[List[str]],
+    gather_filter: list[str] | None,
     gather_state: bool,
-    current_global: Dict[str, Any],
-    port_map: Dict[str, Dict[str, Any]],
-) -> Dict[str, Any]:
+    current_global: dict[str, Any],
+    port_map: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     """Handle state=gathered: read-only."""
-    result: Dict[str, Any] = {"changed": False}
+    result: dict[str, Any] = {"changed": False}
     result["global_settings"] = _transform_for_output(current_global, GLOBAL_SPEC)
     result["ports_settings"] = _transform_ports_output(port_map, gather_filter)
     if gather_state:
@@ -1162,13 +1162,13 @@ def _handle_action_states(
     module: AnsibleModule,
     connection: Connection,
     state: str,
-    current_global: Dict[str, Any],
-    port_map: Dict[str, Dict[str, Any]],
+    current_global: dict[str, Any],
+    port_map: dict[str, dict[str, Any]],
     gather_state: bool,
-    gather_filter: Optional[List[str]],
-) -> Dict[str, Any]:
+    gather_filter: list[str] | None,
+) -> dict[str, Any]:
     """Handle merged/replaced/overridden/deleted states."""
-    result: Dict[str, Any] = {"changed": False}
+    result: dict[str, Any] = {"changed": False}
 
     # Before snapshot
     before_global = _transform_for_output(current_global, GLOBAL_SPEC)
@@ -1210,8 +1210,8 @@ def _handle_action_states(
                 "Global settings cannot be supplied when state='deleted'.")
 
     # Port operations
-    updated_ports: List[str] = []
-    removed_ports: List[str] = []
+    updated_ports: list[str] = []
+    removed_ports: list[str] = []
 
     if state == STATE_DELETED:
         changed_ports, port_map, removed_ports = delete_port_settings(
@@ -1258,7 +1258,7 @@ def _handle_action_states(
     # Optional state collection
     if gather_state:
         if gather_filter:
-            state_filter: Optional[List[str]] = gather_filter
+            state_filter: list[str] | None = gather_filter
         elif updated_ports:
             state_filter = updated_ports
         elif removed_ports:

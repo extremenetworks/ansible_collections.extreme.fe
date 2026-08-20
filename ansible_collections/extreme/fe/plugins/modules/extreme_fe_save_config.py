@@ -1,20 +1,19 @@
-# -*- coding: utf-8 -*-
 """Ansible module to save Fabric Engine configurations via HTTPAPI."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
+from typing import Any
 
-from typing import Any, Dict, Optional
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_save_config
 short_description: Save the running configuration on ExtremeNetworks Fabric Engine switches
 version_added: "1.0.0"
 description:
-- Save the current Fabric Engine (VOSS) running configuration to the active or specified
+- Save the current Fabric Engine running configuration to the active or specified
   configuration file via the custom C(extreme_fe) HTTPAPI plugin.
 - Supports optionally providing a filename and using Fabric Engine's verbose save option to
   persist both current and default configuration elements.
@@ -23,7 +22,7 @@ author:
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
-- Applicable only to Fabric Engine (VOSS) devices.
+- Applicable only to Fabric Engine devices.
 requirements:
 - ansible.netcommon
 options:
@@ -118,18 +117,18 @@ SAVE_CONFIG_PATH = "/v0/operation/system/config/:save"
 class FeSaveConfigError(Exception):
     """Raised for validation issues or unexpected device responses."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             payload["details"] = self.details
         return payload
 
 
-def _sanitize_name(value: Optional[str]) -> Optional[str]:
+def _sanitize_name(value: str | None) -> str | None:
     if value is None:
         return None
     if isinstance(value, str):
@@ -140,8 +139,8 @@ def _sanitize_name(value: Optional[str]) -> Optional[str]:
     raise FeSaveConfigError("Parameter 'name' must be a string", details={"received_type": type(value).__name__})
 
 
-def _build_payload(params: Dict[str, Any]) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
+def _build_payload(params: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
 
     name = _sanitize_name(params.get("name"))
     if name is not None:
@@ -153,7 +152,7 @@ def _build_payload(params: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -183,7 +182,7 @@ def main() -> None:
 
     connection = Connection(module._socket_path)
 
-    request_body: Optional[Dict[str, Any]] = payload if payload else {}
+    request_body: dict[str, Any] | None = payload if payload else {}
 
     try:
         response = connection.send_request(request_body, path=SAVE_CONFIG_PATH, method="POST")
@@ -194,7 +193,7 @@ def main() -> None:
     if error:
         module.fail_json(msg=error.get("message"), details=error)
 
-    result: Dict[str, Any] = {"changed": True}
+    result: dict[str, Any] = {"changed": True}
     if response not in (None, ""):
         if isinstance(response, dict):
             result["response"] = response

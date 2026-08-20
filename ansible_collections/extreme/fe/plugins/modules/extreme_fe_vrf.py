@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Ansible module to manage VRFs on Extreme Fabric Engine (VOSS) switches.
+Ansible module to manage VRFs on Extreme Fabric Engine switches.
 
 REST API endpoints used:
   GET    /v0/configuration/vrf              — list all VRFs
@@ -12,7 +11,7 @@ REST API endpoints used:
 
 Writable fields:
   name              — VRF name (string, 1-32 chars, identifier/required)
-  ipRoutingEnabled  — enable/disable IP routing on this VRF (boolean, VOSS only)
+  ipRoutingEnabled  — enable/disable IP routing on this VRF (boolean, Fabric Engine only)
 
 Read-only fields returned in output:
   id, isMgmt, dynamic, vr_type, port_list, dynamic_port_list, vlan_id_list
@@ -21,18 +20,22 @@ Read-only fields returned in output:
 from __future__ import annotations
 
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 # quote() is used to safely encode characters in REST URL path segments
 from urllib.parse import quote
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
+
 # Shared VRF name normalization logic
 from ansible_collections.extreme.fe.plugins.module_utils.extreme_fe_vrf_utils import (
     normalize_vrf_name,
@@ -46,7 +49,7 @@ short_description: Manage VRFs on Extreme Fabric Engine switches
 version_added: "1.2.0"
 description:
   - Create, update, delete, and query Virtual Routing and Forwarding (VRF)
-    instances on Extreme Fabric Engine (VOSS) switches via the REST API.
+    instances on Extreme Fabric Engine switches via the REST API.
   - Supports all five Ansible resource module states.
   - Each VRF is identified by its C(name) (1-32 characters).
   - The only writable configuration field is C(ip_routing_enabled).
@@ -56,7 +59,7 @@ notes:
   - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI
     connection plugin.
   - The C(GlobalRouter) VRF always exists on the device and cannot be deleted.
-  - VRFs of type VR are not supported on VOSS (only VRF type is valid).
+  - VRFs of type VR are not supported on Fabric Engine (only VRF type is valid).
   - Port associations are read-only in this module; use brouter interfaces to
     associate ports with VRFs.
 requirements:
@@ -95,7 +98,7 @@ options:
       ip_routing_enabled:
         description:
           - Enable or disable IP routing on this VRF.
-          - Applicable to Fabric Engine (VOSS) only.
+          - Applicable to Fabric Engine only.
         type: bool
   gather_filter:
     description:
@@ -246,7 +249,7 @@ VRF_SINGLE_PATH = "/v0/configuration/vrf/{vr_name}"
 # Ansible parameter → REST API field name mapping
 FIELD_MAP = {
     "name": "name",  # VRF name (identifier, 1-32 chars)
-    "ip_routing_enabled": "ipRoutingEnabled",  # Enable IP routing (VOSS only)
+    "ip_routing_enabled": "ipRoutingEnabled",  # Enable IP routing (Fabric Engine only)
 }
 
 # Reverse map: REST → Ansible field names
@@ -254,14 +257,14 @@ FIELD_MAP_REV = {v: k for k, v in FIELD_MAP.items()}
 
 # Factory defaults for writable fields — used by replaced/overridden/deleted
 # The OpenAPI spec has no explicit default for ipRoutingEnabled.
-# On VOSS, newly created VRFs have IP routing enabled by default
+# On Fabric Engine, newly created VRFs have IP routing enabled by default
 # (confirmed by creating a VRF via REST without ipRoutingEnabled and
 # reading back the resource — the device returns ipRoutingEnabled: true).
-FULL_DEFAULTS: Dict[str, Any] = {
+FULL_DEFAULTS: dict[str, Any] = {
     "ip_routing_enabled": True,  # IP routing enabled at factory default
 }
 
-# System VRFs that cannot be deleted (always present on VOSS)
+# System VRFs that cannot be deleted (always present on Fabric Engine)
 # Stored lowercase to match normalized VRF name lookups.
 SYSTEM_VRFS = {"globalrouter", "mgmtrouter"}
 
@@ -277,7 +280,7 @@ STATE_GATHERED = "gathered"
 
 # ── Argument spec ─────────────────────────────────────────────────────────────
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "config": {
         "type": "list",
         "elements": "dict",
@@ -307,13 +310,13 @@ class FeVrfError(Exception):
     """Custom exception for VRF module errors."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
+        self, message: str, *, details: dict[str, object] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -342,7 +345,7 @@ def _is_not_found_response(payload: Any) -> bool:
     return False
 
 
-def _extract_error(payload: Any) -> Optional[str]:
+def _extract_error(payload: Any) -> str | None:
     """Extract error message from REST response, if present."""
     if not isinstance(payload, dict):
         return None
@@ -364,10 +367,10 @@ def _call_api(
     *,
     method: str,
     path: str,
+    api_responses: dict[str, Any],
+    response_key: str,
     payload: Any = None,
     expect_content: bool = True,
-    api_responses: Dict[str, Any],
-    response_key: str,
 ) -> Any:
     """
     Send a REST API request and record the response.
@@ -434,9 +437,9 @@ def _call_api(
 def _fetch_all_vrfs(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_all_vrfs",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     GET /v0/configuration/vrf — retrieve all VRFs from the device.
 
@@ -473,9 +476,9 @@ def _fetch_single_vrf(
     module: AnsibleModule,
     connection: Connection,
     vrf_name: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_vrf",
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """
     GET /v0/configuration/vrf/{vr_name} — retrieve a single VRF by name.
 
@@ -503,14 +506,14 @@ def _fetch_single_vrf(
 # output format (snake_case field names matching the module's argument spec).
 
 
-def _to_ansible_output(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _to_ansible_output(raw: dict[str, Any]) -> dict[str, Any]:
     """
     Convert a single REST API VRF dict to Ansible output format.
 
     Maps REST field names to Ansible parameter names and includes
     read-only fields for informational output.
     """
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
 
     # Writable fields (REST → Ansible)
     result["name"] = raw.get("name")
@@ -528,7 +531,7 @@ def _to_ansible_output(raw: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _to_ansible_list(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _to_ansible_list(raw_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Convert a list of REST VRF dicts to Ansible output format."""
     return [_to_ansible_output(r) for r in raw_list]
 
@@ -539,14 +542,14 @@ def _to_ansible_list(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # before == after, no API calls are needed.
 
 
-def _compute_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+def _compute_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     """
     Compare before and after VRF dicts, returning fields that differ.
 
     Only compares writable fields (ip_routing_enabled). The identifier
     field (name) is excluded — it is already reported separately.
     """
-    diff: Dict[str, Any] = {}
+    diff: dict[str, Any] = {}
     for ansible_field in FIELD_MAP:
         if ansible_field == "name":
             continue
@@ -557,7 +560,7 @@ def _compute_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, An
     return diff
 
 
-def _is_user_vrf(vrf: Dict[str, Any]) -> bool:
+def _is_user_vrf(vrf: dict[str, Any]) -> bool:
     """
     Check if a VRF is user-created (not a system VRF).
 
@@ -577,15 +580,15 @@ def _is_user_vrf(vrf: Dict[str, Any]) -> bool:
 # by the device REST API (POST for create, PATCH for update).
 
 
-def _build_create_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _build_create_payload(entry: dict[str, Any]) -> dict[str, Any]:
     """
     Build a POST payload for creating a new VRF.
 
     The REST API expects: {name: str, vrType: "VRF", ipRoutingEnabled: bool}
     """
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "name": entry["name"],
-        "vrType": "VRF",  # VOSS only supports VRF type (not VR)
+        "vrType": "VRF",  # Fabric Engine only supports VRF type (not VR)
     }
 
     # Only include ipRoutingEnabled if explicitly specified
@@ -596,16 +599,16 @@ def _build_create_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _build_patch_payload(
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    desired: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any] | None:
     """
     Build a PATCH payload for updating an existing VRF.
 
     Only includes fields that differ from current state.
     Returns None if no changes are needed.
     """
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
 
     # Only writable field: ipRoutingEnabled
     desired_routing = desired.get("ip_routing_enabled")
@@ -620,9 +623,9 @@ def _build_patch_payload(
 
 
 def _build_replaced_payload(
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    desired: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any] | None:
     """
     Build a PATCH payload for replaced state.
 
@@ -630,13 +633,13 @@ def _build_replaced_payload(
     FULL_DEFAULTS for omitted fields. Returns None if no changes needed.
     """
     # Build complete desired state: user values + defaults for omitted
-    complete: Dict[str, Any] = {}
+    complete: dict[str, Any] = {}
     for field, default_val in FULL_DEFAULTS.items():
         user_val = desired.get(field)
         complete[field] = user_val if user_val is not None else default_val
 
     # Compare with current and build PATCH payload
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
     for ansible_field, value in complete.items():
         rest_field = FIELD_MAP[ansible_field]
         current_val = current.get(ansible_field)
@@ -658,7 +661,7 @@ def _handle_gathered(
     module: AnsibleModule,
     connection: Connection,
     gather_filter: list,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=gathered — read-only, return current VRF state."""
     raw_list = _fetch_all_vrfs(module, connection, result["api_responses"])
@@ -669,9 +672,9 @@ def _handle_gathered(
             normalized = _normalize_vrf_name(f)
             if f != normalized and f.lower() != f:
                 module.warn(
-                    "VRF name '{0}' is not in canonical form. "
-                    "VOSS stores user VRF names in lowercase, but system VRFs require canonical casing; "
-                    "the name will be converted to '{1}'.".format(f, normalized)
+                    f"VRF name '{f}' is not in canonical form. "
+                    "Fabric Engine stores user VRF names in lowercase, but system VRFs require canonical casing; "
+                    f"the name will be converted to '{normalized}'."
                 )
         filter_set = {_normalize_vrf_name(f).lower() for f in gather_filter}
         all_vrfs = [v for v in all_vrfs if v["name"].lower() in filter_set]
@@ -684,8 +687,8 @@ def _handle_deleted(
     module: AnsibleModule,
     connection: Connection,
     config: list,
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=deleted — remove VRFs."""
     if config:
@@ -696,7 +699,7 @@ def _handle_deleted(
         ]
 
     for vrf_name in names_to_delete:
-        vrf_result: Dict[str, Any] = {"name": vrf_name}
+        vrf_result: dict[str, Any] = {"name": vrf_name}
 
         if vrf_name not in current_map:
             vrf_result["before"] = {}
@@ -743,8 +746,8 @@ def _handle_overridden_prepass(
     module: AnsibleModule,
     connection: Connection,
     config: list,
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=overridden pre-pass: delete unlisted user VRFs."""
     config_names = {e["name"].lower() for e in config}
@@ -785,8 +788,8 @@ def _handle_merge_replace(
     connection: Connection,
     state: str,
     config: list,
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=merged/replaced/overridden per-entry processing."""
     for entry in config:
@@ -823,7 +826,7 @@ def _handle_merge_replace(
                     _to_ansible_output(after_raw) if after_raw else {}
                 )
             else:
-                predicted: Dict[str, Any] = {"name": vrf_name}
+                predicted: dict[str, Any] = {"name": vrf_name}
                 routing = entry.get("ip_routing_enabled")
                 predicted["ip_routing_enabled"] = (
                     routing if routing is not None else True
@@ -893,8 +896,8 @@ def _handle_merge_replace(
 def _capture_after_state(
     module: AnsibleModule,
     connection: Connection,
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Fetch or predict the module-level after state."""
     def _predict():
@@ -942,7 +945,7 @@ def main() -> None:
 
     # Validate: merged/replaced/overridden require config
     if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN) and not config:
-        module.fail_json(msg="'config' is required when state is '{0}'".format(state))
+        module.fail_json(msg=f"'config' is required when state is '{state}'")
 
     # Validate: no duplicate VRF names in config
     if config:
@@ -951,28 +954,24 @@ def main() -> None:
             vrf_name = entry["name"]
             if not vrf_name or len(vrf_name) > 16:
                 module.fail_json(
-                    msg="VRF name must be 1-16 characters, got '{0}' ({1} chars)".format(
-                        vrf_name, len(vrf_name) if vrf_name else 0
-                    )
+                    msg=f"VRF name must be 1-16 characters, got '{vrf_name}' ({len(vrf_name) if vrf_name else 0} chars)"
                 )
             normalized = _normalize_vrf_name(vrf_name)
             if vrf_name != normalized:
                 if vrf_name.lower() != vrf_name:
                     module.warn(
-                        "VRF name '{0}' is not in canonical form. "
-                        "VOSS stores user VRF names in lowercase, but system VRFs require canonical casing; "
-                        "the name will be converted to '{1}'.".format(
-                            vrf_name, normalized
-                        )
+                        f"VRF name '{vrf_name}' is not in canonical form. "
+                        "Fabric Engine stores user VRF names in lowercase, but system VRFs require canonical casing; "
+                        f"the name will be converted to '{normalized}'."
                     )
                 entry["name"] = normalized
             if normalized.lower() in seen:
                 module.fail_json(
-                    msg="Duplicate VRF name '{0}' in config list".format(vrf_name)
+                    msg=f"Duplicate VRF name '{vrf_name}' in config list"
                 )
             seen.add(normalized.lower())
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "vrfs": [],
         "api_responses": {},
@@ -989,7 +988,7 @@ def main() -> None:
         raw_list = _fetch_all_vrfs(
             module, connection, result["api_responses"], "configuration_before"
         )
-        current_map: Dict[str, Dict[str, Any]] = {}
+        current_map: dict[str, dict[str, Any]] = {}
         for raw in raw_list:
             vrf_out = _to_ansible_output(raw)
             name = vrf_out.get("name")

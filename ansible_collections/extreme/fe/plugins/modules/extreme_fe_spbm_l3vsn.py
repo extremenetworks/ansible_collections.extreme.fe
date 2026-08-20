@@ -1,8 +1,7 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
 Ansible module to manage SPBM Layer 3 VSN (L3VSN / IPVPN) on Extreme
-Fabric Engine (VOSS) switches.
+Fabric Engine switches.
 
 REST API endpoints used:
   GET    /v0/configuration/spbm/l3vsn/vrf
@@ -18,10 +17,10 @@ REST API endpoints used:
 
 Writable fields (POST / create):
   ipvpnType            — "IPv4" or "IPv6" (required for creation)
-  isid                 — I-SID number, 0-15999999 (0 = unset / GlobalRouter;
-                          values 16000000+ are reserved for dynamic L2 I-SIDs)
+  isid                 — ISID number, 0-15999999 (0 = unset / GlobalRouter;
+                          values 16000000+ are reserved for dynamic L2 ISIDs)
   vpnEnabled           — enable IP VPN node (requires EP1/Premier license)
-  isidName             — descriptive name for the I-SID (0-64 chars)
+  isidName             — descriptive name for the ISID (0-64 chars)
   mvpn.enabled         — enable MVPN on this VRF (create-time only)
   mvpn.forwardCacheTimeout — MVPN forward cache timeout in seconds (create-time only)
 
@@ -38,19 +37,23 @@ from __future__ import annotations
 
 # copy — used to deep-copy data structures so we can compare before/after without mutation
 import copy
+
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 # quote() is used to safely encode characters in REST URL path segments
 from urllib.parse import quote
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
 
 # ── Ansible module metadata ──────────────────────────────────────────────────
 
@@ -60,14 +63,14 @@ short_description: Manage SPBM L3VSN (IPVPN) on Extreme Fabric Engine switches
 version_added: "1.2.0"
 description:
   - Create, update, delete, and query SPBM Layer 3 Virtual Services Network
-    (L3VSN / IPVPN) instances on Extreme Fabric Engine (VOSS) switches via
+    (L3VSN / IPVPN) instances on Extreme Fabric Engine switches via
     the REST API.
   - Supports all five Ansible resource module states.
   - Configuration is grouped by VRF name with nested C(ipv4) and C(ipv6)
     sub-dictionaries, each representing one VPN instance.
   - MVPN settings (C(mvpn)) can only be set at creation time; they cannot
     be modified after the VPN instance exists.
-  - For GlobalRouter (GRT), the I-SID is always 0 and cannot be changed.
+  - For GlobalRouter (GRT), the ISID is always 0 and cannot be changed.
     The C(vpn_enabled) field controls IP Shortcuts admin status on GRT.
 author:
   - Extreme Networks
@@ -80,7 +83,7 @@ notes:
   - The PATCH endpoint only supports updating C(isid), C(vpn_enabled), and
     C(isid_name). The C(mvpn) settings are immutable after creation — to
     change them, delete the VPN instance and recreate it.
-  - Filter I-SID lists (under the same REST path prefix) are NOT managed by
+  - Filter ISID lists (under the same REST path prefix) are NOT managed by
     this module. They will be handled by a future ISIS management module.
 requirements:
   - ansible.netcommon
@@ -122,8 +125,8 @@ options:
         suboptions:
           isid:
             description:
-              - I-SID number (0-15999999). Value 0 means unset.
-              - For GlobalRouter, I-SID is always 0.
+              - ISID number (0-15999999). Value 0 means unset.
+              - For GlobalRouter, ISID is always 0.
             type: int
           vpn_enabled:
             description:
@@ -132,7 +135,7 @@ options:
             type: bool
           isid_name:
             description:
-              - Descriptive name for the I-SID (0-64 characters).
+              - Descriptive name for the ISID (0-64 characters).
             type: str
           mvpn:
             description:
@@ -157,8 +160,8 @@ options:
         suboptions:
           isid:
             description:
-              - I-SID number (0-15999999). Value 0 means unset.
-              - For GlobalRouter, I-SID is always 0.
+              - ISID number (0-15999999). Value 0 means unset.
+              - For GlobalRouter, ISID is always 0.
             type: int
           vpn_enabled:
             description:
@@ -166,7 +169,7 @@ options:
             type: bool
           isid_name:
             description:
-              - Descriptive name for the I-SID (0-64 characters).
+              - Descriptive name for the ISID (0-64 characters).
             type: str
           mvpn:
             description:
@@ -381,14 +384,14 @@ ANSIBLE_KEY_TO_TYPE = {"ipv4": IPV4, "ipv6": IPV6}
 # Address type → Ansible parameter key mapping
 TYPE_TO_ANSIBLE_KEY = {IPV4: "ipv4", IPV6: "ipv6"}
 
-# Maximum I-SID value for set (creation/update) operations.
+# Maximum ISID value for set (creation/update) operations.
 # Values above 16000000 are reserved for dynamically-added L2 instances.
 MAX_ISID_SET = 15999999
 
-# Minimum valid I-SID for non-GRT VRFs (0 is reserved for GRT/unset)
+# Minimum valid ISID for non-GRT VRFs (0 is reserved for GRT/unset)
 MIN_ISID_NON_GRT = 1
 
-# Maximum I-SID name length (from OpenAPI: maxLength 64)
+# Maximum ISID name length (from OpenAPI: maxLength 64)
 MAX_ISID_NAME_LEN = 64
 
 # MVPN forward cache timeout range (from OpenAPI: min 10, max 86400)
@@ -402,15 +405,15 @@ MVPN_FCT_DEFAULT = 210
 # NOTE: isid, vpnEnabled, and isidName are patchable via the REST API.
 # isidName requires isid to be included in the same PATCH body for the device
 # to accept it.  MVPN can only be set at creation time.
-DEFAULTS: Dict[str, Any] = {
-    "isid": 0,  # 0 means unset (from IsidZero schema)
+DEFAULTS: dict[str, Any] = {
+    "isid": 0,  # 0 means unset (from ISIDZero schema)
     "vpn_enabled": False,  # default: false (from OpenAPI)
     "isid_name": "",  # default empty (from OpenAPI)
 }
 
 # FULL_DEFAULTS contains all patchable fields with their factory defaults.
 # Omitted fields in replaced/overridden state are reset to these values.
-FULL_DEFAULTS: Dict[str, Any] = dict(DEFAULTS)
+FULL_DEFAULTS: dict[str, Any] = dict(DEFAULTS)
 
 # State constants
 STATE_MERGED = "merged"
@@ -422,13 +425,13 @@ STATE_GATHERED = "gathered"
 # ── Argument spec ─────────────────────────────────────────────────────────────
 
 # MVPN sub-options (shared between ipv4 and ipv6)
-_MVPN_SPEC: Dict[str, Any] = {
+_MVPN_SPEC: dict[str, Any] = {
     "enabled": {"type": "bool"},
     "forward_cache_timeout": {"type": "int"},
 }
 
 # Per-address-family VPN instance sub-options
-_INSTANCE_SPEC: Dict[str, Any] = {
+_INSTANCE_SPEC: dict[str, Any] = {
     "isid": {"type": "int"},
     "vpn_enabled": {"type": "bool"},
     "isid_name": {"type": "str"},
@@ -438,7 +441,7 @@ _INSTANCE_SPEC: Dict[str, Any] = {
     },
 }
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "config": {
         "type": "list",
         "elements": "dict",
@@ -470,13 +473,13 @@ class FeSpbmL3vsnError(Exception):
     """Custom exception for L3VSN module errors."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
+        self, message: str, *, details: dict[str, object] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -503,14 +506,14 @@ def _is_not_found_response(payload: Any) -> bool:
     return False
 
 
-def _extract_error(payload: Any) -> Optional[str]:
+def _extract_error(payload: Any) -> str | None:
     """Extract an error message from a REST response, if present."""
     if not isinstance(payload, dict):
         return None
     status = payload.get("status") or payload.get("httpStatusCode")
     if status and int(status) >= 400:
         msg = payload.get("message") or payload.get("msg") or str(payload)
-        return "HTTP {0}: {1}".format(status, msg)
+        return f"HTTP {status}: {msg}"
     errors = payload.get("errors")
     if errors:
         return str(errors)
@@ -526,7 +529,7 @@ def _call_api(
     payload: Any = None,
     expect_content: bool = True,
     allow_not_found: bool = False,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
 ) -> Any:
     """
@@ -563,13 +566,13 @@ def _call_api(
         if "license" in exc_lower or "premier" in exc_lower:
             module.fail_json(
                 msg="vpnEnabled requires an EP1/Premier license on the "
-                "device. {0} {1} returned: {2}".format(method, path, exc_msg),
+                f"device. {method} {path} returned: {exc_msg}",
                 code=getattr(exc, "code", None),
                 err=getattr(exc, "err", None),
                 api_responses=api_responses,
             )
         module.fail_json(
-            msg="REST API call failed: {0} {1}: {2}".format(method, path, exc_msg),
+            msg=f"REST API call failed: {method} {path}: {exc_msg}",
             code=getattr(exc, "code", None),
             err=getattr(exc, "err", None),
             api_responses=api_responses,
@@ -609,11 +612,11 @@ def _call_api(
                 if "license" in err_lower or "premier" in err_lower:
                     raise FeSpbmL3vsnError(
                         "vpnEnabled requires an EP1/Premier license on the "
-                        "device. {0} {1} returned: {2}".format(method, path, err),
+                        f"device. {method} {path} returned: {err}",
                         details={"response": parsed},
                     )
             raise FeSpbmL3vsnError(
-                "{0} {1} returned an error: {2}".format(method, path, err),
+                f"{method} {path} returned an error: {err}",
                 details={"response": parsed},
             )
 
@@ -626,9 +629,9 @@ def _call_api(
 def _fetch_all_l3vsn(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_all_l3vsn",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     GET /v0/configuration/spbm/l3vsn/vrf — retrieve all L3VSN VPN instances.
 
@@ -668,9 +671,9 @@ def _fetch_vrf_l3vsn(
     module: AnsibleModule,
     connection: Connection,
     vrf_name: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_vrf_l3vsn",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     GET /v0/configuration/spbm/l3vsn/vrf/{vr_name} — retrieve L3VSN
     instances for a specific VRF.
@@ -706,13 +709,13 @@ def _fetch_vrf_l3vsn(
 # output format (snake_case field names matching the module's argument spec).
 
 
-def _instance_to_ansible(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _instance_to_ansible(raw: dict[str, Any]) -> dict[str, Any]:
     """
     Convert a single REST VPN instance dict to Ansible output format.
 
     Maps REST field names to Ansible parameter names.
     """
-    result: Dict[str, Any] = {}
+    result: dict[str, Any] = {}
     result["isid"] = raw.get("isid")
     result["vpn_enabled"] = raw.get("vpnEnabled")
     result["isid_name"] = raw.get("isidName", "")
@@ -733,7 +736,7 @@ def _instance_to_ansible(raw: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-def _to_ansible_output(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _to_ansible_output(raw_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Convert the flat REST response list into grouped-by-VRF Ansible output.
 
@@ -743,7 +746,7 @@ def _to_ansible_output(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
       [{"vrf_name": "A", "ipv4": {...}, "ipv6": {...}}, ...]
     """
     # Group entries by VRF name (preserving insertion order)
-    grouped: Dict[str, Dict[str, Any]] = {}
+    grouped: dict[str, dict[str, Any]] = {}
 
     for raw in raw_list:
         vrf_name = raw.get("vrName", "")
@@ -760,12 +763,12 @@ def _to_ansible_output(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _build_current_map(
-    ansible_list: List[Dict[str, Any]],
-) -> Dict[str, Dict[str, Any]]:
+    ansible_list: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     """
     Build a lookup map: vrf_name (lowercase) → grouped Ansible output dict.
 
-    Uses case-insensitive keys because VOSS normalises VRF names to
+    Uses case-insensitive keys because Fabric Engine normalises VRF names to
     lowercase, so the device-returned name may differ in case from the
     user-provided name.
     """
@@ -775,12 +778,12 @@ def _build_current_map(
 # ── Validation helpers ────────────────────────────────────────────────────────
 
 
-def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> None:
+def _validate_config(module: AnsibleModule, config: list[dict[str, Any]]) -> None:
     """
     Validate config entries before sending any API requests.
 
-    Checks: VRF name length, duplicate VRF names, I-SID ranges, I-SID name
-    length, MVPN forward cache timeout range, GlobalRouter I-SID constraint.
+    Checks: VRF name length, duplicate VRF names, ISID ranges, ISID name
+    length, MVPN forward cache timeout range, GlobalRouter ISID constraint.
     """
     seen_vrfs: set = set()
 
@@ -790,16 +793,14 @@ def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> Non
         # VRF name length (OpenAPI says 32, firmware enforces 16)
         if not vrf_name or len(vrf_name) > 16:
             module.fail_json(
-                msg="VRF name must be 1-16 characters, got '{0}' ({1} chars)".format(
-                    vrf_name, len(vrf_name) if vrf_name else 0
-                )
+                msg=f"VRF name must be 1-16 characters, got '{vrf_name}' ({len(vrf_name) if vrf_name else 0} chars)"
             )
 
         # Duplicate VRF names (device normalizes VRF names case-insensitively)
         vrf_key = vrf_name.lower()
         if vrf_key in seen_vrfs:
             module.fail_json(
-                msg="Duplicate VRF name '{0}' in config list".format(vrf_name)
+                msg=f"Duplicate VRF name '{vrf_name}' in config list"
             )
         seen_vrfs.add(vrf_key)
 
@@ -811,14 +812,12 @@ def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> Non
             if af_config is None:
                 continue
 
-            # I-SID validation
+            # ISID validation
             isid = af_config.get("isid")
             if isid is not None:
                 if is_grt and isid != 0:
                     module.fail_json(
-                        msg="GlobalRouter I-SID must be 0, got {0} in {1}".format(
-                            isid, af_key
-                        )
+                        msg=f"GlobalRouter ISID must be 0, got {isid} in {af_key}"
                     )
                 if (
                     not is_grt
@@ -826,20 +825,16 @@ def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> Non
                     and (isid < MIN_ISID_NON_GRT or isid > MAX_ISID_SET)
                 ):
                     module.fail_json(
-                        msg="I-SID must be 0 (unset) or {0}-{1} for set "
-                        "operations, got {2} in {3} for VRF '{4}'".format(
-                            MIN_ISID_NON_GRT, MAX_ISID_SET, isid, af_key, vrf_name
-                        )
+                        msg=f"ISID must be 0 (unset) or {MIN_ISID_NON_GRT}-{MAX_ISID_SET} for set "
+                        f"operations, got {isid} in {af_key} for VRF '{vrf_name}'"
                     )
 
-            # I-SID name length
+            # ISID name length
             isid_name = af_config.get("isid_name")
             if isid_name is not None and len(isid_name) > MAX_ISID_NAME_LEN:
                 module.fail_json(
-                    msg="isid_name must be 0-{0} characters, got {1} chars "
-                    "in {2} for VRF '{3}'".format(
-                        MAX_ISID_NAME_LEN, len(isid_name), af_key, vrf_name
-                    )
+                    msg=f"isid_name must be 0-{MAX_ISID_NAME_LEN} characters, got {len(isid_name)} chars "
+                    f"in {af_key} for VRF '{vrf_name}'"
                 )
 
             # MVPN forward cache timeout range
@@ -848,10 +843,8 @@ def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> Non
                 fct = mvpn.get("forward_cache_timeout")
                 if fct is not None and (fct < MVPN_FCT_MIN or fct > MVPN_FCT_MAX):
                     module.fail_json(
-                        msg="mvpn.forward_cache_timeout must be {0}-{1}, "
-                        "got {2} in {3} for VRF '{4}'".format(
-                            MVPN_FCT_MIN, MVPN_FCT_MAX, fct, af_key, vrf_name
-                        )
+                        msg=f"mvpn.forward_cache_timeout must be {MVPN_FCT_MIN}-{MVPN_FCT_MAX}, "
+                        f"got {fct} in {af_key} for VRF '{vrf_name}'"
                     )
 
 
@@ -862,8 +855,8 @@ def _validate_config(module: AnsibleModule, config: List[Dict[str, Any]]) -> Non
 
 
 def _diff_instance(
-    before: Optional[Dict[str, Any]], after: Optional[Dict[str, Any]]
-) -> Dict[str, Any]:
+    before: dict[str, Any] | None, after: dict[str, Any] | None
+) -> dict[str, Any]:
     """
     Compare before and after dicts for a single VPN instance.
 
@@ -871,7 +864,7 @@ def _diff_instance(
     Only compares patchable fields (isid, vpn_enabled, isid_name) plus
     mvpn for informational output.
     """
-    diff: Dict[str, Any] = {}
+    diff: dict[str, Any] = {}
     before = before or {}
     after = after or {}
 
@@ -884,7 +877,7 @@ def _diff_instance(
     # MVPN comparison (informational — these fields are create-time only)
     mvpn_b = before.get("mvpn") or {}
     mvpn_a = after.get("mvpn") or {}
-    mvpn_diff: Dict[str, Any] = {}
+    mvpn_diff: dict[str, Any] = {}
     for field in ("enabled", "forward_cache_timeout"):
         val_b = mvpn_b.get(field)
         val_a = mvpn_a.get(field)
@@ -896,14 +889,14 @@ def _diff_instance(
     return diff
 
 
-def _compute_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+def _compute_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     """
     Compare before and after grouped-by-VRF dicts.
 
     Returns differences per address family:
       {"ipv4": {field_diffs}, "ipv6": {field_diffs}}
     """
-    diff: Dict[str, Any] = {}
+    diff: dict[str, Any] = {}
     for af_key in ("ipv4", "ipv6"):
         af_diff = _diff_instance(before.get(af_key), after.get(af_key))
         if af_diff:
@@ -916,14 +909,14 @@ def _compute_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, An
 # by the device REST API (POST for create, PATCH for update).
 
 
-def _build_create_payload(af_config: Dict[str, Any], ipvpn_type: str) -> Dict[str, Any]:
+def _build_create_payload(af_config: dict[str, Any], ipvpn_type: str) -> dict[str, Any]:
     """
     Build a POST payload for creating a new VPN instance.
 
     The REST API expects the L3VsnCreateObject schema:
       {ipvpnType (required), isid, vpnEnabled, isidName, mvpn}
     """
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "ipvpnType": ipvpn_type,
     }
 
@@ -940,7 +933,7 @@ def _build_create_payload(af_config: Dict[str, Any], ipvpn_type: str) -> Dict[st
     # MVPN settings — only settable at creation time
     mvpn = af_config.get("mvpn")
     if mvpn:
-        mvpn_payload: Dict[str, Any] = {}
+        mvpn_payload: dict[str, Any] = {}
         if mvpn.get("enabled") is not None:
             mvpn_payload["enabled"] = mvpn["enabled"]
         if mvpn.get("forward_cache_timeout") is not None:
@@ -952,8 +945,8 @@ def _build_create_payload(af_config: Dict[str, Any], ipvpn_type: str) -> Dict[st
 
 
 def _build_merged_patch(
-    af_config: Dict[str, Any], current: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
+    af_config: dict[str, Any], current: dict[str, Any]
+) -> dict[str, Any] | None:
     """
     Build a PATCH payload for merged state.
 
@@ -962,7 +955,7 @@ def _build_merged_patch(
     NOTE: mvpn fields are excluded — the PATCH schema does not support them.
     isidName requires isid in the same PATCH body; device ignores it otherwise.
     """
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
 
     if af_config.get("isid") is not None:
         if af_config["isid"] != current.get("isid"):
@@ -983,8 +976,8 @@ def _build_merged_patch(
 
 
 def _build_replaced_patch(
-    af_config: Dict[str, Any], current: Dict[str, Any]
-) -> Optional[Dict[str, Any]]:
+    af_config: dict[str, Any], current: dict[str, Any]
+) -> dict[str, Any] | None:
     """
     Build a PATCH payload for replaced/overridden state.
 
@@ -1009,7 +1002,7 @@ def _build_replaced_patch(
     )
 
     # Compare with current and build patch
-    patch: Dict[str, Any] = {}
+    patch: dict[str, Any] = {}
 
     if desired_isid != current.get("isid"):
         patch["isid"] = desired_isid
@@ -1035,8 +1028,8 @@ def _build_replaced_patch(
 def _handle_gathered(
     module: AnsibleModule,
     connection: Connection,
-    gather_filter: List[str],
-    result: Dict[str, Any],
+    gather_filter: list[str],
+    result: dict[str, Any],
 ) -> None:
     """Handle the GATHERED state — read-only, return current L3VSN state."""
     raw_list = _fetch_all_l3vsn(module, connection, result["api_responses"])
@@ -1056,10 +1049,10 @@ def _handle_gathered(
 def _handle_deleted(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
-    all_vrfs: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
+    all_vrfs: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle the DELETED state — remove VPN instances."""
     if config:
@@ -1088,12 +1081,12 @@ def _delete_one_vrf(
     module: AnsibleModule,
     connection: Connection,
     vrf_name: str,
-    af_types_to_delete: List[str],
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    af_types_to_delete: list[str],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Execute deletion of address families for a single VRF."""
-    vrf_result: Dict[str, Any] = {"vrf_name": vrf_name}
+    vrf_result: dict[str, Any] = {"vrf_name": vrf_name}
     current = current_map.get(vrf_name.lower(), {"vrf_name": vrf_name})
     api_vrf_name = current.get("vrf_name", vrf_name)
     vrf_result["vrf_name"] = api_vrf_name
@@ -1116,7 +1109,7 @@ def _delete_one_vrf(
                 module, connection, method="DELETE", path=path,
                 expect_content=False,
                 api_responses=result["api_responses"],
-                response_key="delete_{0}_{1}".format(vrf_name, af_key),
+                response_key=f"delete_{vrf_name}_{af_key}",
             )
 
     vrf_result["changed"] = vrf_changed
@@ -1135,18 +1128,18 @@ def _set_deleted_after_state(
     connection: Connection,
     vrf_name: str,
     api_vrf_name: str,
-    af_types_to_delete: List[str],
-    current: Dict[str, Any],
+    af_types_to_delete: list[str],
+    current: dict[str, Any],
     vrf_changed: bool,
-    vrf_result: Dict[str, Any],
-    result: Dict[str, Any],
+    vrf_result: dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Set the after state for a deleted VRF entry."""
     if vrf_changed and not module.check_mode:
         after_raw = _fetch_vrf_l3vsn(
             module, connection, api_vrf_name,
             result["api_responses"],
-            response_key="after_{0}".format(vrf_name),
+            response_key=f"after_{vrf_name}",
         )
         if after_raw:
             after_grouped = {"vrf_name": api_vrf_name}
@@ -1171,8 +1164,8 @@ def _set_deleted_after_state(
 def _capture_after_state_deleted(
     module: AnsibleModule,
     connection: Connection,
-    all_vrfs: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    all_vrfs: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Capture module-level after state for deleted operations."""
     def _predict():
@@ -1203,15 +1196,15 @@ def _capture_after_state_deleted(
 def _handle_overridden_prepass(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
-) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, List[str]]]:
+    config: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
+) -> tuple[dict[str, dict[str, Any]], dict[str, list[str]]]:
     """OVERRIDDEN pre-pass: delete unlisted VPN instances.
 
     Returns (override_before, override_deletes).
     """
-    override_before: Dict[str, Dict[str, Any]] = {
+    override_before: dict[str, dict[str, Any]] = {
         k: dict(v) for k, v in current_map.items()
     }
 
@@ -1226,7 +1219,7 @@ def _handle_overridden_prepass(
                     (vrf_name.lower(), ANSIBLE_KEY_TO_TYPE[af_key])
                 )
 
-    override_deletes: Dict[str, List[str]] = {}
+    override_deletes: dict[str, list[str]] = {}
     for vrf_name, current in current_map.items():
         if current.get("vrf_name", "").lower() == "globalrouter":
             continue
@@ -1249,11 +1242,11 @@ def _handle_overridden_prepass(
 def _execute_overridden_deletes(
     module: AnsibleModule,
     connection: Connection,
-    override_deletes: Dict[str, List[str]],
-    current_map: Dict[str, Dict[str, Any]],
-    override_before: Dict[str, Dict[str, Any]],
+    override_deletes: dict[str, list[str]],
+    current_map: dict[str, dict[str, Any]],
+    override_before: dict[str, dict[str, Any]],
     config_vrf_lower: set,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Execute batched deletions for overridden pre-pass."""
     for vrf_name, af_keys_to_delete in override_deletes.items():
@@ -1272,9 +1265,7 @@ def _execute_overridden_deletes(
                     module, connection, method="DELETE", path=path,
                     expect_content=False,
                     api_responses=result["api_responses"],
-                    response_key="override_delete_{0}_{1}".format(
-                        vrf_name, af_key
-                    ),
+                    response_key=f"override_delete_{vrf_name}_{af_key}",
                 )
 
         for af_key in af_keys_to_delete:
@@ -1292,9 +1283,9 @@ def _emit_override_unlisted_result(
     connection: Connection,
     vrf_name: str,
     device_vrf_name: str,
-    current: Dict[str, Any],
-    override_before: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
+    current: dict[str, Any],
+    override_before: dict[str, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Emit a result entry for VRFs not in config during overridden pre-pass."""
     before_snapshot = override_before.get(
@@ -1304,9 +1295,9 @@ def _emit_override_unlisted_result(
         after_raw = _fetch_vrf_l3vsn(
             module, connection, device_vrf_name,
             result["api_responses"],
-            response_key="override_after_{0}".format(vrf_name),
+            response_key=f"override_after_{vrf_name}",
         )
-        after_grouped: Dict[str, Any] = {"vrf_name": device_vrf_name}
+        after_grouped: dict[str, Any] = {"vrf_name": device_vrf_name}
         for inst in after_raw:
             ipvpn_t = inst.get("ipvpnType", "")
             ak = TYPE_TO_ANSIBLE_KEY.get(ipvpn_t)
@@ -1315,7 +1306,7 @@ def _emit_override_unlisted_result(
     else:
         after_grouped = dict(current)
 
-    vrf_result: Dict[str, Any] = {
+    vrf_result: dict[str, Any] = {
         "vrf_name": device_vrf_name,
         "before": before_snapshot,
         "after": after_grouped,
@@ -1330,13 +1321,13 @@ def _emit_override_unlisted_result(
 def _process_af_create(
     module: AnsibleModule,
     connection: Connection,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     vrf_name: str,
     api_vrf_name: str,
     af_key: str,
-    af_config: Dict[str, Any],
+    af_config: dict[str, Any],
     state: str,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Handle creation of a VPN instance that does not exist (POST)."""
     ipvpn_type = ANSIBLE_KEY_TO_TYPE[af_key]
@@ -1351,12 +1342,10 @@ def _process_af_create(
         is_grt = vrf_name.lower() == "globalrouter"
         if desired_vpn and desired_isid == 0 and not is_grt:
             raise FeSpbmL3vsnError(
-                "Cannot enable VPN on VRF '{0}' ({1}) without "
-                "an I-SID. Add 'isid' to your config — in "
-                "state={2}, any field you leave out is reset "
-                "to its default (isid defaults to 0).".format(
-                    vrf_name, af_key, state
-                )
+                f"Cannot enable VPN on VRF '{vrf_name}' ({af_key}) without "
+                "an ISID. Add 'isid' to your config — in "
+                f"state={state}, any field you leave out is reset "
+                "to its default (isid defaults to 0)."
             )
 
     result["changed"] = True
@@ -1370,30 +1359,30 @@ def _process_af_create(
             module, connection, method="POST", path=path,
             payload=post_payload, expect_content=False,
             api_responses=result["api_responses"],
-            response_key="create_{0}_{1}".format(vrf_name, af_key),
+            response_key=f"create_{vrf_name}_{af_key}",
         )
 
 
 def _process_af_update(
     module: AnsibleModule,
     connection: Connection,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     vrf_name: str,
     api_vrf_name: str,
     af_key: str,
-    af_config: Dict[str, Any],
-    current_af: Dict[str, Any],
+    af_config: dict[str, Any],
+    current_af: dict[str, Any],
     state: str,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> bool:
     """Handle update of an existing VPN instance (PATCH). Returns True if changed."""
     mvpn_cfg = af_config.get("mvpn")
     if mvpn_cfg and any(v is not None for v in mvpn_cfg.values()):
         raise FeSpbmL3vsnError(
             "MVPN settings cannot be modified after creation. "
-            "VRF '{0}' ({1}) already has a VPN instance. To "
+            f"VRF '{vrf_name}' ({af_key}) already has a VPN instance. To "
             "change MVPN settings, delete the instance and "
-            "recreate it.".format(vrf_name, af_key)
+            "recreate it."
         )
 
     if state == STATE_MERGED:
@@ -1414,14 +1403,14 @@ def _process_af_update(
                 module, connection, method="PATCH", path=path,
                 payload=patch, expect_content=False,
                 api_responses=result["api_responses"],
-                response_key="patch_{0}_{1}".format(vrf_name, af_key),
+                response_key=f"patch_{vrf_name}_{af_key}",
             )
         return True
     return False
 
 
 def _validate_replaced_vpn_isid(
-    vrf_name: str, af_key: str, af_config: Dict[str, Any], state: str
+    vrf_name: str, af_key: str, af_config: dict[str, Any], state: str
 ) -> None:
     """Pre-validate vpn_enabled=true requires a non-zero isid for replaced/overridden."""
     desired_vpn = af_config.get("vpn_enabled")
@@ -1433,12 +1422,10 @@ def _validate_replaced_vpn_isid(
     is_grt = vrf_name.lower() == "globalrouter"
     if desired_vpn and desired_isid == 0 and not is_grt:
         raise FeSpbmL3vsnError(
-            "Cannot enable VPN on VRF '{0}' ({1}) without "
-            "an I-SID. Add 'isid' to your config — in "
-            "state={2}, any field you leave out is reset "
-            "to its default (isid defaults to 0).".format(
-                vrf_name, af_key, state
-            )
+            f"Cannot enable VPN on VRF '{vrf_name}' ({af_key}) without "
+            "an ISID. Add 'isid' to your config — in "
+            f"state={state}, any field you leave out is reset "
+            "to its default (isid defaults to 0)."
         )
 
 
@@ -1446,16 +1433,16 @@ def _handle_merge_replace(
     module: AnsibleModule,
     connection: Connection,
     state: str,
-    config: List[Dict[str, Any]],
-    current_map: Dict[str, Dict[str, Any]],
-    result: Dict[str, Any],
-    override_before: Optional[Dict[str, Dict[str, Any]]] = None,
-    override_deletes: Optional[Dict[str, List[str]]] = None,
+    config: list[dict[str, Any]],
+    current_map: dict[str, dict[str, Any]],
+    result: dict[str, Any],
+    override_before: dict[str, dict[str, Any]] | None = None,
+    override_deletes: dict[str, list[str]] | None = None,
 ) -> None:
     """Process listed entries for MERGED / REPLACED / OVERRIDDEN states."""
     for entry in config:
         vrf_name = entry["vrf_name"]
-        vrf_result: Dict[str, Any] = {"vrf_name": vrf_name}
+        vrf_result: dict[str, Any] = {"vrf_name": vrf_name}
         current = current_map.get(vrf_name.lower(), {"vrf_name": vrf_name})
         api_vrf_name = current.get("vrf_name", vrf_name)
         vrf_result["vrf_name"] = api_vrf_name
@@ -1513,23 +1500,23 @@ def _handle_merge_replace(
 def _set_merge_replace_after(
     module: AnsibleModule,
     connection: Connection,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     vrf_name: str,
     api_vrf_name: str,
-    current: Dict[str, Any],
+    current: dict[str, Any],
     state: str,
     vrf_changed: bool,
-    vrf_result: Dict[str, Any],
-    result: Dict[str, Any],
+    vrf_result: dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Set the after state for a merge/replace/override entry."""
     if vrf_changed and not module.check_mode:
         after_raw = _fetch_vrf_l3vsn(
             module, connection, api_vrf_name,
             result["api_responses"],
-            response_key="after_{0}".format(vrf_name),
+            response_key=f"after_{vrf_name}",
         )
-        after_grouped: Dict[str, Any] = {"vrf_name": api_vrf_name}
+        after_grouped: dict[str, Any] = {"vrf_name": api_vrf_name}
         for inst in after_raw:
             ipvpn_t = inst.get("ipvpnType", "")
             ak = TYPE_TO_ANSIBLE_KEY.get(ipvpn_t)
@@ -1545,10 +1532,10 @@ def _set_merge_replace_after(
 
 
 def _predict_after_check_mode(
-    entry: Dict[str, Any],
-    current: Dict[str, Any],
+    entry: dict[str, Any],
+    current: dict[str, Any],
     state: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Predict after state in check mode for a single VRF entry."""
     predicted = dict(current)
     for af_key in ("ipv4", "ipv6"):
@@ -1567,9 +1554,9 @@ def _predict_after_check_mode(
     return predicted
 
 
-def _predict_created_instance(af_config: Dict[str, Any]) -> Dict[str, Any]:
+def _predict_created_instance(af_config: dict[str, Any]) -> dict[str, Any]:
     """Predict the state of a newly created VPN instance."""
-    predicted_af: Dict[str, Any] = {}
+    predicted_af: dict[str, Any] = {}
     for field in ("isid", "vpn_enabled"):
         val = af_config.get(field)
         predicted_af[field] = (
@@ -1592,10 +1579,10 @@ def _predict_created_instance(af_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _predict_updated_instance(
-    af_config: Dict[str, Any],
-    current_af: Dict[str, Any],
+    af_config: dict[str, Any],
+    current_af: dict[str, Any],
     state: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Predict the state of an updated VPN instance."""
     predicted_af = dict(current_af)
     if state == STATE_MERGED:
@@ -1622,8 +1609,8 @@ def _predict_updated_instance(
 def _capture_after_state(
     module: AnsibleModule,
     connection: Connection,
-    all_vrfs: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    all_vrfs: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Capture module-level after state when changes were made."""
     def _predict():
@@ -1672,13 +1659,13 @@ def main() -> None:
 
     # Config validation guard — merged/replaced/overridden require config
     if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN) and not config:
-        module.fail_json(msg="'config' is required when state is '{0}'".format(state))
+        module.fail_json(msg=f"'config' is required when state is '{state}'")
 
     # Pre-flight validation of config entries
     if config:
         _validate_config(module, config)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "l3vsn": [],
         "api_responses": {},
@@ -1707,8 +1694,8 @@ def main() -> None:
             return
 
         # ── OVERRIDDEN pre-pass ───────────────────────────────────────────
-        override_before: Optional[Dict[str, Dict[str, Any]]] = None
-        override_deletes: Optional[Dict[str, List[str]]] = None
+        override_before: dict[str, dict[str, Any]] | None = None
+        override_deletes: dict[str, list[str]] | None = None
         if state == STATE_OVERRIDDEN:
             override_before, override_deletes = _handle_overridden_prepass(
                 module, connection, config, current_map, result
@@ -1731,7 +1718,7 @@ def main() -> None:
         module.fail_json(**exc.to_fail_kwargs(), api_responses=result["api_responses"])
     except ConnectionError as exc:
         module.fail_json(
-            msg="Connection error: {0}".format(to_text(exc)),
+            msg=f"Connection error: {to_text(exc)}",
             code=getattr(exc, "code", None),
             err=getattr(exc, "err", None),
             api_responses=result["api_responses"],
@@ -1742,8 +1729,8 @@ def main() -> None:
 
 
 def _resolve_delete_targets(
-    config: List[Dict[str, Any]],
-) -> List[Tuple[str, List[str]]]:
+    config: list[dict[str, Any]],
+) -> list[tuple[str, list[str]]]:
     """
     Resolve which VPN instances to delete based on user config.
 
@@ -1752,7 +1739,7 @@ def _resolve_delete_targets(
       - vrf_name only (no ipv4/ipv6)   → delete both IPv4 and IPv6
       - empty config                   → handled by _resolve_delete_all()
     """
-    targets: List[Tuple[str, List[str]]] = []
+    targets: list[tuple[str, list[str]]] = []
 
     for entry in config:
         vrf_name = entry["vrf_name"]
@@ -1761,7 +1748,7 @@ def _resolve_delete_targets(
 
         if has_ipv4 or has_ipv6:
             # Delete only the specified address families
-            af_types: List[str] = []
+            af_types: list[str] = []
             if has_ipv4:
                 af_types.append(IPV4)
             if has_ipv6:
@@ -1775,14 +1762,14 @@ def _resolve_delete_targets(
 
 
 def _resolve_delete_all(
-    current_map: Dict[str, Dict[str, Any]],
-) -> List[Tuple[str, List[str]]]:
+    current_map: dict[str, dict[str, Any]],
+) -> list[tuple[str, list[str]]]:
     """
     Build delete targets for all existing VPN instances across all VRFs.
 
     Used when state=deleted and config is empty or omitted.
     """
-    targets: List[Tuple[str, List[str]]] = []
+    targets: list[tuple[str, list[str]]] = []
 
     for vrf_name, current in current_map.items():
         # Skip GlobalRouter — its L3VSN entry is system-managed
@@ -1790,7 +1777,7 @@ def _resolve_delete_all(
             continue
         # Use device-returned VRF name (not the lowercased dict key)
         device_vrf_name = current.get("vrf_name", vrf_name)
-        af_types: List[str] = []
+        af_types: list[str] = []
         for af_key in ("ipv4", "ipv6"):
             if af_key in current:
                 af_types.append(ANSIBLE_KEY_TO_TYPE[af_key])

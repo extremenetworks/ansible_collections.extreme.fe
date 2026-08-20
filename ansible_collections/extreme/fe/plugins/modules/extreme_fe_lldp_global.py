@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage global LLDP settings on Fabric Engine switches."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -15,9 +14,8 @@ module: extreme_fe_lldp_global
 short_description: Manage global LLDP settings on ExtremeNetworks Fabric Engine switches
 version_added: "1.1.0"
 description:
-  - Manage device-wide LLDP timer settings on ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
+  - Manage device-wide LLDP timer settings on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/lldp) from the NOS OpenAPI schema.
-  - Only Fabric Engine global attributes are exposed for configuration. Switch Engine (EXOS)-only fields are intentionally excluded.
   - C(init_delay_seconds) is returned in gathered output when present on the device, but it is not configurable on Fabric Engine.
 author:
   - ExtremeNetworks Networking Automation Team
@@ -249,18 +247,18 @@ REQUIRES_CONFIG = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN}
 class FeLldpGlobalError(Exception):
     """Raised for LLDP global module validation or response issues."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
 
@@ -298,9 +296,9 @@ def _call_api(
     *,
     method: str,
     path: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
     try:
@@ -329,7 +327,7 @@ def _call_api(
     return response
 
 
-def _normalize_config_response(payload: Any) -> Dict[str, Any]:
+def _normalize_config_response(payload: Any) -> dict[str, Any]:
     if payload is None:
         return {}
     if not isinstance(payload, dict):
@@ -338,7 +336,7 @@ def _normalize_config_response(payload: Any) -> Dict[str, Any]:
             details={"payload": payload},
         )
 
-    normalized: Dict[str, Any] = {}
+    normalized: dict[str, Any] = {}
     for option, meta in SETTABLE_FIELDS.items():
         rest_key = meta["rest"]
         if rest_key in payload:
@@ -349,7 +347,7 @@ def _normalize_config_response(payload: Any) -> Dict[str, Any]:
     return normalized
 
 
-def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, Any]:
+def _validate_config(config: dict[str, Any] | None, state: str) -> dict[str, Any]:
     normalized = dict(config or {})
 
     if state in REQUIRES_CONFIG and not normalized:
@@ -372,7 +370,7 @@ def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, 
             value = int(value)
         except (TypeError, ValueError):
             raise FeLldpGlobalError(
-                "{0} must be an integer".format(option),
+                f"{option} must be an integer",
                 details={"option": option, "received": normalized.get(option)},
             )
         if value < meta["minimum"] or value > meta["maximum"]:
@@ -392,7 +390,7 @@ def _validate_config(config: Optional[Dict[str, Any]], state: str) -> Dict[str, 
     return normalized
 
 
-def _build_target_config(current: Dict[str, Any], config: Dict[str, Any], state: str) -> Dict[str, Any]:
+def _build_target_config(current: dict[str, Any], config: dict[str, Any], state: str) -> dict[str, Any]:
     if state == STATE_MERGED:
         return {key: value for key, value in config.items() if key in SETTABLE_FIELDS and value is not None}
 
@@ -418,8 +416,8 @@ def _build_target_config(current: Dict[str, Any], config: Dict[str, Any], state:
     raise FeLldpGlobalError("Unsupported state supplied", details={"state": state})
 
 
-def _build_patch_payload(current: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {}
+def _build_patch_payload(current: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
     for option, desired_value in target.items():
         if option not in SETTABLE_FIELDS:
             continue
@@ -428,8 +426,8 @@ def _build_patch_payload(current: Dict[str, Any], target: Dict[str, Any]) -> Dic
     return payload
 
 
-def _build_differences(current: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-    differences: Dict[str, Dict[str, Any]] = {}
+def _build_differences(current: dict[str, Any], target: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    differences: dict[str, dict[str, Any]] = {}
     for option, desired_value in target.items():
         if option not in SETTABLE_FIELDS:
             continue
@@ -439,7 +437,7 @@ def _build_differences(current: Dict[str, Any], target: Dict[str, Any]) -> Dict[
     return differences
 
 
-def _merge_after(current: Dict[str, Any], patch_payload: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_after(current: dict[str, Any], patch_payload: dict[str, Any]) -> dict[str, Any]:
     merged = dict(current)
     for option, meta in SETTABLE_FIELDS.items():
         rest_key = meta["rest"]
@@ -457,7 +455,7 @@ def run_module() -> None:
         module.fail_json(**exc.to_fail_kwargs())
         return
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "api_responses": {},
     }

@@ -1,20 +1,17 @@
-# -*- coding: utf-8 -*-
 """Ansible module to execute Fabric Engine CLI commands via HTTPAPI."""
 
 from __future__ import annotations
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
-
-from typing import Dict, List, Optional
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_command
 short_description: Execute CLI commands on ExtremeNetworks Fabric Engine switches
 version_added: "1.0.0"
 description:
-- Execute one or more CLI commands on ExtremeNetworks Fabric Engine (VOSS) switches using the
+- Execute one or more CLI commands on ExtremeNetworks Fabric Engine switches using the
   custom C(extreme_fe) HTTPAPI plugin.
 - Ensures the commands run in the order provided and submits them as a single REST operation to
   C(/v0/operation/system/cli).
@@ -24,7 +21,7 @@ author:
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
-- Designed for Fabric Engine (VOSS) targets; other platforms are not supported.
+- Designed for Fabric Engine targets; other platforms are not supported.
 requirements:
 - ansible.netcommon
 options:
@@ -143,19 +140,19 @@ CLI_ENDPOINT = "/v0/operation/system/cli"
 class FeCommandError(Exception):
     """Raised when the device returns an unexpected or failed CLI response."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, object]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, object] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        payload: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        payload: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             payload["details"] = self.details
         return payload
 
 
-def _validated_commands(commands: List[str]) -> List[str]:
-    normalized: List[str] = []
+def _validated_commands(commands: list[str]) -> list[str]:
+    normalized: list[str] = []
     for idx, entry in enumerate(commands):
         if entry is None:
             raise FeCommandError(
@@ -174,7 +171,7 @@ def _validated_commands(commands: List[str]) -> List[str]:
     return normalized
 
 
-def _output_to_lines(output: Optional[str]) -> List[str]:
+def _output_to_lines(output: str | None) -> list[str]:
     """Convert raw CLI output string to a list of lines for better readability."""
     if output is None:
         return []
@@ -191,10 +188,10 @@ def _build_cli_path(continue_on_failure: bool) -> str:
 
 
 def _normalize_response(
-    response: Dict[str, object],
+    response: dict[str, object],
     *,
-    commands: List[str],
-) -> Dict[str, object]:
+    commands: list[str],
+) -> dict[str, object]:
     data = response.get("data") if isinstance(response, dict) else None
     if not isinstance(data, list):
         raise FeCommandError(
@@ -207,9 +204,9 @@ def _normalize_response(
             details={"requested": len(commands), "received": len(data), "response": response},
         )
 
-    normalized: List[Dict[str, object]] = []
-    failures: List[Dict[str, object]] = []
-    warnings: List[Dict[str, object]] = []
+    normalized: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    warnings: list[dict[str, object]] = []
 
     for idx, entry in enumerate(data):
         if not isinstance(entry, dict):
@@ -222,7 +219,7 @@ def _normalize_response(
         output = entry.get("cliOutput")
         output_lines = _output_to_lines(output)
         has_output = bool(output_lines and any(line.strip() for line in output_lines))
-        normalized_entry: Dict[str, object] = {
+        normalized_entry: dict[str, object] = {
             "command": command,
             "status_code": status,
             "output": output_lines,
@@ -259,7 +256,7 @@ def _normalize_response(
             details={"failures": failures, "cli_warnings": warnings, "metadata": metadata},
         )
 
-    result: Dict[str, object] = {"responses": normalized}
+    result: dict[str, object] = {"responses": normalized}
     if warnings:
         result["cli_warnings"] = warnings
     if metadata is not None:
@@ -270,11 +267,11 @@ def _normalize_response(
 def execute_cli_commands(
     connection: Connection,
     *,
-    commands: List[str],
+    commands: list[str],
     continue_on_failure: bool,
-) -> Dict[str, object]:
+) -> dict[str, object]:
     path = _build_cli_path(continue_on_failure)
-    payload: List[str] = commands
+    payload: list[str] = commands
     raw_response = connection.send_request(payload, path=path, method="POST")
     if raw_response is None:
         raise FeCommandError("Device returned an empty response to the CLI request")

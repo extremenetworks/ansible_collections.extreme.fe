@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage ExtremeNetworks Fabric Engine MLAG via HTTPAPI."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
+from typing import Any
 
-from typing import Any, Dict, List, Optional, Union
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_mlag
@@ -22,7 +21,6 @@ author:
 - ExtremeNetworks Networking Automation Team
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-- Fabric Engine (VOSS) specific functionality; Switch Engine (EXOS) features are limited.
 - RSMLT operations are Fabric Engine specific.
 requirements:
 - ansible.netcommon
@@ -56,7 +54,7 @@ options:
           local_ip_address:
             description:
             - Local IP address for MLAG communication.
-            - On VOSS, this is derived from the IST VLAN IP configuration.
+            - On Fabric Engine, this is derived from the IST VLAN IP configuration.
             type: str
           local_vlan_id:
             description:
@@ -70,7 +68,7 @@ options:
             suboptions:
               port_id:
                 description:
-                - Port identifier (MLT ID on VOSS).
+                - Port identifier (MLT ID on Fabric Engine).
                 type: str
                 required: true
       rsmlt:
@@ -198,7 +196,7 @@ EXAMPLES = r"""
 #   - VLAN 100 must exist with i-sid for ISC
 #   - VLAN 100 must have an IP address for peer communication
 #   - IP connectivity between peer switches
-# Note: VOSS uses "Default" as the only valid peer_id
+# Note: Fabric Engine uses "Default" as the only valid peer_id
 # -------------------------------------------------------------------------
 # - name: "Task 1: Configure MLAG peers and ports"
 #   hosts: switches
@@ -268,7 +266,7 @@ EXAMPLES = r"""
 # Description:
 #   - Remove MLAG peer relationship (clears ports)
 # !! WARNING !!
-#   MLAG peer deletion via REST API may not be fully supported on VOSS.
+#   MLAG peer deletion via REST API may not be fully supported on Fabric Engine.
 #   Module will clear ports and provide warning with CLI alternative.
 #   To complete deletion via CLI: "no virtual-ist peer-ip <ip_address>"
 # -------------------------------------------------------------------------
@@ -375,7 +373,7 @@ class MlagModule:
             'after': {},
         }
 
-    def run(self) -> Dict[str, Any]:
+    def run(self) -> dict[str, Any]:
         """Execute the module."""
         state = self.module.params['state']
         self._validate_parameters()
@@ -445,28 +443,28 @@ class MlagModule:
         return response
 
     # ------------------------------------------------------------------
-    # Current-state extraction helpers (VOSS exposes a single "Default" peer)
+    # Current-state extraction helpers (Fabric Engine exposes a single "Default" peer)
     # ------------------------------------------------------------------
     @staticmethod
-    def _norm_ip(value: Optional[str]) -> str:
+    def _norm_ip(value: str | None) -> str:
         return (value or '').strip() or '0.0.0.0'
 
     @staticmethod
     def _port_sort_key(pid: str):
         return (0, int(pid)) if str(pid).isdigit() else (1, str(pid))
 
-    def _current_peer(self, current: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _current_peer(self, current: dict[str, Any]) -> dict[str, Any] | None:
         peers = current.get('peers') or []
         return peers[0] if peers else None
 
-    def _current_ports_set(self, current: Dict[str, Any]) -> set:
+    def _current_ports_set(self, current: dict[str, Any]) -> set:
         peer = self._current_peer(current)
         if not peer:
             return set()
         return {str(p['port_id']) for p in (peer.get('ports') or []) if p.get('port_id') is not None}
 
-    def _current_rsmlt_map(self, current: Dict[str, Any]) -> Dict[Any, Dict[str, Any]]:
-        result: Dict[Any, Dict[str, Any]] = {}
+    def _current_rsmlt_map(self, current: dict[str, Any]) -> dict[Any, dict[str, Any]]:
+        result: dict[Any, dict[str, Any]] = {}
         for inst in (current.get('rsmlt') or {}).get('instances', []):
             vid = inst.get('vlan_id')
             if vid is not None:
@@ -476,7 +474,7 @@ class MlagModule:
     # ------------------------------------------------------------------
     # Write states: merged / replaced / overridden
     # ------------------------------------------------------------------
-    def _write(self, current: Dict[str, Any], ports_authoritative: bool, rsmlt_authoritative: bool) -> None:
+    def _write(self, current: dict[str, Any], ports_authoritative: bool, rsmlt_authoritative: bool) -> None:
         config = self.module.params.get('config') or {}
         for peer_cfg in (config.get('peers') or []):
             self._apply_peer(peer_cfg, current)
@@ -487,10 +485,10 @@ class MlagModule:
         if instances or rsmlt_authoritative:
             self._apply_rsmlt(instances, current, rsmlt_authoritative)
 
-    def _apply_peer(self, peer_cfg: Dict[str, Any], current: Dict[str, Any]) -> None:
+    def _apply_peer(self, peer_cfg: dict[str, Any], current: dict[str, Any]) -> None:
         """PATCH the peer scalar fields when they differ (idempotent).
 
-        VOSS requires peerIpAddress and vistVlanId to be set together, so both
+        Fabric Engine requires peerIpAddress and vistVlanId to be set together, so both
         are always sent when either changes; omitted fields fall back to the
         current value.
         """
@@ -505,7 +503,7 @@ class MlagModule:
         if target_ip == cur_ip and target_vlan == cur_vlan:
             return  # already in desired state
 
-        payload: Dict[str, Any] = {}
+        payload: dict[str, Any] = {}
         if target_ip and target_ip != '0.0.0.0':
             payload['peerIpAddress'] = {'address': target_ip, 'ipAddressType': 'IPv4'}
         if target_vlan is not None:
@@ -513,7 +511,7 @@ class MlagModule:
         if payload:
             self._apply('PATCH', '/v0/configuration/mlag/peers/Default', payload, "PATCH peer Default")
 
-    def _apply_ports(self, peer_cfg: Dict[str, Any], current: Dict[str, Any], authoritative: bool) -> None:
+    def _apply_ports(self, peer_cfg: dict[str, Any], current: dict[str, Any], authoritative: bool) -> None:
         """Set MLAG ports. merged = additive (union); replaced/overridden = exact."""
         requested = {str(p['port_id']) for p in (peer_cfg.get('ports') or []) if p.get('port_id') is not None}
         cur_ports = self._current_ports_set(current)
@@ -523,7 +521,7 @@ class MlagModule:
             self._apply('PUT', '/v0/configuration/mlag/peers/Default/ports', ports_data,
                         "PUT peer Default ports")
 
-    def _apply_rsmlt(self, instances: List[Dict[str, Any]], current: Dict[str, Any], authoritative: bool) -> None:
+    def _apply_rsmlt(self, instances: list[dict[str, Any]], current: dict[str, Any], authoritative: bool) -> None:
         cur_map = self._current_rsmlt_map(current)
         desired_vids = set()
         for inst in instances:
@@ -548,7 +546,7 @@ class MlagModule:
                                 f"PATCH rsmlt vlan {vid} (reset)")
 
     @staticmethod
-    def _rsmlt_matches(cur: Dict[str, Any], desired: Dict[str, Any]) -> bool:
+    def _rsmlt_matches(cur: dict[str, Any], desired: dict[str, Any]) -> bool:
         return (cur.get('enabled') == desired['enabled']
                 and cur.get('hold_up_timer') == desired['holdUpTimer']
                 and cur.get('hold_down_timer') == desired['holdDownTimer'])
@@ -556,7 +554,7 @@ class MlagModule:
     # ------------------------------------------------------------------
     # Delete state: remove only what is specified (or all when no config)
     # ------------------------------------------------------------------
-    def _delete(self, current: Dict[str, Any]) -> None:
+    def _delete(self, current: dict[str, Any]) -> None:
         config = self.module.params.get('config') or {}
         peers = config.get('peers') or []
         instances = (config.get('rsmlt') or {}).get('instances') or []
@@ -583,23 +581,23 @@ class MlagModule:
         for inst in instances:
             self._reset_rsmlt(inst.get('vlan_id'), current)
 
-    def _delete_all(self, current: Dict[str, Any]) -> None:
+    def _delete_all(self, current: dict[str, Any]) -> None:
         self._clear_peer(current)
         for vid in self._current_rsmlt_map(current):
             self._reset_rsmlt(vid, current)
 
-    def _clear_peer(self, current: Dict[str, Any]) -> None:
+    def _clear_peer(self, current: dict[str, Any]) -> None:
         if self._current_ports_set(current):
             self._apply('PUT', '/v0/configuration/mlag/peers/Default/ports', [],
                         "PUT peer Default ports (clear)")
         peer = self._current_peer(current)
         if peer and self._norm_ip(peer.get('peer_ip_address')) != '0.0.0.0':
-            # Peer IP reset is not always permitted on VOSS; do it gracefully.
+            # Peer IP reset is not always permitted on Fabric Engine; do it gracefully.
             self._apply('PATCH', '/v0/configuration/mlag/peers/Default',
                         {'peerIpAddress': {'address': '0.0.0.0', 'ipAddressType': 'IPv4'}},
                         "PATCH peer Default (reset ip)", graceful=True)
 
-    def _reset_rsmlt(self, vid: Any, current: Dict[str, Any]) -> None:
+    def _reset_rsmlt(self, vid: Any, current: dict[str, Any]) -> None:
         if vid is None:
             return
         cur = self._current_rsmlt_map(current).get(vid)
@@ -615,7 +613,7 @@ class MlagModule:
         
         # Validate state-specific requirements
         if state in ['present', 'merged', 'replaced', 'overridden'] and not config:
-            self.module.fail_json(msg="config is required for state: {}".format(state))
+            self.module.fail_json(msg=f"config is required for state: {state}")
         
         if config:
             # Validate peers configuration if present
@@ -626,12 +624,12 @@ class MlagModule:
                 peer_ip = peer.get('peer_ip_address')
                 if peer_ip:
                     if not self._is_valid_ip(peer_ip):
-                        self.module.fail_json(msg="peer_ip_address is not a valid IP address: {}".format(peer_ip))
+                        self.module.fail_json(msg=f"peer_ip_address is not a valid IP address: {peer_ip}")
                 
                 local_ip = peer.get('local_ip_address')
                 if local_ip:
                     if not self._is_valid_ip(local_ip):
-                        self.module.fail_json(msg="local_ip_address is not a valid IP address: {}".format(local_ip))
+                        self.module.fail_json(msg=f"local_ip_address is not a valid IP address: {local_ip}")
             
             # Validate RSMLT configuration if present
             rsmlt = config.get('rsmlt')
@@ -659,10 +657,10 @@ class MlagModule:
         try:
             socket.inet_aton(ip_str)
             return True
-        except socket.error:
+        except OSError:
             return False
 
-    def _gather_facts(self) -> Dict[str, Any]:
+    def _gather_facts(self) -> dict[str, Any]:
         """Gather MLAG facts from the device."""
         facts = {
             'peers': [],
@@ -681,7 +679,7 @@ class MlagModule:
 
             # Fetch state payload once outside the loop and index by peerId
             # This avoids N+1 API calls when iterating peers
-            peers_state_map: Dict[Any, Dict[str, Any]] = {}
+            peers_state_map: dict[Any, dict[str, Any]] = {}
             try:
                 state_response = self._send_request('GET', '/v0/state/mlag/peers')
                 if state_response:
@@ -703,8 +701,7 @@ class MlagModule:
                     peer_ip_obj = peer.get('peerIpAddress', {})
                     peer_ip_address = peer_ip_obj.get('address') if peer_ip_obj else None
                     
-                    # Build peer_data - VOSS only returns subset of fields
-                    # Note: hello_interval, hello_timeout, authentication_key are EXOS-only
+                    # Build peer_data - Fabric Engine only returns subset of fields
                     peer_data = {
                         'peer_id': peer_id,
                         'peer_ip_address': peer_ip_address,
@@ -716,7 +713,7 @@ class MlagModule:
                         try:
                             ports_response = self._send_request('GET', f'/v0/configuration/mlag/peers/{peer_id}/ports')
                             if ports_response:
-                                # On VOSS, port_id (MLT ID) is the only identifier - mlag_id is EXOS-only
+                                # On Fabric Engine, port_id (MLT ID) is the only identifier.
                                 peer_data['ports'] = [
                                     {'port_id': port.get('portId')}
                                     for port in ports_response
@@ -727,11 +724,11 @@ class MlagModule:
                             # Treat errors as empty ports list
                             peer_data['ports'] = []
 
-                    # Use pre-fetched state to get local_ip_address (config endpoint doesn't return it on VOSS)
+                    # Use pre-fetched state to get local_ip_address (config endpoint doesn't return it on Fabric Engine)
                     # Add full state object only when include_state is true
                     state_peer = peers_state_map.get(peer_id)
                     if state_peer:
-                        # Extract local_ip_address from state (not available in config on VOSS)
+                        # Extract local_ip_address from state (not available in config on Fabric Engine)
                         state_local_ip_obj = state_peer.get('localIpAddress', {})
                         peer_data['local_ip_address'] = state_local_ip_obj.get('address') if state_local_ip_obj else None
 
@@ -756,7 +753,7 @@ class MlagModule:
 
                     # Fetch RSMLT state once outside the loop and index by vlanId
                     # This avoids N+1 API calls when iterating VLAN configs
-                    rsmlt_state_map: Dict[Any, Dict[str, Any]] = {}
+                    rsmlt_state_map: dict[Any, dict[str, Any]] = {}
                     if include_state:
                         try:
                             rsmlt_state_response = self._send_request('GET', '/v0/state/mlag/rsmlt')
@@ -799,7 +796,7 @@ class MlagModule:
 
         return facts
 
-    def _send_request(self, method: str, path: str, data: Optional[Any] = None) -> Any:
+    def _send_request(self, method: str, path: str, data: Any | None = None) -> Any:
         """Send an HTTP request. Returns None for 404 on GET; raises otherwise."""
         try:
             return self.connection.send_request(data, path=path, method=method)

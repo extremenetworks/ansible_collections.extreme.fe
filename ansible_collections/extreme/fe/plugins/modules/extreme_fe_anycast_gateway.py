@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Ansible module to manage Anycast Gateway interfaces on Extreme Fabric Engine (VOSS) switches.
+Ansible module to manage Anycast Gateway interfaces on Extreme Fabric Engine switches.
 
 REST API endpoints used:
   GET    /v0/configuration/anycast-gateway/interfaces          — list all interfaces
@@ -27,33 +26,37 @@ from __future__ import annotations
 
 # ipaddress — standard library module for validating and comparing IP addresses/networks
 import ipaddress
+
 # time — used for retry delays when PATCH follows POST (API timing)
 import time as _time
+
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
 
 # ── Ansible module metadata ──────────────────────────────────────────────────
 
 DOCUMENTATION = r"""
+---
 module: extreme_fe_anycast_gateway
 short_description: Manage Anycast Gateway interfaces on Extreme Fabric Engine switches
 version_added: "1.2.0"
 description:
   - Create, update, delete, and query Anycast Gateway interfaces on Extreme
-    Fabric Engine (VOSS) switches via the REST API.
+    Fabric Engine switches via the REST API.
   - Supports all five Ansible resource module states.
   - Each Anycast Gateway interface is identified by its C(vlan_id).
-  - "Writable fields at creation (immutable after): C(ip_address),
-    C(mask_length), C(one_ip), C(vr_id)."
+  - "Writable fields at creation (immutable after): C(ip_address), C(mask_length), C(one_ip), C(vr_id)."
   - Only C(enabled) can be updated on an existing interface via PATCH.
 author:
   - Extreme Networks
@@ -68,10 +71,10 @@ notes:
     treated as "don't care" — only provided immutable fields are compared for
     differences. If you want to enforce specific immutable values on an existing
     interface, provide all immutable fields or use C(state=deleted) first.
-  - "C(mask_length) can only be specified when C(one_ip=true). VOSS constraint:
+  - "C(mask_length) can only be specified when C(one_ip=true). Fabric Engine constraint:
     'IP Address mask allowed only with Anycast Gateway ONE-IP.'"
   - The module automatically disables an interface (C(enabled=false)) before
-    deleting it, as required by VOSS.
+    deleting it, as required by Fabric Engine.
   - IPv6 Anycast is currently not supported by the device firmware.
 requirements:
   - ansible.netcommon
@@ -122,12 +125,12 @@ options:
         type: bool
       one_ip:
         description:
-          - Enable ONE-IP mode. VOSS only.
+          - Enable ONE-IP mode. Fabric Engine only.
           - Immutable after creation. Use C(state=replaced) to change.
         type: bool
       vr_id:
         description:
-          - Virtual Router ID (1-255). VOSS only.
+          - Virtual Router ID (1-255). Fabric Engine only.
           - If omitted at creation, the device uses the default GW MAC.
           - Immutable after creation. Use C(state=replaced) to change.
         type: int
@@ -364,13 +367,13 @@ ARGUMENT_SPEC = {
 class FeAnycastGwError(Exception):
     """Raised for module-specific errors."""
 
-    def __init__(self, msg: str, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, msg: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(msg)
         self.msg = msg
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        kwargs: Dict[str, Any] = {"msg": self.msg}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        kwargs: dict[str, Any] = {"msg": self.msg}
         if self.details:
             kwargs["details"] = self.details
         return kwargs
@@ -387,7 +390,7 @@ def _call_api(
     *,
     method: str,
     path: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
     payload: Any = None,
 ) -> Any:
@@ -444,19 +447,19 @@ def _call_api(
     return parsed
 
 
-def _extract_error(data: Any) -> Optional[str]:
+def _extract_error(data: Any) -> str | None:
     """Extract an error message from a REST response, if present."""
     if not isinstance(data, dict):
         return None
-    # Check for errorCode/statusCode/code pattern (VOSS REST convention)
+    # Check for errorCode/statusCode/code pattern (Fabric Engine REST convention)
     code = data.get("errorCode") or data.get("statusCode") or data.get("code")
     if isinstance(code, str) and code.isdigit():
         code = int(code)
     message = data.get("errorMessage") or data.get("message") or data.get("detail")
     if code and isinstance(code, int) and code >= 400:
-        return message or "Device reported an error (code {0})".format(code)
+        return message or f"Device reported an error (code {code})"
     # Check for error/errors keys
-    if "error" in data and data["error"]:
+    if data.get("error"):
         err = data["error"]
         if isinstance(err, dict):
             return err.get("message", str(err))
@@ -477,13 +480,13 @@ def _disable_and_delete(
     module: AnsibleModule,
     connection: Connection,
     vid: int,
-    current: Optional[Dict[str, Any]],
-    api_responses: Dict[str, Any],
+    current: dict[str, Any] | None,
+    api_responses: dict[str, Any],
     response_prefix: str,
 ) -> None:
     """Disable an Anycast GW interface (if enabled) then DELETE it.
 
-    VOSS requires enabled=false before DELETE is allowed.
+    Fabric Engine requires enabled=false before DELETE is allowed.
     """
     if current and current.get("enabled"):
         patch_path = AG_PATCH_PATH.format(vlan_id=vid)
@@ -515,9 +518,9 @@ def _disable_and_delete(
 def _fetch_all_interfaces(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_all",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Fetch all Anycast Gateway interfaces from the device."""
     raw = _call_api(
         module,
@@ -542,9 +545,9 @@ def _fetch_all_interfaces(
 def _fetch_state_interfaces(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str = "get_state",
-) -> Dict[int, Dict[str, Any]]:
+) -> dict[int, dict[str, Any]]:
     """Fetch operational state for all Anycast Gateway interfaces.
 
     Returns a dict keyed by vlan_id with state data.
@@ -557,7 +560,7 @@ def _fetch_state_interfaces(
         api_responses=api_responses,
         response_key=response_key,
     )
-    state_map: Dict[int, Dict[str, Any]] = {}
+    state_map: dict[int, dict[str, Any]] = {}
     if isinstance(raw, list):
         for entry in raw:
             vid = entry.get("vlanId")
@@ -584,17 +587,17 @@ def _fetch_state_interfaces(
 
 
 def _to_ansible_output(
-    raw: Dict[str, Any], state_data: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    raw: dict[str, Any], state_data: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Convert a single REST InterfaceAnycastGateway to Ansible output format."""
     ip_obj = raw.get("ipAddress") or {}
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "vlan_id": raw.get("vlanId"),
         "enabled": raw.get("enabled"),
         "one_ip": raw.get("oneIp"),
         "vr_id": raw.get("vrId"),
         "mac_address": raw.get("macAddress"),
-        "l2vsn_isid": raw.get("L2vsnIsid"),
+        "l2vsn_isid": raw.get("L2vsnISID"),
     }
     if isinstance(ip_obj, dict):
         result["ip_address"] = ip_obj.get("address")
@@ -613,9 +616,9 @@ def _to_ansible_output(
 
 
 def _to_ansible_list(
-    raw_list: List[Dict[str, Any]],
-    state_map: Optional[Dict[int, Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    raw_list: list[dict[str, Any]],
+    state_map: dict[int, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Convert a list of REST responses to Ansible output format."""
     results = []
     for raw in raw_list:
@@ -632,14 +635,14 @@ def _to_ansible_list(
 
 
 def _compute_diff(
-    before: Dict[str, Any], after: Dict[str, Any]
-) -> Dict[str, Dict[str, Any]]:
+    before: dict[str, Any], after: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
     """Compute differences between before and after states.
 
     Only compares writable/meaningful fields, excluding the identifier
     and read-only fields.
     """
-    diff: Dict[str, Any] = {}
+    diff: dict[str, Any] = {}
     for key in DIFF_FIELDS:
         old_val = before.get(key)
         new_val = after.get(key)
@@ -649,8 +652,8 @@ def _compute_diff(
 
 
 def _immutable_fields_differ(
-    entry: Dict[str, Any], current: Dict[str, Any]
-) -> List[str]:
+    entry: dict[str, Any], current: dict[str, Any]
+) -> list[str]:
     """Check if any immutable (POST-only) fields differ.
 
     Returns a list of field names that differ, or empty list if all match.
@@ -672,7 +675,7 @@ def _immutable_fields_differ(
 # by the device REST API (POST for create, PATCH for update).
 
 
-def _build_post_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _build_post_payload(entry: dict[str, Any]) -> dict[str, Any]:
     """Build the AnycastGatewayInterfaceCreate POST payload.
 
     The POST schema (AnycastGatewayInterfaceCreate) only supports:
@@ -686,13 +689,13 @@ def _build_post_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         REST-ready dict for POST.
     """
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
     # IP address (required for POST)
     ip_addr = entry.get("ip_address")
     mask_len = entry.get("mask_length")
     if ip_addr is not None:
-        ip_obj: Dict[str, Any] = {"address": ip_addr}
+        ip_obj: dict[str, Any] = {"address": ip_addr}
         if mask_len is not None:
             ip_obj["maskLength"] = mask_len
         payload["ipAddress"] = ip_obj
@@ -719,11 +722,11 @@ def _patch_enabled_after_create(
     connection: Connection,
     vid: int,
     enabled: bool,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
 ) -> None:
     """PATCH the enabled field after POST creation, with retry.
 
-    After POST creates an Anycast Gateway interface, VOSS needs a brief
+    After POST creates an Anycast Gateway interface, Fabric Engine needs a brief
     moment before the IP interface is visible to the PATCH endpoint.
     This function retries the PATCH up to 5 times with a short delay to
     handle this timing issue (HTTP 422 "IP interface not found").
@@ -755,11 +758,11 @@ def _patch_enabled_after_create(
                 err = _extract_error(raw)
                 if err:
                     module.fail_json(
-                        msg="REST API error on PATCH {0}: {1}".format(patch_path, err),
+                        msg=f"REST API error on PATCH {patch_path}: {err}",
                         api_responses=api_responses,
                     )
             # Success — record response and return
-            api_responses["patch_enabled_{0}".format(vid)] = {
+            api_responses[f"patch_enabled_{vid}"] = {
                 "method": "PATCH",
                 "path": patch_path,
                 "body": raw,
@@ -776,15 +779,15 @@ def _patch_enabled_after_create(
             err_text = to_text(exc)
             if "IP interface not found" in err_text:
                 err_text = (
-                    "{0}. The VLAN must have a real IP interface configured "
-                    "(via L3 interfaces module or 'interface vlan {1}; ip address ...') "
+                    f"{err_text}. The VLAN must have a real IP interface configured "
+                    f"(via L3 interfaces module or 'interface vlan {vid}; ip address ...') "
                     "before Anycast Gateway can be enabled."
-                ).format(err_text, vid)
+                )
             module.fail_json(
                 msg=(
-                    "Failed to PATCH enabled on Anycast Gateway vlan_id={0} "
-                    "after POST creation: {1}"
-                ).format(vid, err_text),
+                    f"Failed to PATCH enabled on Anycast Gateway vlan_id={vid} "
+                    f"after POST creation: {err_text}"
+                ),
                 code=code,
                 err=getattr(exc, "err", None),
                 api_responses=api_responses,
@@ -792,10 +795,10 @@ def _patch_enabled_after_create(
 
 
 def _build_patch_payload(
-    entry: Dict[str, Any],
-    current: Dict[str, Any],
+    entry: dict[str, Any],
+    current: dict[str, Any],
     use_factory_defaults: bool = False,
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Build PATCH payload for updating enabled status.
 
     Args:
@@ -824,7 +827,7 @@ def _build_patch_payload(
 # ── Validation ────────────────────────────────────────────────────────────────
 
 
-def _validate_ip_address(module: AnsibleModule, entry: Dict[str, Any]) -> None:
+def _validate_ip_address(module: AnsibleModule, entry: dict[str, Any]) -> None:
     """Validate that ip_address is a valid IPv4 address."""
     addr = entry.get("ip_address")
     if addr is None:
@@ -846,7 +849,7 @@ def _validate_ip_address(module: AnsibleModule, entry: Dict[str, Any]) -> None:
         )
 
 
-def _validate_mask_length(module: AnsibleModule, entry: Dict[str, Any]) -> None:
+def _validate_mask_length(module: AnsibleModule, entry: dict[str, Any]) -> None:
     """Validate mask_length is within range."""
     mask = entry.get("mask_length")
     if mask is None:
@@ -859,16 +862,16 @@ def _validate_mask_length(module: AnsibleModule, entry: Dict[str, Any]) -> None:
         )
 
 
-def _validate_vlan_id(module: AnsibleModule, entry: Dict[str, Any]) -> None:
+def _validate_vlan_id(module: AnsibleModule, entry: dict[str, Any]) -> None:
     """Validate vlan_id is within range."""
     vid = entry.get("vlan_id")
     if vid is None:
         return
     if not 1 <= vid <= 4094:
-        module.fail_json(msg="vlan_id must be 1-4094, got {0}".format(vid))
+        module.fail_json(msg=f"vlan_id must be 1-4094, got {vid}")
 
 
-def _validate_vr_id(module: AnsibleModule, entry: Dict[str, Any]) -> None:
+def _validate_vr_id(module: AnsibleModule, entry: dict[str, Any]) -> None:
     """Validate vr_id is within range."""
     vr_id = entry.get("vr_id")
     if vr_id is None:
@@ -882,9 +885,9 @@ def _validate_vr_id(module: AnsibleModule, entry: Dict[str, Any]) -> None:
 
 
 def _validate_mask_requires_one_ip(
-    module: AnsibleModule, entry: Dict[str, Any]
+    module: AnsibleModule, entry: dict[str, Any]
 ) -> None:
-    """Validate that mask_length requires one_ip=true (VOSS constraint).
+    """Validate that mask_length requires one_ip=true (Fabric Engine constraint).
 
     Only enforced when one_ip is explicitly provided in the entry.
     If one_ip is omitted, the existing device value may already be true.
@@ -904,7 +907,7 @@ def _validate_mask_requires_one_ip(
         )
 
 
-def _validate_entry(module: AnsibleModule, entry: Dict[str, Any]) -> None:
+def _validate_entry(module: AnsibleModule, entry: dict[str, Any]) -> None:
     """Run all validations on a single config entry."""
     _validate_vlan_id(module, entry)
     _validate_ip_address(module, entry)
@@ -916,7 +919,7 @@ def _validate_entry(module: AnsibleModule, entry: Dict[str, Any]) -> None:
 # ── Predict After State (check mode) ─────────────────────────────────────────
 
 
-def _predict_after_create(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _predict_after_create(entry: dict[str, Any]) -> dict[str, Any]:
     """Predict the after state for a newly created interface."""
     # Ansible pre-populates every declared suboption, so these keys are always
     # present and get()'s default never fires -- an omitted field arrives as
@@ -925,7 +928,7 @@ def _predict_after_create(entry: Dict[str, Any]) -> Dict[str, Any]:
     # actually settles on the factory defaults, and the diff is misleading.
     enabled = entry.get("enabled")
     one_ip = entry.get("one_ip")
-    predicted: Dict[str, Any] = {
+    predicted: dict[str, Any] = {
         "vlan_id": entry["vlan_id"],
         "ip_address": entry.get("ip_address"),
         "mask_length": entry.get("mask_length"),
@@ -940,10 +943,10 @@ def _predict_after_create(entry: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _predict_after_patch(
-    entry: Dict[str, Any],
-    current: Dict[str, Any],
+    entry: dict[str, Any],
+    current: dict[str, Any],
     use_factory_defaults: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Predict the after state for a PATCH (enabled toggle)."""
     predicted = dict(current)
     desired_enabled = entry.get("enabled")
@@ -954,7 +957,7 @@ def _predict_after_patch(
     return predicted
 
 
-def _predict_after_replaced(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _predict_after_replaced(entry: dict[str, Any]) -> dict[str, Any]:
     """Predict the after state for replaced (DELETE + re-POST)."""
     return _predict_after_create(entry)
 
@@ -968,8 +971,8 @@ def _predict_after_replaced(entry: Dict[str, Any]) -> Dict[str, Any]:
 def _handle_gathered(
     module: AnsibleModule,
     connection: Connection,
-    gather_filter: List[int],
-    result: Dict[str, Any],
+    gather_filter: list[int],
+    result: dict[str, Any],
 ) -> None:
     """Handle the GATHERED state — read-only, return current state."""
     raw_list = _fetch_all_interfaces(
@@ -992,10 +995,10 @@ def _handle_gathered(
 def _handle_deleted(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    current_map: Dict[int, Dict[str, Any]],
-    state_map: Dict[int, Any],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    current_map: dict[int, dict[str, Any]],
+    state_map: dict[int, Any],
+    result: dict[str, Any],
 ) -> None:
     """Handle the DELETED state — remove interfaces."""
     if config:
@@ -1005,7 +1008,7 @@ def _handle_deleted(
         vids_to_delete = list(current_map.keys())
 
     for vid in vids_to_delete:
-        gw_result: Dict[str, Any] = {"vlan_id": vid}
+        gw_result: dict[str, Any] = {"vlan_id": vid}
 
         if vid not in current_map:
             gw_result["before"] = {}
@@ -1070,9 +1073,9 @@ def _handle_deleted(
 def _handle_overridden_prepass(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    current_map: Dict[int, Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    current_map: dict[int, dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """OVERRIDDEN pre-pass: delete interfaces not in desired config."""
     config_vids = {e["vlan_id"] for e in config}
@@ -1080,7 +1083,7 @@ def _handle_overridden_prepass(
         if vid in config_vids:
             continue
         # Delete this interface — not in desired config
-        gw_result: Dict[str, Any] = {
+        gw_result: dict[str, Any] = {
             "vlan_id": vid,
             "before": current,
             "after": {},
@@ -1108,14 +1111,14 @@ def _try_fallback_get(
     module: AnsibleModule,
     connection: Connection,
     vid: int,
-    state_map: Dict[int, Any],
-    current_map: Dict[int, Dict[str, Any]],
-    result: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
+    state_map: dict[int, Any],
+    current_map: dict[int, dict[str, Any]],
+    result: dict[str, Any],
+) -> dict[str, Any] | None:
     """Try a filtered GET when bulk GET missed an interface.
 
     The bulk GET /v0/configuration/anycast-gateway/interfaces may not return
-    recently-created interfaces due to a known VOSS API timing issue.  This
+    recently-created interfaces due to a known Fabric Engine API timing issue.  This
     function uses the same endpoint with the vlan_id query parameter to ask
     the device specifically about the target VLAN.  If that also fails, it
     falls back to the state endpoint as a last resort.
@@ -1124,7 +1127,7 @@ def _try_fallback_get(
     """
     # Strategy 1: Use the bulk endpoint with vlan_id query filter.
     # The OpenAPI spec confirms: GET /v0/configuration/anycast-gateway/interfaces?vlan_id=N
-    fallback_path = AG_LIST_PATH + "?vlan_id={0}".format(vid)
+    fallback_path = AG_LIST_PATH + f"?vlan_id={vid}"
     single_raw = None
     try:
         single_raw = connection.send_request(
@@ -1135,7 +1138,7 @@ def _try_fallback_get(
         # Only treat not-found / transient cases as "missing"; fail on everything else.
         if code not in (404, 422):
             module.fail_json(
-                msg="REST API call failed: GET {0}: {1}".format(fallback_path, to_text(exc)),
+                msg=f"REST API call failed: GET {fallback_path}: {to_text(exc)}",
                 code=code,
                 err=getattr(exc, "err", None),
                 api_responses=result["api_responses"],
@@ -1150,7 +1153,7 @@ def _try_fallback_get(
         except (ValueError, TypeError):
             pass
 
-    result["api_responses"]["get_filtered_{0}".format(vid)] = {
+    result["api_responses"][f"get_filtered_{vid}"] = {
         "method": "GET",
         "path": fallback_path,
         "body": single_raw,
@@ -1161,7 +1164,7 @@ def _try_fallback_get(
         err = _extract_error(single_raw)
         if err:
             module.fail_json(
-                msg="REST API error on fallback GET {0}: {1}".format(fallback_path, err),
+                msg=f"REST API error on fallback GET {fallback_path}: {err}",
                 api_responses=result["api_responses"],
             )
 
@@ -1187,7 +1190,7 @@ def _try_fallback_get(
             except (ValueError, TypeError):
                 pass
 
-        result["api_responses"]["get_state_fallback_{0}".format(vid)] = {
+        result["api_responses"][f"get_state_fallback_{vid}"] = {
             "method": "GET",
             "path": state_path,
             "body": state_raw,
@@ -1230,7 +1233,7 @@ def _try_fallback_get(
     return None
 
 
-def _extract_iface_from_response(raw: Any, vid: int) -> Optional[Dict[str, Any]]:
+def _extract_iface_from_response(raw: Any, vid: int) -> dict[str, Any] | None:
     """Extract interface data for a specific vlan_id from a REST response."""
     if raw is None:
         return None
@@ -1264,11 +1267,11 @@ def _process_entry_replaced(
     module: AnsibleModule,
     connection: Connection,
     vid: int,
-    entry: Dict[str, Any],
-    current: Dict[str, Any],
-    modified_vids: List[int],
-    gw_result: Dict[str, Any],
-    result: Dict[str, Any],
+    entry: dict[str, Any],
+    current: dict[str, Any],
+    modified_vids: list[int],
+    gw_result: dict[str, Any],
+    result: dict[str, Any],
 ) -> bool:
     """Handle REPLACED/OVERRIDDEN for an existing interface.
 
@@ -1365,21 +1368,21 @@ def _handle_merge_replace(
     module: AnsibleModule,
     connection: Connection,
     state: str,
-    config: List[Dict[str, Any]],
-    current_map: Dict[int, Dict[str, Any]],
-    state_map: Dict[int, Any],
-    result: Dict[str, Any],
-) -> List[int]:
+    config: list[dict[str, Any]],
+    current_map: dict[int, dict[str, Any]],
+    state_map: dict[int, Any],
+    result: dict[str, Any],
+) -> list[int]:
     """MERGED/REPLACED/OVERRIDDEN per-entry processing. Returns modified_vids."""
-    modified_vids: List[int] = []
+    modified_vids: list[int] = []
 
     for entry in config:
         vid = entry["vlan_id"]
-        gw_result: Dict[str, Any] = {"vlan_id": vid}
+        gw_result: dict[str, Any] = {"vlan_id": vid}
         current = current_map.get(vid)
 
         if current is None:
-            # Bulk GET may not return all interfaces (known VOSS API
+            # Bulk GET may not return all interfaces (known Fabric Engine API
             # timing issue where recently-created interfaces are not
             # immediately visible).  Always try a targeted GET before
             # concluding the interface doesn't exist.
@@ -1394,8 +1397,8 @@ def _handle_merge_replace(
                 module.fail_json(
                     msg=(
                         "ip_address is required to create a new Anycast Gateway "
-                        "interface (vlan_id={0})"
-                    ).format(vid),
+                        f"interface (vlan_id={vid})"
+                    ),
                     api_responses=result["api_responses"],
                 )
 
@@ -1432,11 +1435,11 @@ def _handle_merge_replace(
                         module.fail_json(
                             msg=(
                                 "Cannot create Anycast Gateway with one_ip=true "
-                                "on VLAN {0}: {1}. ONE-IP mode requires the VLAN "
+                                f"on VLAN {vid}: {err_msg}. ONE-IP mode requires the VLAN "
                                 "to have no existing IP interface. Remove the IP "
                                 "interface first (using extreme_fe_l3_interfaces "
                                 "with state=deleted) or use one_ip=false."
-                            ).format(vid, err_msg),
+                            ),
                             api_responses=result["api_responses"],
                         )
                     module.fail_json(
@@ -1470,11 +1473,11 @@ def _handle_merge_replace(
                                 module.fail_json(
                                     msg=(
                                         "Cannot create Anycast Gateway with one_ip=true "
-                                        "on VLAN {0}: {1}. ONE-IP mode requires the VLAN "
+                                        f"on VLAN {vid}: {err}. ONE-IP mode requires the VLAN "
                                         "to have no existing IP interface. Remove the IP "
                                         "interface first (using extreme_fe_l3_interfaces "
                                         "with state=deleted) or use one_ip=false."
-                                    ).format(vid, err),
+                                    ),
                                     api_responses=result["api_responses"],
                                 )
                             module.fail_json(
@@ -1508,10 +1511,10 @@ def _handle_merge_replace(
             if immutable_diffs:
                 module.fail_json(
                     msg=(
-                        "Cannot update immutable fields {0} on existing "
-                        "Anycast Gateway interface (vlan_id={1}). "
+                        f"Cannot update immutable fields {immutable_diffs} on existing "
+                        f"Anycast Gateway interface (vlan_id={vid}). "
                         "Use state=replaced to recreate, or state=deleted first."
-                    ).format(immutable_diffs, vid),
+                    ),
                     api_responses=result["api_responses"],
                 )
 
@@ -1560,9 +1563,9 @@ def _handle_merge_replace(
 def _capture_after_state(
     module: AnsibleModule,
     connection: Connection,
-    current_map: Dict[int, Dict[str, Any]],
-    modified_vids: List[int],
-    result: Dict[str, Any],
+    current_map: dict[int, dict[str, Any]],
+    modified_vids: list[int],
+    result: dict[str, Any],
 ) -> None:
     """Batch-fetch final state and capture module-level 'after'."""
     # ── Batch fetch after all operations (accurate final state) ───
@@ -1648,7 +1651,7 @@ def main() -> None:
 
     # Validate: merged/replaced/overridden require config
     if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN) and not config:
-        module.fail_json(msg="'config' is required when state is '{0}'".format(state))
+        module.fail_json(msg=f"'config' is required when state is '{state}'")
 
     # Validate: no duplicate VLAN IDs in config
     if config:
@@ -1656,14 +1659,14 @@ def main() -> None:
         for entry in config:
             vid = entry["vlan_id"]
             if vid in seen:
-                module.fail_json(msg="Duplicate vlan_id {0} in config list".format(vid))
+                module.fail_json(msg=f"Duplicate vlan_id {vid} in config list")
             seen.add(vid)
 
     # Validate all config entries
     for entry in config:
         _validate_entry(module, entry)
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "anycast_gateways": [],
         "api_responses": {},
@@ -1681,7 +1684,7 @@ def main() -> None:
         state_map = _fetch_state_interfaces(
             module, connection, result["api_responses"], "state_before"
         )
-        current_map: Dict[int, Dict[str, Any]] = {}
+        current_map: dict[int, dict[str, Any]] = {}
         for raw in raw_list:
             out = _to_ansible_output(raw, state_map.get(raw.get("vlanId")))
             current_map[out["vlan_id"]] = out
