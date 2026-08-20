@@ -12,7 +12,7 @@
 # PARAMETERS:
 #   vlan_id      - VLAN ID (default: 5)
 #   vlan_port    - Port to add to VLAN (default: 1:5)
-#   vlan_isid    - I-SID number (default: same as vlan_id)
+#   vlan_isid    - ISID number (default: same as vlan_id)
 #   config_name  - Config file name (default: config.cfg)
 #
 # EXAMPLES:

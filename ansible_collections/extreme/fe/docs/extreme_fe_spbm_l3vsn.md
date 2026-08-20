@@ -2,7 +2,7 @@
 
 ## Module: extreme.fe.extreme_fe_spbm_l3vsn
 
-Manages SPBM Layer 3 VSN (L3VSN / IPVPN) on Fabric Engine devices.
+Manage SPBM Layer 3 VSN (L3VSN / IPVPN) on Fabric Engine devices.
 
 ---
 
@@ -32,7 +32,7 @@ This module manages SPBM Layer 3 Virtual Services Network (L3VSN / IPVPN) VPN in
 - A VRF can have zero, one, or both address families configured.
 - MVPN (Multicast VPN) settings can only be set at creation time.
 - To change MVPN settings, delete the VPN instance and recreate it.
-- For GlobalRouter (GRT), the I-SID is always 0 and cannot be changed.
+- For GlobalRouter (GRT), the ISID is always 0 and cannot be changed.
 - The `vpn_enabled` field controls IP Shortcuts admin status on GRT.
 
 ---
@@ -66,14 +66,14 @@ This module manages SPBM Layer 3 Virtual Services Network (L3VSN / IPVPN) VPN in
 ## [Platform Constraints](#table-of-contents)
 
 - VRF name: string, 1–16 characters (OpenAPI spec says 32, firmware enforces 16)
-- I-SID range: 0–15999999 for set operations (values above 16000000 reserved for dynamic L2 instances)
-- I-SID 0 means "unset" — required for GlobalRouter (GRT)
+- ISID range: 0–15999999 for set operations (values above 16000000 reserved for dynamic L2 instances)
+- ISID 0 means "unset" — required for GlobalRouter (GRT)
 - `vpn_enabled=true` requires an EP1 or Premier license on the device
 - MVPN settings are immutable after creation (not in the PATCH schema)
 - `ipvpn_type` is determined by the config key (`ipv4` / `ipv6`) and set at creation
-- I-SID name: 0–64 characters
+- ISID name: 0–64 characters
 - MVPN forward cache timeout: 10–86400 seconds (default: 210)
-- Filter I-SID lists are NOT managed by this module (future ISIS module)
+- Filter ISID lists are NOT managed by this module (future ISIS module)
 
 ---
 
@@ -85,9 +85,9 @@ This module manages SPBM Layer 3 Virtual Services Network (L3VSN / IPVPN) VPN in
 | `config` | list of dict | Yes (for merged/replaced/overridden) | — | List of L3VSN configurations grouped by VRF |
 | `config[].vrf_name` | str | Yes | — | VRF name (1-16 chars, resource identifier). Use `GlobalRouter` for GRT. |
 | `config[].ipv4` | dict | No | — | IPv4 VPN instance settings |
-| `config[].ipv4.isid` | int | No | - | I-SID number (0-15999999). 0 = unset. Always 0 for GRT. |
+| `config[].ipv4.isid` | int | No | - | ISID number (0-15999999). 0 = unset. Always 0 for GRT. |
 | `config[].ipv4.vpn_enabled` | bool | No | - | Enable IP VPN node (requires EP1/Premier license) |
-| `config[].ipv4.isid_name` | str | No | - | I-SID descriptive name (0-64 chars) |
+| `config[].ipv4.isid_name` | str | No | - | ISID descriptive name (0-64 chars) |
 | `config[].ipv4.mvpn` | dict | No | - | MVPN settings (create-time only, immutable after creation) |
 | `config[].ipv4.mvpn.enabled` | bool | No | - | Enable MVPN on this VRF |
 | `config[].ipv4.mvpn.forward_cache_timeout` | int | No | - | MVPN forward cache timeout in seconds (10-86400) |
@@ -128,9 +128,9 @@ This module manages SPBM Layer 3 Virtual Services Network (L3VSN / IPVPN) VPN in
 |-------|------|-------------|
 | `vrf_name` | str | VRF name |
 | `ipv4` | dict | IPv4 VPN instance settings (if exists) |
-| `ipv4.isid` | int | I-SID number |
+| `ipv4.isid` | int | ISID number |
 | `ipv4.vpn_enabled` | bool | Whether IP VPN is enabled |
-| `ipv4.isid_name` | str | I-SID descriptive name |
+| `ipv4.isid_name` | str | ISID descriptive name |
 | `ipv4.mvpn.enabled` | bool | Whether MVPN is enabled |
 | `ipv4.mvpn.forward_cache_timeout` | int | MVPN forward cache timeout in seconds |
 | `ipv6` | dict | IPv6 VPN instance settings (same fields as `ipv4`) |

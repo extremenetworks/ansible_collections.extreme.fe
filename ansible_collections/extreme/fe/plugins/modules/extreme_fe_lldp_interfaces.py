@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage LLDP interface settings on Fabric Engine switches."""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any
 from urllib.parse import quote
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -17,10 +17,9 @@ module: extreme_fe_lldp_interfaces
 short_description: Manage LLDP interface settings on ExtremeNetworks Fabric Engine switches
 version_added: "1.1.0"
 description:
-  - Manage LLDP interface-level settings on ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
+  - Manage LLDP interface-level settings on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/lldp/ports/{port}) and C(/v0/configuration/lldp/ports/{port}/med-policy) from the NOS OpenAPI schema.
-  - Supports the VOSS LLDP port attributes exposed by the schema, including basic transmit or receive control, advertised TLVs, location data, and MED network policy entries.
-  - Switch Engine (EXOS)-only LLDP attributes are intentionally excluded.
+  - Supports the Fabric Engine LLDP port attributes exposed by the schema, including basic transmit or receive control, advertised TLVs, location data, and MED network policy entries.
   - When C(med_policy) is supplied, it is treated as the authoritative list for that interface because the device API replaces the full MED policy list.
 author:
   - ExtremeNetworks Networking Automation Team
@@ -447,18 +446,18 @@ REQUIRES_INTERFACES = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DEL
 class FeLldpInterfacesError(Exception):
     """Raised for LLDP interface validation and response issues."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -479,9 +478,9 @@ def _call_api(
     *,
     method: str,
     path: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
     try:
@@ -526,7 +525,7 @@ def _normalize_port_name(raw: Any) -> str:
     return value
 
 
-def _is_poe_capable(capability: Dict[str, Any]) -> bool:
+def _is_poe_capable(capability: dict[str, Any]) -> bool:
     caps = capability.get("capabilities")
     if not isinstance(caps, dict):
         return False
@@ -537,7 +536,7 @@ def _is_poe_capable(capability: Dict[str, Any]) -> bool:
     )
 
 
-def _default_interface_settings(is_poe_capable: bool) -> Dict[str, Any]:
+def _default_interface_settings(is_poe_capable: bool) -> dict[str, Any]:
     return {
         "transmit_enabled": True,
         "receive_enabled": True,
@@ -559,8 +558,8 @@ def _default_interface_settings(is_poe_capable: bool) -> Dict[str, Any]:
     }
 
 
-def _normalize_med_policy_item(item: Dict[str, Any]) -> Dict[str, Any]:
-    normalized: Dict[str, Any] = {}
+def _normalize_med_policy_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized: dict[str, Any] = {}
     for param, rest_key in MED_POLICY_FIELD_MAP.items():
         value = item.get(rest_key) if rest_key in item else item.get(param)
         if value is None:
@@ -570,7 +569,7 @@ def _normalize_med_policy_item(item: Dict[str, Any]) -> Dict[str, Any]:
                 value = int(value)
             except (TypeError, ValueError):
                 raise FeLldpInterfacesError(
-                    "MED policy field '{0}' must be an integer".format(param),
+                    f"MED policy field '{param}' must be an integer",
                     details={"policy": item},
                 )
         if param == "dscp" and not (0 <= value <= 63):
@@ -590,7 +589,7 @@ def _normalize_med_policy_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return normalized
 
 
-def _sort_med_policy(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _sort_med_policy(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         [dict(item) for item in entries],
         key=lambda item: (
@@ -615,7 +614,7 @@ CIVIC_ADDRESS_FIELDS = {
 }
 
 
-def _parse_civic_address(value: str) -> Dict[str, str]:
+def _parse_civic_address(value: str) -> dict[str, str]:
     """Parse a civic address string into a dict of field-value pairs (sorted by key).
 
     Handles both user-provided format and device-returned format:
@@ -625,7 +624,7 @@ def _parse_civic_address(value: str) -> Dict[str, str]:
     if not value or not isinstance(value, str):
         return {}
     tokens = value.strip().split()
-    result: Dict[str, str] = {}
+    result: dict[str, str] = {}
     i = 0
     while i < len(tokens):
         # Check for multi-word field names (e.g. "country-code", "house-number-suffix")
@@ -677,7 +676,7 @@ def _parse_civic_address(value: str) -> Dict[str, str]:
     return dict(sorted(result.items()))
 
 
-def _locations_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+def _locations_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
     """Compare two location dicts with semantic civic_address comparison."""
     left = left or {}
     right = right or {}
@@ -695,7 +694,7 @@ def _locations_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
     return _parse_civic_address(left_civic) == _parse_civic_address(right_civic)
 
 
-def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> Dict[str, Any]:
+def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> dict[str, Any]:
     base = _default_interface_settings(is_poe_capable)
     if not isinstance(payload, dict):
         return base
@@ -713,7 +712,7 @@ def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> Dict[str,
 
     location = payload.get("location")
     if isinstance(location, dict):
-        normalized_location: Dict[str, Any] = {}
+        normalized_location: dict[str, Any] = {}
         for param, rest_key in LOCATION_FIELD_MAP.items():
             value = location.get(rest_key)
             if value not in (None, ""):
@@ -729,14 +728,14 @@ def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> Dict[str,
     return base
 
 
-def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[str, Any]]:
+def _normalize_input_interfaces(module: AnsibleModule, state: str) -> list[dict[str, Any]]:
     raw_entries = list(module.params.get("interfaces") or [])
     if state in REQUIRES_INTERFACES and not raw_entries:
         raise FeLldpInterfacesError(
             "interfaces is required when state in merged, replaced, overridden, deleted"
         )
 
-    normalized_entries: List[Dict[str, Any]] = []
+    normalized_entries: list[dict[str, Any]] = []
     seen: set = set()
     for item in raw_entries:
         if not isinstance(item, dict):
@@ -746,7 +745,7 @@ def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[
             raise FeLldpInterfacesError("Duplicate interface entry detected", details={"name": name})
         seen.add(name)
 
-        normalized: Dict[str, Any] = {"name": name}
+        normalized: dict[str, Any] = {"name": name}
 
         tx_value = item.get("transmit_enabled")
         rx_value = item.get("receive_enabled")
@@ -772,7 +771,7 @@ def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[
         if advertise is not None:
             if not isinstance(advertise, dict):
                 raise FeLldpInterfacesError("advertise must be a dictionary", details={"name": name})
-            normalized_advertise: Dict[str, Any] = {}
+            normalized_advertise: dict[str, Any] = {}
             for param in ADVERTISE_FIELD_MAP:
                 if param in advertise and advertise.get(param) is not None:
                     normalized_advertise[param] = advertise.get(param)
@@ -783,7 +782,7 @@ def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[
         if location is not None:
             if not isinstance(location, dict):
                 raise FeLldpInterfacesError("location must be a dictionary", details={"name": name})
-            normalized_location: Dict[str, Any] = {}
+            normalized_location: dict[str, Any] = {}
             for param in LOCATION_FIELD_MAP:
                 value = location.get(param)
                 if value in (None, ""):
@@ -815,7 +814,7 @@ def _normalize_input_interfaces(module: AnsibleModule, state: str) -> List[Dict[
     return normalized_entries
 
 
-def _overlay_settings(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+def _overlay_settings(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
     result = deepcopy(base)
     for key in ("transmit_enabled", "receive_enabled"):
         if key in updates:
@@ -832,11 +831,11 @@ def _overlay_settings(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str
 
 
 def _build_target_settings(
-    entry: Dict[str, Any],
-    current: Dict[str, Any],
-    defaults: Dict[str, Any],
+    entry: dict[str, Any],
+    current: dict[str, Any],
+    defaults: dict[str, Any],
     state: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if state == STATE_MERGED:
         target = _overlay_settings(current, entry)
     elif state in (STATE_REPLACED, STATE_OVERRIDDEN):
@@ -849,7 +848,7 @@ def _build_target_settings(
     return target
 
 
-def _settings_equal(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+def _settings_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
     if left.get("transmit_enabled") != right.get("transmit_enabled"):
         return False
     if left.get("receive_enabled") != right.get("receive_enabled"):
@@ -878,20 +877,20 @@ def _port_state_path(port_name: str) -> str:
     return LLDP_PORT_STATE_TEMPLATE.format(port=quote(port_name, safe=""))
 
 
-def _build_config_payload(target: Dict[str, Any]) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
+def _build_config_payload(target: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
         "transmitEnabled": target.get("transmit_enabled", True),
         "receiveEnabled": target.get("receive_enabled", True),
     }
     if not payload["transmitEnabled"] or not payload["receiveEnabled"]:
         return payload
 
-    advertise_payload: Dict[str, Any] = {}
+    advertise_payload: dict[str, Any] = {}
     for param, rest_key in ADVERTISE_FIELD_MAP.items():
         advertise_payload[rest_key] = target.get("advertise", {}).get(param)
     payload["advertise"] = advertise_payload
 
-    location_payload: Dict[str, Any] = {}
+    location_payload: dict[str, Any] = {}
     for param, rest_key in LOCATION_FIELD_MAP.items():
         value = target.get("location", {}).get(param)
         if value not in (None, ""):
@@ -901,10 +900,10 @@ def _build_config_payload(target: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _build_med_policy_payload(target: Dict[str, Any]) -> List[Dict[str, Any]]:
-    payload: List[Dict[str, Any]] = []
+def _build_med_policy_payload(target: dict[str, Any]) -> list[dict[str, Any]]:
+    payload: list[dict[str, Any]] = []
     for entry in _sort_med_policy(target.get("med_policy") or []):
-        item: Dict[str, Any] = {}
+        item: dict[str, Any] = {}
         for param, rest_key in MED_POLICY_FIELD_MAP.items():
             item[rest_key] = entry.get(param)
         payload.append(item)
@@ -914,8 +913,8 @@ def _build_med_policy_payload(target: Dict[str, Any]) -> List[Dict[str, Any]]:
 def _fetch_capabilities(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
-) -> Dict[str, Dict[str, Any]]:
+    api_responses: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
     data = _call_api(
         module,
         connection,
@@ -926,7 +925,7 @@ def _fetch_capabilities(
     ) or []
     if not isinstance(data, list):
         raise FeLldpInterfacesError("Unexpected response when retrieving port capabilities", details={"payload": data})
-    capabilities: Dict[str, Dict[str, Any]] = {}
+    capabilities: dict[str, dict[str, Any]] = {}
     for entry in data:
         if not isinstance(entry, dict):
             continue
@@ -939,9 +938,9 @@ def _fetch_capabilities(
 def _fetch_all_interfaces(
     module: AnsibleModule,
     connection: Connection,
-    capabilities: Dict[str, Dict[str, Any]],
-    api_responses: Dict[str, Any],
-) -> Dict[str, Dict[str, Any]]:
+    capabilities: dict[str, dict[str, Any]],
+    api_responses: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
     data = _call_api(
         module,
         connection,
@@ -953,7 +952,7 @@ def _fetch_all_interfaces(
     if not isinstance(data, dict):
         raise FeLldpInterfacesError("Unexpected response when retrieving LLDP configuration", details={"payload": data})
 
-    interfaces: Dict[str, Dict[str, Any]] = {}
+    interfaces: dict[str, dict[str, Any]] = {}
     for entry in data.get("ports") or []:
         if not isinstance(entry, dict):
             continue
@@ -974,9 +973,9 @@ def _fetch_single_interface(
     connection: Connection,
     port_name: str,
     is_poe_capable_flag: bool,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     data = _call_api(
         module,
         connection,
@@ -989,11 +988,11 @@ def _fetch_single_interface(
 
 
 def _format_output_interfaces(
-    port_map: Dict[str, Dict[str, Any]],
-    names: Optional[Iterable[str]] = None,
-) -> List[Dict[str, Any]]:
+    port_map: dict[str, dict[str, Any]],
+    names: Iterable[str] | None = None,
+) -> list[dict[str, Any]]:
     selected_names = list(names) if names is not None else sorted(port_map.keys())
-    output: List[Dict[str, Any]] = []
+    output: list[dict[str, Any]] = []
     for name in selected_names:
         settings = port_map.get(name)
         if settings is None:
@@ -1006,10 +1005,10 @@ def _gather_port_state(
     module: AnsibleModule,
     connection: Connection,
     port_names: Iterable[str],
-    api_responses: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    api_responses: dict[str, Any],
+) -> list[dict[str, Any]]:
     state_responses = api_responses.setdefault("state", {})
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for port_name in port_names:
         payload = _call_api(
             module,
@@ -1027,12 +1026,12 @@ def _apply_interface(
     module: AnsibleModule,
     connection: Connection,
     port_name: str,
-    target: Dict[str, Any],
-    current_map: Dict[str, Dict[str, Any]],
+    target: dict[str, Any],
+    current_map: dict[str, dict[str, Any]],
     is_poe_capable_flag: bool,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     operation: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     operations = api_responses.setdefault("operations", {}).setdefault(port_name, {})
     config_payload = _build_config_payload(target)
     med_policy_payload = _build_med_policy_payload(target)
@@ -1090,7 +1089,7 @@ def run_module() -> None:
         module.fail_json(**exc.to_fail_kwargs())
         return
 
-    result: Dict[str, Any] = {"changed": False, "api_responses": {}}
+    result: dict[str, Any] = {"changed": False, "api_responses": {}}
 
     try:
         state = module.params.get("state")
@@ -1118,14 +1117,14 @@ def run_module() -> None:
 
         current_names = set(current_map.keys())
         desired_names = {_normalize_port_name(entry["name"]) for entry in normalized_entries}
-        defaults_map: Dict[str, Dict[str, Any]] = {}
+        defaults_map: dict[str, dict[str, Any]] = {}
         for port_name in current_names.union(desired_names):
             defaults_map[port_name] = _default_interface_settings(
                 _is_poe_capable(capabilities.get(port_name, {}))
             )
 
-        updated_names: List[str] = []
-        removed_names: List[str] = []
+        updated_names: list[str] = []
+        removed_names: list[str] = []
 
         for entry in normalized_entries:
             port_name = entry["name"]

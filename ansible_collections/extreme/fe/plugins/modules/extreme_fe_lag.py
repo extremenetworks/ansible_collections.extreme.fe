@@ -1,15 +1,13 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage ExtremeNetworks Fabric Engine LAGs via HTTPAPI."""
 
 from __future__ import annotations
 
 from copy import deepcopy
+from typing import Any
 
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
-
-from typing import Any, Dict, List, Optional, Tuple
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -24,7 +22,6 @@ author:
     - ExtremeNetworks Networking Automation Team
 notes:
     - "Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project."
-    - "Only Fabric Engine (VOSS) LAG attributes and endpoints are used; Switch Engine (EXOS) parameters are intentionally unsupported."
     - "Fabric Engine does not support patching an existing LAG's aggregation mode; delete and recreate the LAG to modify C(mode)."
     - "LAGs are supplied through the C(config) list. The former top-level parameters (C(lag_id), C(name), C(member_ports), ...) still work as a single-entry config and emit a deprecation warning; the two forms cannot be mixed in one task."
     - "With C(config), C(overridden) is authoritative across the whole device: LAGs that the task does not list are deleted. LAGs it could not delete are reported in C(skipped_lags) and raised as warnings. The deprecated top-level form manages a single LAG and never deletes unlisted ones."
@@ -75,7 +72,7 @@ options:
             load_balance_algo:
                 description:
                     - "Load balancing algorithm applied to the LAG."
-                    - "Fabric Engine always reports and applies C(CUSTOM). The other choices exist for Switch Engine (EXOS); on Fabric Engine the device accepts them without error and continues to use C(CUSTOM), so a task supplying one will keep reporting a change."
+                    - "Fabric Engine always reports and applies C(CUSTOM). Supplying another value does not change the device mode, so the task continues to report a change."
                 type: str
                 choices: [L2, L3, L3_L4, CUSTOM, PORT]
             flex_uni:
@@ -449,7 +446,7 @@ STATE_GATHERED = "gathered"
 #      "memberPorts": [], "mode": "STATIC", "name": "MLT-<id>"}
 #
 # Two writable fields are deliberately NOT in this dict — see the notes below.
-LAG_FULL_DEFAULTS: Dict[str, Any] = {
+LAG_FULL_DEFAULTS: dict[str, Any] = {
     "flexUni": False,             # OpenAPI default: false; device: FLEX-UNI disable
     # lacpKey is NOT force-reset. A bare MLT *reports* key "0" (LACP admin
     # disabled), but the device rejects a PATCH that *writes* "0" with
@@ -457,7 +454,7 @@ LAG_FULL_DEFAULTS: Dict[str, Any] = {
     # succeeds. It is a read-only sentinel, like nativeVlan 0 in
     # extreme_fe_interfaces. None means "leave it alone".
     "lacpKey": None,
-    # OpenAPI LagLoadBalanceAlgo: "Fabric Engine (VOSS) will always
+    # OpenAPI LagLoadBalanceAlgo: "Fabric Engine will always
     # return/set CUSTOM" -- confirmed on hardware, where a request for L3 is
     # accepted and ignored. CUSTOM is therefore both the factory default and
     # the only value that ever takes effect on this platform.
@@ -495,13 +492,13 @@ LACP_KEY_MIN = 1
 LACP_KEY_MAX = 512
 
 
-def _is_factory_lacp_key(value: Optional[str]) -> bool:
+def _is_factory_lacp_key(value: str | None) -> bool:
     """True when the value is the key an MLT carries with none configured."""
     return value is not None and str(value).strip() == LACP_KEY_FACTORY_DEFAULT
 
 
 def _validate_lacp_key(
-    lag_id: str, lacp_key: Optional[str], existing: Optional[Dict[str, Any]],
+    lag_id: str, lacp_key: str | None, existing: dict[str, Any] | None,
 ) -> None:
     """Reject key values the device cannot be asked to store.
 
@@ -544,12 +541,12 @@ def _validate_lacp_key(
 
 def _default_lag_name(lag_id: str) -> str:
     """Factory default name for a LAG: the device names a bare MLT 'MLT-<id>'."""
-    return "MLT-{0}".format(lag_id)
+    return f"MLT-{lag_id}"
 
 
 # Per-LAG attributes. Shared between the 'config' list entries and the
 # deprecated flat form, so the two can never drift apart.
-_LAG_ENTRY_SPEC: Dict[str, Any] = {
+_LAG_ENTRY_SPEC: dict[str, Any] = {
     "lag_id": {"type": "raw"},
     "name": {"type": "str"},
     "mode": {"type": "str", "choices": ["STATIC", "LACP", "VLACP"]},
@@ -569,7 +566,7 @@ _LAG_ENTRY_SPEC: Dict[str, Any] = {
 # builds a single-entry config list; see _entries_from_params().
 _FLAT_PARAMS = tuple(_LAG_ENTRY_SPEC)
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "state": {
         "type": "str",
         "choices": [STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DELETED, STATE_GATHERED],
@@ -591,18 +588,18 @@ for _name, _spec in _LAG_ENTRY_SPEC.items():
 class FeLagError(Exception):
     """Base exception for Fabric Engine LAG module errors."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
 
 
-def _is_not_found_response(payload: Optional[Any]) -> bool:
+def _is_not_found_response(payload: Any | None) -> bool:
     if not isinstance(payload, dict):
         return False
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -646,7 +643,7 @@ def _flat_form_used(module: AnsibleModule) -> bool:
     return False
 
 
-def _entries_from_params(module: AnsibleModule) -> List[Dict[str, Any]]:
+def _entries_from_params(module: AnsibleModule) -> list[dict[str, Any]]:
     """Normalise both supported input forms into a list of LAG entries.
 
     The flat form is the pre-1.2.1 interface; it is accepted as a single-entry
@@ -675,10 +672,10 @@ def _entries_from_params(module: AnsibleModule) -> List[Dict[str, Any]]:
     return []
 
 
-def _unique_port_list(values: Optional[List[str]], *, param_name: str) -> List[str]:
+def _unique_port_list(values: list[str] | None, *, param_name: str) -> list[str]:
     if not values:
         return []
-    unique: List[str] = []
+    unique: list[str] = []
     seen = set()
     for raw in values:
         if not isinstance(raw, str):
@@ -695,13 +692,13 @@ def _unique_port_list(values: Optional[List[str]], *, param_name: str) -> List[s
     return unique
 
 
-def _extract_member_ports(lag: Optional[Dict[str, Any]]) -> List[str]:
+def _extract_member_ports(lag: dict[str, Any] | None) -> list[str]:
     if not isinstance(lag, dict):
         return []
     raw = lag.get("memberPorts")
     if not isinstance(raw, list):
         return []
-    members: List[str] = []
+    members: list[str] = []
     for item in raw:
         if isinstance(item, str):
             members.append(item)
@@ -710,10 +707,10 @@ def _extract_member_ports(lag: Optional[Dict[str, Any]]) -> List[str]:
     return members
 
 
-def gather_lags(module: AnsibleModule, connection: Connection) -> List[Dict[str, Any]]:
+def gather_lags(module: AnsibleModule, connection: Connection) -> list[dict[str, Any]]:
     gather_filter = module.params.get("gather_filter")
     if gather_filter:
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for entry in gather_filter:
             lag_id = _normalize_lag_id(entry)
             config = get_lag_config(connection, lag_id)
@@ -724,7 +721,7 @@ def gather_lags(module: AnsibleModule, connection: Connection) -> List[Dict[str,
     if data is None or _is_not_found_response(data):
         return []
     if isinstance(data, list):
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for item in data:
             if isinstance(item, dict):
                 result.append(item)
@@ -735,7 +732,7 @@ def gather_lags(module: AnsibleModule, connection: Connection) -> List[Dict[str,
     )
 
 
-def get_lag_config(connection: Connection, lag_id: str) -> Optional[Dict[str, Any]]:
+def get_lag_config(connection: Connection, lag_id: str) -> dict[str, Any] | None:
     try:
         data = connection.send_request(
             None,
@@ -756,18 +753,18 @@ def get_lag_config(connection: Connection, lag_id: str) -> Optional[Dict[str, An
     )
 
 
-def create_lag(connection: Connection, payload: Dict[str, Any]) -> None:
+def create_lag(connection: Connection, payload: dict[str, Any]) -> None:
     connection.send_request(payload, path="/v0/configuration/lag", method="POST")
 
 
-def update_lag(connection: Connection, lag_id: str, payload: Dict[str, Any]) -> None:
+def update_lag(connection: Connection, lag_id: str, payload: dict[str, Any]) -> None:
     if payload:
         connection.send_request(payload, path=f"/v0/configuration/lag/{lag_id}", method="PATCH")
 
 
 def apply_lag_attributes(
-    connection: Connection, lag_id: str, payload: Dict[str, Any],
-) -> List[str]:
+    connection: Connection, lag_id: str, payload: dict[str, Any],
+) -> list[str]:
     """Apply attribute changes one field per PATCH.
 
     Fabric Engine rejects some individual values (writing lacpKey "0" returns
@@ -776,7 +773,7 @@ def apply_lag_attributes(
     part of the payload applied. One request per field makes a rejection
     attributable and lets the caller report how far the change got.
     """
-    applied: List[str] = []
+    applied: list[str] = []
     for field in sorted(payload):
         try:
             update_lag(connection, lag_id, {field: payload[field]})
@@ -798,12 +795,12 @@ def delete_lag(connection: Connection, lag_id: str) -> None:
     connection.send_request(None, path=f"/v0/configuration/lag/{lag_id}", method="DELETE")
 
 
-def add_member_ports(connection: Connection, lag_id: str, ports: List[str]) -> None:
+def add_member_ports(connection: Connection, lag_id: str, ports: list[str]) -> None:
     if ports:
         connection.send_request(ports, path=f"/v0/configuration/lag/{lag_id}/memberPorts", method="POST")
 
 
-def remove_member_ports(connection: Connection, lag_id: str, ports: List[str]) -> None:
+def remove_member_ports(connection: Connection, lag_id: str, ports: list[str]) -> None:
     for port in ports:
         connection.send_request(
             None,
@@ -818,18 +815,18 @@ def remove_member_ports(connection: Connection, lag_id: str, ports: List[str]) -
 def _build_create_payload(
     *,
     lag_id: str,
-    name: Optional[str],
-    mode: Optional[str],
-    lacp_key: Optional[str],
-    load_balance_algo: Optional[str],
-    flex_uni: Optional[bool],
-) -> Dict[str, Any]:
+    name: str | None,
+    mode: str | None,
+    lacp_key: str | None,
+    load_balance_algo: str | None,
+    flex_uni: bool | None,
+) -> dict[str, Any]:
     """Build the POST body used to create a LAG.
 
     Only attributes the user actually supplied are included, so the device
     applies its own factory defaults to everything else.
     """
-    payload: Dict[str, Any] = {"lagId": lag_id}
+    payload: dict[str, Any] = {"lagId": lag_id}
     if name is not None:
         payload["name"] = name
     if mode is not None:
@@ -847,15 +844,15 @@ def _build_create_payload(
 
 def _build_update_payload(
     *,
-    existing: Dict[str, Any],
+    existing: dict[str, Any],
     lag_id: str,
-    name: Optional[str],
-    mode: Optional[str],
-    lacp_key: Optional[str],
-    load_balance_algo: Optional[str],
-    flex_uni: Optional[bool],
+    name: str | None,
+    mode: str | None,
+    lacp_key: str | None,
+    load_balance_algo: str | None,
+    flex_uni: bool | None,
     reset_omitted: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Build the PATCH body for an existing LAG.
 
     Each attribute is included only when supplied AND different from the
@@ -876,7 +873,7 @@ def _build_update_payload(
         if flex_uni is None:
             flex_uni = LAG_FULL_DEFAULTS["flexUni"]
 
-    update_payload: Dict[str, Any] = {}
+    update_payload: dict[str, Any] = {}
     if name is not None and name != existing.get("name"):
         update_payload["name"] = name
     if (lacp_key is not None and not _is_factory_lacp_key(lacp_key)
@@ -899,8 +896,8 @@ def _build_update_payload(
 
 
 def _process_entry(
-    module: AnsibleModule, connection: Connection, entry: Dict[str, Any], state: str,
-) -> Dict[str, Any]:
+    module: AnsibleModule, connection: Connection, entry: dict[str, Any], state: str,
+) -> dict[str, Any]:
     """Apply one LAG entry. Returns a per-LAG result including before/after."""
     lag_id = _normalize_lag_id(entry.get("lag_id"))
     name = entry.get("name")
@@ -915,9 +912,9 @@ def _process_entry(
     remove_members_param = entry.get("remove_member_ports")
     purge_members_param = entry.get("purge_member_ports")
 
-    desired_members: Optional[List[str]]
-    add_members: List[str] = []
-    remove_members: List[str] = []
+    desired_members: list[str] | None
+    add_members: list[str] = []
+    remove_members: list[str] = []
     purge_members = False
 
     if state == STATE_MERGED:
@@ -954,18 +951,18 @@ def _process_entry(
     before = deepcopy(existing)
     changed = False
     refreshed_required = False
-    member_additions: List[str] = []
-    member_removals: List[str] = []
+    member_additions: list[str] = []
+    member_removals: list[str] = []
 
-    current: Dict[str, Any]
+    current: dict[str, Any]
     if existing is None:
         changed = True
-        initial_members: List[str] = []
+        initial_members: list[str] = []
         if desired_members is not None:
             initial_members.extend(desired_members)
         elif add_members:
             initial_members.extend(add_members)
-        payload: Dict[str, Any] = _build_create_payload(
+        payload: dict[str, Any] = _build_create_payload(
             lag_id=lag_id,
             name=name,
             mode=mode,
@@ -1005,7 +1002,7 @@ def _process_entry(
         current = existing.copy()
         # replaced/overridden are authoritative: attributes the user omitted
         # are reset to their factory defaults. merged leaves them alone.
-        update_payload: Dict[str, Any] = _build_update_payload(
+        update_payload: dict[str, Any] = _build_update_payload(
             existing=existing,
             lag_id=lag_id,
             name=name,
@@ -1031,7 +1028,7 @@ def _process_entry(
     current_members = _extract_member_ports(current)
     current_member_set = set(current_members)
 
-    ports_to_add: List[str] = []
+    ports_to_add: list[str] = []
     if desired_members is not None:
         for port in desired_members:
             if port not in current_member_set:
@@ -1042,7 +1039,7 @@ def _process_entry(
             ports_to_add.append(port)
             current_member_set.add(port)
 
-    ports_to_remove: List[str] = []
+    ports_to_remove: list[str] = []
     if purge_members and desired_members is not None:
         desired_set = set(desired_members)
         for port in current_members:
@@ -1069,7 +1066,7 @@ def _process_entry(
             if port in simulated_members:
                 simulated_members.remove(port)
         current["memberPorts"] = simulated_members
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "lag_id": lag_id, "changed": changed, "lag": current,
             "before": before, "after": current if changed else before,
         }
@@ -1091,7 +1088,7 @@ def _process_entry(
     else:
         final_lag = get_lag_config(connection, lag_id) if changed else current
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "lag_id": lag_id, "changed": changed, "lag": final_lag or current,
         "before": before, "after": final_lag or current,
     }
@@ -1103,15 +1100,15 @@ def _process_entry(
 
 
 def _process_entry_deleted(
-    module: AnsibleModule, connection: Connection, entry: Dict[str, Any],
-) -> Dict[str, Any]:
+    module: AnsibleModule, connection: Connection, entry: dict[str, Any],
+) -> dict[str, Any]:
     """Delete one LAG, or prune the listed members from it."""
     lag_id = _normalize_lag_id(entry.get("lag_id"))
     add_members_param = entry.get("add_member_ports")
     if add_members_param:
         raise FeLagError("'add_member_ports' is not supported when state is 'deleted'")
 
-    members_to_remove: List[str] = []
+    members_to_remove: list[str] = []
     member_ports_param = entry.get("member_ports")
     remove_members_param = entry.get("remove_member_ports")
     if member_ports_param is not None:
@@ -1129,7 +1126,7 @@ def _process_entry_deleted(
 
     if not members_to_remove:
         if module.check_mode:
-            result: Dict[str, Any] = {
+            result: dict[str, Any] = {
                 "lag_id": lag_id,
                 "changed": True,
                 "lag": None,
@@ -1184,15 +1181,15 @@ def _process_entry_deleted(
 
 def _override_delete_unlisted(
     module: AnsibleModule, connection: Connection, wanted: set,
-) -> Tuple[bool, List[str], List[Dict[str, Any]]]:
+) -> tuple[bool, list[str], list[dict[str, Any]]]:
     """Delete LAGs the task did not mention.
 
     Only reached for state=overridden with a 'config' list. The deprecated
     flat form manages a single LAG and cannot express "everything else", so
     it never enumerates.
     """
-    deleted: List[str] = []
-    skipped: List[Dict[str, Any]] = []
+    deleted: list[str] = []
+    skipped: list[dict[str, Any]] = []
     changed = False
     for record in gather_lags(module, connection):
         device_id = record.get("lagId")
@@ -1241,10 +1238,10 @@ def run_module() -> None:
             )
 
         before_snapshot = gather_lags(module, connection)
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         changed = False
-        deleted_lags: List[str] = []
-        skipped_lags: List[Dict[str, Any]] = []
+        deleted_lags: list[str] = []
+        skipped_lags: list[dict[str, Any]] = []
 
         # Phase 1 (overridden only): remove LAGs absent from config.
         if state == STATE_OVERRIDDEN and module.params.get("config"):
@@ -1267,7 +1264,7 @@ def run_module() -> None:
             if result.get("changed"):
                 changed = True
 
-        output: Dict[str, Any] = {
+        output: dict[str, Any] = {
             "changed": changed,
             "before": before_snapshot,
             "lags": results,

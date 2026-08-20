@@ -1,22 +1,21 @@
-# -*- coding: utf-8 -*-
 """Ansible module to execute ping operations on ExtremeNetworks Fabric Engine switches."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
-
 from ipaddress import ip_address
-from typing import Dict, Optional
 from urllib.parse import quote
 
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
+
 DOCUMENTATION = r"""
+---
 module: extreme_fe_ping
 short_description: Execute ICMP ping requests on ExtremeNetworks Fabric Engine switches
 version_added: "1.0.0"
 description:
-- Transmit ICMP echo requests from ExtremeNetworks Fabric Engine (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
+- Transmit ICMP echo requests from ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
 - Supports VRF specific pings, management interface contexts, scoped IPv6 probes, and explicit egress interface selection.
 - Returns detailed per-packet telemetry and fails when the switch reports any timeout or unsuccessful probe.
 author:
@@ -97,11 +96,6 @@ options:
     description:
     - Service probe instance used to source the ping (IPv4 only).
     type: int
-return_values:
-  response:
-    description: Parsed response payload returned by the Fabric Engine REST API.
-    returned: success
-    type: dict
 """
 
 EXAMPLES = r"""
@@ -256,11 +250,11 @@ class ExtremeFePingError(Exception):
     def __init__(self, message: str) -> None:
         super().__init__(message)
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
+    def to_fail_kwargs(self) -> dict[str, object]:
         return {"msg": to_text(self)}
 
 
-def _determine_host_type(host: str, explicit: Optional[str]) -> str:
+def _determine_host_type(host: str, explicit: str | None) -> str:
     if explicit:
         return explicit
     try:
@@ -270,7 +264,7 @@ def _determine_host_type(host: str, explicit: Optional[str]) -> str:
     return "IPv4" if addr.version == 4 else "IPv6"
 
 
-def _to_general_ip(value: object) -> Dict[str, object]:
+def _to_general_ip(value: object) -> dict[str, object]:
     if isinstance(value, dict):
         lower = {k.lower(): v for k, v in value.items()}
         address = lower.get("address")
@@ -297,7 +291,7 @@ def _to_general_ip(value: object) -> Dict[str, object]:
     raise ExtremeFePingError("source_ip_address must be a string or mapping")
 
 
-def _build_interface_payload(data: Optional[Dict[str, object]]) -> Optional[Dict[str, object]]:
+def _build_interface_payload(data: dict[str, object] | None) -> dict[str, object] | None:
     if not data:
         return None
     iface_type = data.get("type")
@@ -310,7 +304,7 @@ def _build_interface_payload(data: Optional[Dict[str, object]]) -> Optional[Dict
     value = data.get(key_name)
     if value is None:
         raise ExtremeFePingError(f"interface.{key_name} is required when interface.type is '{iface_type}'")
-    payload: Dict[str, object] = {"interfaceType": iface_type}
+    payload: dict[str, object] = {"interfaceType": iface_type}
     if iface_type == "GIGABITETHERNET":
         payload["port"] = str(value)
     elif iface_type == "TUNNEL":
@@ -369,9 +363,9 @@ def validate_parameters(module: AnsibleModule, host_type: str) -> None:
         raise ExtremeFePingError("timeout_interval must be between 1 and 120")
 
 
-def build_payload(module: AnsibleModule, host_type: str) -> Dict[str, object]:
+def build_payload(module: AnsibleModule, host_type: str) -> dict[str, object]:
     params = module.params
-    payload: Dict[str, object] = {}
+    payload: dict[str, object] = {}
 
     if params.get("count") is not None:
         payload["count"] = int(params["count"])
@@ -409,7 +403,7 @@ def build_payload(module: AnsibleModule, host_type: str) -> Dict[str, object]:
     return payload
 
 
-def interpret_ping_response(response: Optional[Dict[str, object]]) -> Optional[str]:
+def interpret_ping_response(response: dict[str, object] | None) -> str | None:
     if not isinstance(response, dict):
         return "Device returned an unexpected response payload"
 

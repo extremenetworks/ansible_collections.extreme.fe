@@ -1,8 +1,8 @@
 # Extreme Networks Fabric Engine Collection
 
-The Ansible Extreme Networks Fabric Engine collection includes a variety of Ansible content to help automate the management of Extreme Networks Fabric Engine (VOSS) network switches.
+The Ansible Extreme Networks Fabric Engine collection includes a variety of Ansible content to help automate the management of Extreme Networks Fabric Engine network switches.
 
-This collection has been tested against Fabric Engine VOSS 9.3.2.0.
+This collection has been tested against Fabric Engine 9.3.2.0.
 
 ## Ansible version compatibility
 

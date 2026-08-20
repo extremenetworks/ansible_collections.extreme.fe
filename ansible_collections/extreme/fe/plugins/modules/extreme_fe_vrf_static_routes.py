@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Ansible module to manage static routes on Extreme Fabric Engine (VOSS)
+Ansible module to manage static routes on Extreme Fabric Engine
 switches.
 
 REST API endpoints used:
@@ -41,12 +40,12 @@ REST API endpoints used:
 Writable fields (POST — create-time):
   prefix            — destination IP address (nested object)
   nextHop           — next-hop IP address (nested object)
-  localInterfaceType — interface type (IPv6 only on VOSS)
-  localInterfaceName — interface name (IPv6 only on VOSS)
-  name              — optional route name (0-64 chars, VOSS only)
-  preference        — administrative distance (1-255 for VOSS)
-  weight            — route metric (1-65535 for VOSS)
-  enabled           — route enabled/disabled (VOSS only)
+  localInterfaceType — interface type (IPv6 only on Fabric Engine)
+  localInterfaceName — interface name (IPv6 only on Fabric Engine)
+  name              — optional route name (0-64 chars, Fabric Engine only)
+  preference        — administrative distance (1-255 for Fabric Engine)
+  weight            — route metric (1-65535 for Fabric Engine)
+  enabled           — route enabled/disabled (Fabric Engine only)
   blackhole         — blackhole route flag
 
 Writable fields (PATCH — update):
@@ -60,22 +59,28 @@ from __future__ import annotations
 
 # json — used for serializing/deserializing REST API request and response bodies
 import json as _json
+
 # ip_address / IPv6Address — standard library helpers for validating IP addresses
 # and distinguishing IPv4 from IPv6 routes
-from ipaddress import ip_address, IPv6Address
+from ipaddress import IPv6Address, ip_address
+
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 # quote() is used to safely encode characters in REST URL path segments
 from urllib.parse import quote
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
+
 # Shared VRF name normalization logic
 from ansible_collections.extreme.fe.plugins.module_utils.extreme_fe_vrf_utils import (
     normalize_vrf_name,
@@ -89,7 +94,7 @@ short_description: Manage static routes on Extreme Fabric Engine switches
 version_added: "1.2.0"
 description:
   - Create, update, delete, and query static routes on Extreme Fabric
-    Engine (VOSS) switches via the REST API.
+    Engine (Fabric Engine) switches via the REST API.
   - Supports all five Ansible resource module states.
   - Uses a nested configuration structure grouped by VRF, address
     family, and destination prefix — matching the vendor-standard
@@ -107,13 +112,12 @@ author:
 notes:
   - Requires the C(ansible.netcommon) collection and the
     C(extreme_fe) HTTPAPI connection plugin.
-  - On VOSS, C(interface_type) and C(interface) are read-only for
+  - On Fabric Engine, C(interface_type) and C(interface) are read-only for
     IPv4 routes. These fields are only accepted for IPv6 routes
     (needed for link-local next-hop addresses).
-  - The C(admin_distance) range on VOSS is 1-255 for static routes.
-    The broader range 0-65534 applies to EXOS only.
-  - The C(weight) range on VOSS is 1-65535.
-  - VRF names are limited to 1-16 characters on VOSS firmware.
+  - The C(admin_distance) range on Fabric Engine is 1-255 for static routes.
+  - The C(weight) range on Fabric Engine is 1-65535.
+  - VRF names are limited to 1-16 characters on Fabric Engine firmware.
   - The C(default_route) field is auto-detected by the device when
     the prefix is 0.0.0.0/0 (IPv4) or ::/0 (IPv6) and is returned
     as read-only output.
@@ -133,7 +137,7 @@ options:
       vrf:
         description:
           - Name of the VRF (Virtual Routing and Forwarding instance).
-          - Must be 1-16 characters on VOSS.
+          - Must be 1-16 characters on Fabric Engine.
         type: str
         required: true
       address_families:
@@ -182,7 +186,7 @@ options:
                   interface_type:
                     description:
                       - Type of local interface for the next hop.
-                      - Only accepted for IPv6 routes on VOSS.
+                      - Only accepted for IPv6 routes on Fabric Engine.
                       - Required when using link-local IPv6
                         next-hop addresses.
                     type: str
@@ -196,19 +200,19 @@ options:
                       - Local interface name or ID.
                       - For C(vlan) type, this is the VLAN ID.
                       - For C(port) type, the physical port name.
-                      - Only accepted for IPv6 routes on VOSS.
+                      - Only accepted for IPv6 routes on Fabric Engine.
                     type: str
                   admin_distance:
                     description:
                       - Administrative distance (preference).
-                      - Range 1-255 on VOSS.
+                      - Range 1-255 on Fabric Engine.
                       - Lower values are preferred.
                       - Set at creation time only (not patchable).
                     type: int
                   weight:
                     description:
                       - Route metric (cost).
-                      - Range 1-65535 on VOSS.
+                      - Range 1-65535 on Fabric Engine.
                       - Used for route selection when the same
                         prefix is learned from the same protocol.
                       - Set at creation time only (not patchable).
@@ -216,13 +220,13 @@ options:
                   name:
                     description:
                       - Optional name for the route.
-                      - Maximum 64 characters. VOSS only.
+                      - Maximum 64 characters. Fabric Engine only.
                       - Set at creation time only (not patchable).
                     type: str
                   enabled:
                     description:
                       - Whether the route is enabled.
-                      - VOSS only. The only field that can be
+                      - Fabric Engine only. The only field that can be
                         updated after creation via PATCH.
                     type: bool
                   blackhole:
@@ -558,7 +562,7 @@ ROUTE_STATE_PATH = "/v0/state/route"
 ROUTE_SUMMARY_PATH = "/v0/state/route/summary"
 
 # Ansible → REST field name mapping for next-hop level fields
-FIELD_MAP: Dict[str, str] = {
+FIELD_MAP: dict[str, str] = {
     "admin_distance": "preference",
     "weight": "weight",
     "name": "name",
@@ -567,7 +571,7 @@ FIELD_MAP: Dict[str, str] = {
 }
 
 # Interface type Ansible → REST enum mapping
-IF_TYPE_MAP: Dict[str, str] = {
+IF_TYPE_MAP: dict[str, str] = {
     "port": "PORT",
     "vlan": "VLAN",
     "ip_tunnel": "IP_TUNNEL",
@@ -575,28 +579,28 @@ IF_TYPE_MAP: Dict[str, str] = {
 }
 
 # REST → Ansible interface type mapping
-IF_TYPE_MAP_REV: Dict[str, str] = {v: k for k, v in IF_TYPE_MAP.items()}
+IF_TYPE_MAP_REV: dict[str, str] = {v: k for k, v in IF_TYPE_MAP.items()}
 
 # Factory defaults for the only patchable field
 # preference, weight, name, blackhole are create-time only
-FULL_DEFAULTS: Dict[str, Any] = {
-    "enabled": True,  # VOSS default: routes are enabled
+FULL_DEFAULTS: dict[str, Any] = {
+    "enabled": True,  # Fabric Engine default: routes are enabled
 }
 
 # Defaults applied to POST payloads when the user omits the field.
-# The VOSS REST API defaults omitted weight to 0 which violates the
+# The Fabric Engine REST API defaults omitted weight to 0 which violates the
 # minimum (1), so we must always send at least weight=1.
 # Also used by replaced/overridden to detect when create-time fields
 # should be reset to device defaults (DELETE + re-POST).
-CREATE_DEFAULTS: Dict[str, Any] = {
+CREATE_DEFAULTS: dict[str, Any] = {
     "weight": 1,
     "blackhole": False,
 }
 
-# VRF name length limit on VOSS firmware
+# VRF name length limit on Fabric Engine firmware
 VRF_NAME_MAX_LEN = 16
 
-# VOSS-specific ranges for static route fields
+# Fabric Engine-specific ranges for static route fields
 ADMIN_DISTANCE_MIN = 1
 ADMIN_DISTANCE_MAX = 255
 WEIGHT_MIN = 1
@@ -625,7 +629,7 @@ STATE_GATHERED = "gathered"
 
 # ── Argument spec ────────────────────────────────────────────────────────────
 
-_NEXT_HOP_SPEC: Dict[str, Any] = {
+_NEXT_HOP_SPEC: dict[str, Any] = {
     "forward_router_address": {"type": "str"},
     "interface_type": {
         "type": "str",
@@ -639,7 +643,7 @@ _NEXT_HOP_SPEC: Dict[str, Any] = {
     "blackhole": {"type": "bool"},
 }
 
-_ROUTE_SPEC: Dict[str, Any] = {
+_ROUTE_SPEC: dict[str, Any] = {
     "prefix": {"type": "str", "required": True},
     "prefix_len": {"type": "int", "required": True},
     "next_hops": {
@@ -649,7 +653,7 @@ _ROUTE_SPEC: Dict[str, Any] = {
     },
 }
 
-_AF_SPEC: Dict[str, Any] = {
+_AF_SPEC: dict[str, Any] = {
     "afi": {
         "type": "str",
         "required": True,
@@ -662,7 +666,7 @@ _AF_SPEC: Dict[str, Any] = {
     },
 }
 
-_CONFIG_SPEC: Dict[str, Any] = {
+_CONFIG_SPEC: dict[str, Any] = {
     "vrf": {"type": "str", "required": True},
     "address_families": {
         "type": "list",
@@ -671,7 +675,7 @@ _CONFIG_SPEC: Dict[str, Any] = {
     },
 }
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "config": {
         "type": "list",
         "elements": "dict",
@@ -704,13 +708,13 @@ class FeStaticRouteError(Exception):
         self,
         message: str,
         *,
-        details: Optional[Dict[str, object]] = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -740,7 +744,7 @@ def _is_not_found_response(payload: Any) -> bool:
     return False
 
 
-def _extract_error(payload: Any) -> Optional[str]:
+def _extract_error(payload: Any) -> str | None:
     """Extract an error message from a REST response, if present."""
     if not isinstance(payload, dict):
         return None
@@ -749,7 +753,7 @@ def _extract_error(payload: Any) -> Optional[str]:
     try:
         if status and int(status) >= 400:
             msg = payload.get("message") or payload.get("msg") or str(payload)
-            return "HTTP {0}: {1}".format(status, msg)
+            return f"HTTP {status}: {msg}"
     except (ValueError, TypeError):
         pass
     # Check errorCode / statusCode / code fields
@@ -763,11 +767,11 @@ def _extract_error(payload: Any) -> Optional[str]:
                     or payload.get("detail")
                     or str(payload)
                 )
-                return "HTTP {0}: {1}".format(code_val, msg)
+                return f"HTTP {code_val}: {msg}"
         except (ValueError, TypeError):
             pass
     # Check for errors list
-    if "errors" in payload and payload["errors"]:
+    if payload.get("errors"):
         msgs = [
             (e.get("message", str(e)) if isinstance(e, dict) else str(e))
             for e in payload["errors"]
@@ -790,7 +794,7 @@ def _call_api(
     method: str,
     path: str,
     payload: Any = None,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
 ) -> Any:
     """Send a REST API request and record the response.
@@ -850,7 +854,7 @@ def _call_api(
                 return None
         # For POST/PATCH, propagate "duplicate route" errors as
         # FeStaticRouteError so callers can handle them gracefully
-        # (e.g. fall back to PATCH).  The VOSS HTTPAPI may raise
+        # (e.g. fall back to PATCH).  The Fabric Engine HTTPAPI may raise
         # ConnectionError for 4xx responses before we get to parse
         # the body.  Only match when the error text explicitly
         # mentions "duplicate" to avoid misclassifying unrelated
@@ -865,12 +869,12 @@ def _call_api(
                     "note": "duplicate route (ConnectionError)",
                 }
                 raise FeStaticRouteError(
-                    "{0} {1}: {2}".format(method, path, to_text(exc)),
+                    f"{method} {path}: {to_text(exc)}",
                     details={"code": exc_code},
                 )
         module.fail_json(
             msg=(
-                "REST API call failed: {0} {1}: {2}".format(method, path, to_text(exc))
+                f"REST API call failed: {method} {path}: {to_text(exc)}"
             ),
             code=exc_code,
             err=getattr(exc, "err", None),
@@ -900,7 +904,7 @@ def _call_api(
             err = _extract_error(parsed)
             if err:
                 raise FeStaticRouteError(
-                    "{0} {1} returned an error: {2}".format(method, path, err),
+                    f"{method} {path} returned an error: {err}",
                     details={"response": parsed},
                 )
 
@@ -914,15 +918,15 @@ def _call_api(
 
 
 def _rest_route_to_ansible(
-    rest_route: Dict[str, Any],
-) -> Dict[str, Any]:
+    rest_route: dict[str, Any],
+) -> dict[str, Any]:
     """Convert a single REST IpStaticRoute object to Ansible format.
 
     REST nests prefix/nextHop as objects with ipAddressType and
     address fields.  This flattens them to the Ansible parameter
     names.
     """
-    nh: Dict[str, Any] = {}
+    nh: dict[str, Any] = {}
 
     # Next-hop address
     next_hop_obj = rest_route.get("nextHop")
@@ -970,9 +974,9 @@ def _rest_route_to_ansible(
 
 
 def _group_rest_routes(
-    rest_routes: List[Dict[str, Any]],
-    vrf_name: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+    rest_routes: list[dict[str, Any]],
+    vrf_name: str | None = None,
+) -> list[dict[str, Any]]:
     """Group a list of REST route objects into the nested Ansible
     output structure: VRF > address_families > routes > next_hops.
 
@@ -980,7 +984,7 @@ def _group_rest_routes(
     Otherwise, routes must have a 'vrName' key (cross-VRF endpoint).
     """
     # Build nested dict: vrf -> afi -> (prefix, prefix_len) -> [nh]
-    tree: Dict[str, Dict[str, Dict[Tuple[str, int], List[Dict[str, Any]]]]] = {}
+    tree: dict[str, dict[str, dict[tuple[str, int], list[dict[str, Any]]]]] = {}
 
     for rest_route in rest_routes:
         vrf = _normalize_vrf_name(vrf_name or rest_route.get("vrName", "GlobalRouter"))
@@ -1000,11 +1004,11 @@ def _group_rest_routes(
         tree[vrf][afi][key].append(nh)
 
     # Convert tree to list structure
-    result: List[Dict[str, Any]] = []
+    result: list[dict[str, Any]] = []
     for vrf_key in sorted(tree.keys()):
-        afs: List[Dict[str, Any]] = []
+        afs: list[dict[str, Any]] = []
         for afi_key in sorted(tree[vrf_key].keys()):
-            routes_list: List[Dict[str, Any]] = []
+            routes_list: list[dict[str, Any]] = []
             for pfx, plen in sorted(tree[vrf_key][afi_key].keys()):
                 routes_list.append(
                     {
@@ -1019,7 +1023,7 @@ def _group_rest_routes(
     return result
 
 
-def _nh_label(nh: Dict[str, Any]) -> str:
+def _nh_label(nh: dict[str, Any]) -> str:
     """Build a human-readable label for a next-hop entry (for response_keys)."""
     fwd = nh.get("forward_router_address")
     if fwd:
@@ -1039,8 +1043,8 @@ def _build_route_key(
     afi: str,
     prefix: str,
     prefix_len: int,
-    nh: Dict[str, Any],
-) -> Tuple[str, str, int, str, str, str]:
+    nh: dict[str, Any],
+) -> tuple[str, str, int, str, str, str]:
     """Build a unique key tuple for a route entry.
 
     Key: (afi, prefix, prefix_len, forward_router_address,
@@ -1068,10 +1072,10 @@ _NH_DIFF_FIELDS = ("admin_distance", "weight", "name", "enabled", "blackhole",
 
 
 def _flatten_grouped(
-    grouped: List[Dict[str, Any]],
-) -> Dict[Tuple, Dict[str, Any]]:
+    grouped: list[dict[str, Any]],
+) -> dict[tuple, dict[str, Any]]:
     """Flatten grouped route structure into a dict keyed by route key."""
-    flat: Dict[Tuple, Dict[str, Any]] = {}
+    flat: dict[tuple, dict[str, Any]] = {}
     for vrf_entry in grouped:
         vrf = vrf_entry.get("vrf", "")
         for af in vrf_entry.get("address_families", []):
@@ -1086,9 +1090,9 @@ def _flatten_grouped(
 
 
 def _compute_diff(
-    before: List[Dict[str, Any]],
-    after: List[Dict[str, Any]],
-) -> Dict[str, Any]:
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+) -> dict[str, Any]:
     """Compute differences between before and after static route states.
 
     Returns a dict with added, removed, and modified route counts and details.
@@ -1147,12 +1151,12 @@ def _build_post_payload(
     afi: str,
     prefix: str,
     prefix_len: int,
-    nh: Dict[str, Any],
-) -> Dict[str, Any]:
+    nh: dict[str, Any],
+) -> dict[str, Any]:
     """Build a REST POST body (IpStaticRoute) from Ansible params."""
     ip_type = "IPv6" if afi == "ipv6" else "IPv4"
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "prefix": {
             "ipAddressType": ip_type,
             "address": prefix,
@@ -1174,7 +1178,7 @@ def _build_post_payload(
             "address": "0.0.0.0" if ip_type == "IPv4" else "::",
         }
 
-    # Local interface (IPv6 only on VOSS)
+    # Local interface (IPv6 only on Fabric Engine)
     if_type = nh.get("interface_type")
     if_name = nh.get("interface")
     if if_type:
@@ -1198,7 +1202,7 @@ def _build_route_path(
     afi: str,
     prefix: str,
     prefix_len: int,
-    nh: Dict[str, Any],
+    nh: dict[str, Any],
 ) -> str:
     """Build the REST path for PATCH/DELETE of a specific route.
 
@@ -1252,8 +1256,8 @@ def _fetch_vrf_routes(
     module: AnsibleModule,
     connection: Connection,
     vrf: str,
-    api_responses: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    api_responses: dict[str, Any],
+) -> list[dict[str, Any]]:
     """GET /v0/configuration/vrf/{vr_name}/route — static routes
     for a single VRF.
     """
@@ -1264,7 +1268,7 @@ def _fetch_vrf_routes(
         method="GET",
         path=path,
         api_responses=api_responses,
-        response_key="get_routes_{0}".format(vrf),
+        response_key=f"get_routes_{vrf}",
     )
     if data is None or _is_not_found_response(data):
         return []
@@ -1280,8 +1284,8 @@ def _fetch_vrf_routes(
 def _fetch_all_routes(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    api_responses: dict[str, Any],
+) -> list[dict[str, Any]]:
     """GET /v0/configuration/route — all static routes across all
     VRFs.
     """
@@ -1303,8 +1307,8 @@ def _fetch_all_routes(
 def _fetch_state_routes(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
-) -> Optional[List[Dict[str, Any]]]:
+    api_responses: dict[str, Any],
+) -> list[dict[str, Any]] | None:
     """GET /v0/state/route — dynamically learned routes.
 
     Returns ``None`` when the endpoint is not supported (404 / not found),
@@ -1328,8 +1332,8 @@ def _fetch_state_routes(
 def _fetch_route_summary(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
-) -> Optional[List[Dict[str, Any]]]:
+    api_responses: dict[str, Any],
+) -> list[dict[str, Any]] | None:
     """GET /v0/state/route/summary — route count summary.
 
     Returns ``None`` when the endpoint is not supported (404 / not found),
@@ -1355,11 +1359,11 @@ def _fetch_route_summary(
 
 def _validate_config(
     module: AnsibleModule,
-    config: List[Dict[str, Any]],
+    config: list[dict[str, Any]],
 ) -> None:
     """Pre-flight validation of config entries.
 
-    Checks VOSS-specific constraints that are stricter than the
+    Checks Fabric Engine-specific constraints that are stricter than the
     OpenAPI spec ranges.
     """
     seen_vrfs: set = set()
@@ -1368,17 +1372,13 @@ def _validate_config(
         if not vrf or len(vrf) > VRF_NAME_MAX_LEN:
             module.fail_json(
                 msg=(
-                    "VRF name must be 1-{0} characters, "
-                    "got '{1}' ({2} chars)".format(
-                        VRF_NAME_MAX_LEN,
-                        vrf,
-                        len(vrf) if vrf else 0,
-                    )
+                    f"VRF name must be 1-{VRF_NAME_MAX_LEN} characters, "
+                    f"got '{vrf}' ({len(vrf) if vrf else 0} chars)"
                 )
             )
         if vrf.lower() in seen_vrfs:
             module.fail_json(
-                msg="Duplicate VRF name '{0}' in config list".format(vrf)
+                msg=f"Duplicate VRF name '{vrf}' in config list"
             )
         seen_vrfs.add(vrf.lower())
 
@@ -1394,10 +1394,8 @@ def _validate_config(
                 if prefix_key in seen_prefixes:
                     module.fail_json(
                         msg=(
-                            "Duplicate route {0}/{1} in VRF '{2}' "
-                            "address-family '{3}'".format(
-                                prefix_key[0], prefix_key[1], vrf, afi
-                            )
+                            f"Duplicate route {prefix_key[0]}/{prefix_key[1]} in VRF '{vrf}' "
+                            f"address-family '{afi}'"
                         )
                     )
                 seen_prefixes.add(prefix_key)
@@ -1408,15 +1406,15 @@ def _validate_route(
     module: AnsibleModule,
     afi: str,
     max_plen: int,
-    route: Dict[str, Any],
+    route: dict[str, Any],
 ) -> None:
     """Validate a single route entry."""
     prefix_len = route["prefix_len"]
     if prefix_len < 0 or prefix_len > max_plen:
         module.fail_json(
             msg=(
-                "prefix_len must be 0-{0} for {1}, "
-                "got {2}".format(max_plen, afi, prefix_len)
+                f"prefix_len must be 0-{max_plen} for {afi}, "
+                f"got {prefix_len}"
             )
         )
 
@@ -1449,7 +1447,7 @@ def _validate_route(
 def _validate_next_hop(
     module: AnsibleModule,
     afi: str,
-    nh: Dict[str, Any],
+    nh: dict[str, Any],
 ) -> None:
     """Validate a single next-hop entry."""
     fwd = nh.get("forward_router_address")
@@ -1481,13 +1479,13 @@ def _validate_next_hop(
                 )
             )
 
-    # IPv4: reject interface_type/interface (read-only on VOSS)
+    # IPv4: reject interface_type/interface (read-only on Fabric Engine)
     if afi == "ipv4":
         if nh.get("interface_type") or nh.get("interface"):
             module.fail_json(
                 msg=(
                     "interface_type and interface are "
-                    "read-only for IPv4 routes on VOSS. "
+                    "read-only for IPv4 routes on Fabric Engine. "
                     "These fields are only accepted for "
                     "IPv6 routes."
                 )
@@ -1503,37 +1501,33 @@ def _validate_next_hop(
                 if not (if_type and if_name):
                     module.fail_json(
                         msg=(
-                            "IPv6 link-local next-hop '{0}' requires "
+                            f"IPv6 link-local next-hop '{fwd}' requires "
                             "interface_type and interface to be "
-                            "specified".format(fwd)
+                            "specified"
                         )
                     )
         except ValueError:
             pass  # Invalid address will be caught by the device
 
-    # admin_distance range (VOSS: 1-255)
+    # admin_distance range (Fabric Engine: 1-255)
     ad = nh.get("admin_distance")
     if ad is not None:
         if ad < ADMIN_DISTANCE_MIN or ad > ADMIN_DISTANCE_MAX:
             module.fail_json(
                 msg=(
-                    "admin_distance must be {0}-{1} on VOSS,"
-                    " got {2}".format(
-                        ADMIN_DISTANCE_MIN,
-                        ADMIN_DISTANCE_MAX,
-                        ad,
-                    )
+                    f"admin_distance must be {ADMIN_DISTANCE_MIN}-{ADMIN_DISTANCE_MAX} on Fabric Engine,"
+                    f" got {ad}"
                 )
             )
 
-    # weight range (VOSS: 1-65535)
+    # weight range (Fabric Engine: 1-65535)
     wt = nh.get("weight")
     if wt is not None:
         if wt < WEIGHT_MIN or wt > WEIGHT_MAX:
             module.fail_json(
                 msg=(
-                    "weight must be {0}-{1} on VOSS, "
-                    "got {2}".format(WEIGHT_MIN, WEIGHT_MAX, wt)
+                    f"weight must be {WEIGHT_MIN}-{WEIGHT_MAX} on Fabric Engine, "
+                    f"got {wt}"
                 )
             )
 
@@ -1542,8 +1536,8 @@ def _validate_next_hop(
     if name is not None and len(name) > ROUTE_NAME_MAX_LEN:
         module.fail_json(
             msg=(
-                "name must be 0-{0} characters, got {1} "
-                "chars".format(ROUTE_NAME_MAX_LEN, len(name))
+                f"name must be 0-{ROUTE_NAME_MAX_LEN} characters, got {len(name)} "
+                "chars"
             )
         )
 
@@ -1560,8 +1554,8 @@ def _validate_next_hop(
 
 
 def _nh_create_time_differs(
-    desired: Dict[str, Any],
-    current: Dict[str, Any],
+    desired: dict[str, Any],
+    current: dict[str, Any],
     use_defaults: bool = False,
 ) -> bool:
     """Check if any create-time-only fields differ between desired
@@ -1609,29 +1603,29 @@ def _nh_create_time_differs(
 def _handle_gathered(
     module: AnsibleModule,
     connection: Connection,
-    result: Dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=gathered — read-only, no changes."""
     gather_filter = module.params.get("gather_filter")
     gather_dynamic = module.params.get("gather_dynamic", False)
     gather_summary = module.params.get("gather_summary", False)
 
-    # Normalize gather_filter VRF names — VOSS stores user VRF names
+    # Normalize gather_filter VRF names — Fabric Engine stores user VRF names
     # in lowercase, but system VRFs like GlobalRouter keep canonical casing.
     if gather_filter:
         for v in gather_filter:
             normalized = _normalize_vrf_name(v)
             if v != normalized and v.lower() != v:
                 module.warn(
-                    "VRF name '{0}' is not in canonical form. "
-                    "VOSS stores user VRF names in lowercase, but system VRFs require canonical casing; "
-                    "the name will be converted to '{1}'.".format(v, normalized)
+                    f"VRF name '{v}' is not in canonical form. "
+                    "Fabric Engine stores user VRF names in lowercase, but system VRFs require canonical casing; "
+                    f"the name will be converted to '{normalized}'."
                 )
         gather_filter = [_normalize_vrf_name(v) for v in gather_filter]
 
     # Fetch static routes
     if gather_filter:
-        all_rest: List[Dict[str, Any]] = []
+        all_rest: list[dict[str, Any]] = []
         for vrf in gather_filter:
             vrf_routes = _fetch_vrf_routes(
                 module,
@@ -1675,8 +1669,8 @@ def _handle_gathered(
 
 
 def _group_rest_routes_tagged(
-    rest_routes: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    rest_routes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Group REST routes that have been tagged with _vrf key."""
     for r in rest_routes:
         if "_vrf" in r:
@@ -1687,8 +1681,8 @@ def _group_rest_routes_tagged(
 def _handle_merged(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=merged — additive, only supplied fields sent."""
     for entry in config:
@@ -1772,8 +1766,8 @@ def _handle_merged(
 def _handle_replaced(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=replaced — authoritative per-resource.
 
@@ -1791,9 +1785,9 @@ def _handle_replaced(
 
         # Pre-index current next-hops by (afi, prefix, prefix_len)
         # to avoid scanning the entire map for each desired prefix.
-        prefix_index: Dict[
-            Tuple[str, str, int],
-            Dict[Tuple[str, str, int, str, str, str], Dict[str, Any]],
+        prefix_index: dict[
+            tuple[str, str, int],
+            dict[tuple[str, str, int, str, str, str], dict[str, Any]],
         ] = {}
         for rkey, cur_nh in current_map.items():
             pkey = (rkey[0], rkey[1], rkey[2])
@@ -1850,8 +1844,8 @@ def _handle_replaced(
 def _handle_overridden(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=overridden — authoritative globally.
 
@@ -1943,8 +1937,8 @@ def _handle_overridden(
 def _handle_deleted(
     module: AnsibleModule,
     connection: Connection,
-    config: List[Dict[str, Any]],
-    result: Dict[str, Any],
+    config: list[dict[str, Any]],
+    result: dict[str, Any],
 ) -> None:
     """Handle state=deleted — delete specified routes.
 
@@ -2077,8 +2071,8 @@ def _create_route(
     afi: str,
     prefix: str,
     prefix_len: int,
-    nh: Dict[str, Any],
-    result: Dict[str, Any],
+    nh: dict[str, Any],
+    result: dict[str, Any],
     use_defaults: bool = False,
 ) -> None:
     """POST a new static route.
@@ -2108,12 +2102,7 @@ def _create_route(
             path=path,
             payload=payload,
             api_responses=result["api_responses"],
-            response_key="post_{0}_{1}_{2}_{3}".format(
-                vrf,
-                prefix,
-                prefix_len,
-                _nh_label(nh),
-            ),
+            response_key=f"post_{vrf}_{prefix}_{prefix_len}_{_nh_label(nh)}",
         )
         result["changed"] = True
     except FeStaticRouteError as exc:
@@ -2136,9 +2125,7 @@ def _create_route(
                     path=patch_path,
                     payload={"enabled": desired_enabled},
                     api_responses=result["api_responses"],
-                    response_key="patch_fallback_{0}_{1}_{2}_{3}".format(
-                        vrf, prefix, prefix_len, _nh_label(nh),
-                    ),
+                    response_key=f"patch_fallback_{vrf}_{prefix}_{prefix_len}_{_nh_label(nh)}",
                 )
                 result["changed"] = True
             # If enabled was not specified, route already exists —
@@ -2154,8 +2141,8 @@ def _delete_route(
     afi: str,
     prefix: str,
     prefix_len: int,
-    nh: Dict[str, Any],
-    result: Dict[str, Any],
+    nh: dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """DELETE a static route."""
     if module.check_mode:
@@ -2169,12 +2156,7 @@ def _delete_route(
         method="DELETE",
         path=path,
         api_responses=result["api_responses"],
-        response_key="delete_{0}_{1}_{2}_{3}".format(
-            vrf,
-            prefix,
-            prefix_len,
-            _nh_label(nh),
-        ),
+        response_key=f"delete_{vrf}_{prefix}_{prefix_len}_{_nh_label(nh)}",
     )
     result["changed"] = True
 
@@ -2186,9 +2168,9 @@ def _patch_if_enabled_differs(
     afi: str,
     prefix: str,
     prefix_len: int,
-    desired_nh: Dict[str, Any],
-    current_nh: Dict[str, Any],
-    result: Dict[str, Any],
+    desired_nh: dict[str, Any],
+    current_nh: dict[str, Any],
+    result: dict[str, Any],
 ) -> None:
     """PATCH the enabled field if it differs from current."""
     desired_enabled = desired_nh.get("enabled")
@@ -2210,12 +2192,7 @@ def _patch_if_enabled_differs(
         path=path,
         payload={"enabled": desired_enabled},
         api_responses=result["api_responses"],
-        response_key="patch_enabled_{0}_{1}_{2}_{3}".format(
-            vrf,
-            prefix,
-            prefix_len,
-            _nh_label(current_nh),
-        ),
+        response_key=f"patch_enabled_{vrf}_{prefix}_{prefix_len}_{_nh_label(current_nh)}",
     )
     result["changed"] = True
 
@@ -2227,9 +2204,9 @@ def _replace_single_nh(
     afi: str,
     prefix: str,
     prefix_len: int,
-    desired_nh: Dict[str, Any],
-    current_nh: Optional[Dict[str, Any]],
-    result: Dict[str, Any],
+    desired_nh: dict[str, Any],
+    current_nh: dict[str, Any] | None,
+    result: dict[str, Any],
 ) -> None:
     """Apply replaced logic for a single next-hop entry.
 
@@ -2300,9 +2277,7 @@ def _replace_single_nh(
             path=path,
             payload={"enabled": desired_enabled},
             api_responses=result["api_responses"],
-            response_key="replace_patch_{0}_{1}_{2}_{3}".format(
-                vrf, prefix, prefix_len, _nh_label(current_nh),
-            ),
+            response_key=f"replace_patch_{vrf}_{prefix}_{prefix_len}_{_nh_label(current_nh)}",
         )
         result["changed"] = True
 
@@ -2311,15 +2286,15 @@ def _replace_single_nh(
 
 
 def _build_nh_map(
-    grouped: List[Dict[str, Any]],
+    grouped: list[dict[str, Any]],
     target_vrf: str,
-) -> Dict[Tuple[str, str, int, str, str, str], Dict[str, Any]]:
+) -> dict[tuple[str, str, int, str, str, str], dict[str, Any]]:
     """Build a lookup map of current next-hops for a single VRF.
 
     Key: (afi, prefix, prefix_len, fwd, if_type, if_name)
     Value: next-hop dict (Ansible format)
     """
-    nh_map: Dict[Tuple[str, str, int, str, str, str], Dict[str, Any]] = {}
+    nh_map: dict[tuple[str, str, int, str, str, str], dict[str, Any]] = {}
     for vrf_entry in grouped:
         if vrf_entry.get("vrf") != target_vrf:
             continue
@@ -2335,19 +2310,19 @@ def _build_nh_map(
 
 
 def _build_nh_map_cross_vrf(
-    rest_routes: List[Dict[str, Any]],
-) -> Dict[
-    Tuple[str, str, str, int, str, str, str],
-    Tuple[str, Dict[str, Any]],
+    rest_routes: list[dict[str, Any]],
+) -> dict[
+    tuple[str, str, str, int, str, str, str],
+    tuple[str, dict[str, Any]],
 ]:
     """Build a lookup map of all routes across all VRFs.
 
     Key: (vrf, afi, prefix, prefix_len, fwd, if_type, if_name)
     Value: (vrf, next-hop dict in Ansible format)
     """
-    nh_map: Dict[
-        Tuple[str, str, str, int, str, str, str],
-        Tuple[str, Dict[str, Any]],
+    nh_map: dict[
+        tuple[str, str, str, int, str, str, str],
+        tuple[str, dict[str, Any]],
     ] = {}
     for rest_route in rest_routes:
         vrf = _normalize_vrf_name(rest_route.get("vrName", "GlobalRouter"))
@@ -2382,12 +2357,12 @@ def main() -> None:
 
     # Config is required for merged, replaced, overridden
     if state in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN) and not config:
-        module.fail_json(msg=("'config' is required when state is '{0}'".format(state)))
+        module.fail_json(msg=(f"'config' is required when state is '{state}'"))
 
     # Pre-flight validation of config entries
     if config:
         _validate_config(module, config)
-        # Normalize VRF names — VOSS stores user VRF names in lowercase
+        # Normalize VRF names — Fabric Engine stores user VRF names in lowercase
         # and the REST API is case-sensitive.  System VRFs like
         # GlobalRouter must keep their canonical casing.
         for entry in config:
@@ -2396,14 +2371,14 @@ def main() -> None:
                 if entry["vrf"].lower() != entry["vrf"]:
                     module.warn(
                         "VRF name '{0}' is not in canonical form. "
-                        "VOSS stores user VRF names in lowercase, but system VRFs require canonical casing; "
+                        "Fabric Engine stores user VRF names in lowercase, but system VRFs require canonical casing; "
                         "the name will be converted to '{1}'.".format(
                             entry["vrf"], normalized
                         )
                     )
             entry["vrf"] = normalized
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "api_responses": {},
     }
@@ -2456,7 +2431,7 @@ def main() -> None:
         )
     except ConnectionError as exc:
         module.fail_json(
-            msg="Connection error: {0}".format(to_text(exc)),
+            msg=f"Connection error: {to_text(exc)}",
             api_responses=result.get("api_responses", {}),
         )
 

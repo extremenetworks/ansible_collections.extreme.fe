@@ -393,7 +393,7 @@ SPB fabric ISID binding.
 |---------------|--------------------------------|------------------|--------------------------|
 | `vlan_id`     | VLAN ID to create/configure    | `5`              | `-e vlan_id=10`          |
 | `vlan_port`   | Port to add to the VLAN        | `1:5`            | `-e vlan_port=1:8`       |
-| `vlan_isid`   | I-SID number for SPB fabric    | same as vlan_id  | `-e vlan_isid=10010`     |
+| `vlan_isid`   | ISID number for SPB fabric    | same as vlan_id  | `-e vlan_isid=10010`     |
 | `config_name` | Config file name to save       | `config.cfg`     | `-e config_name=my.cfg`  |
 
 **Examples:**

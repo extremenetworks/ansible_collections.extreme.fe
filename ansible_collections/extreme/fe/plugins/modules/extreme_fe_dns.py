@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Ansible module to manage DNS settings on Extreme Fabric Engine switches.
 
 Module Architecture Overview
 ============================
 This module manages Domain Name System (DNS) configuration on Extreme
-Fabric Engine (VOSS) switches via the REST OpenAPI.
+Fabric Engine switches via the REST OpenAPI.
 
 REST Endpoints used:
   GET    /v0/configuration/dns
@@ -21,7 +20,7 @@ REST Endpoints used:
   DELETE /v0/configuration/dns/domain/{domain_name}
          → Remove a DNS domain name
 
-VOSS constraints:
+Fabric Engine constraints:
   - Only 3 user-configurable servers (primary, secondary, tertiary)
   - Dynamic servers (learned via DHCP) are read-only
   - Only a single domain name is supported
@@ -47,22 +46,26 @@ from __future__ import annotations
 
 # json — used for serializing/deserializing REST API request and response bodies
 import json
+
 # ip_address — standard library helper for validating and comparing IP addresses
 from ipaddress import ip_address
 
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
+
 # quote() is used to safely encode characters in REST URL path segments
 from urllib.parse import quote
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
 
 DOCUMENTATION = r"""
 ---
@@ -70,13 +73,12 @@ module: extreme_fe_dns
 short_description: Manage DNS settings on ExtremeNetworks Fabric Engine switches
 version_added: "1.2.0"
 description:
-  - Manage Domain Name System (DNS) configuration on ExtremeNetworks Fabric Engine
-    (VOSS) switches using the custom C(extreme_fe) HTTPAPI plugin.
+  - Manage Domain Name System (DNS) configuration on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/dns) from the NOS OpenAPI schema.
-  - Supports managing DNS servers (up to 3 user-configurable on VOSS) and a single
+  - Supports managing DNS servers (up to 3 user-configurable on Fabric Engine) and a single
     DNS domain suffix.
   - Dynamic DNS entries (learned via DHCP) are read-only and excluded from management.
-  - On Fabric Engine (VOSS), the virtual router name is always C(GlobalRouter).
+  - On Fabric Engine, the virtual router name is always C(GlobalRouter).
   - C(replaced) makes the desired server list the final state via POST/DELETE.
     Servers not in the desired list are removed; missing ones are added.
     Domain is set if specified, left alone if omitted.
@@ -87,9 +89,9 @@ author:
 notes:
   - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin
     shipped with this project.
-  - Fabric Engine (VOSS) supports a maximum of 3 user-configurable DNS servers
+  - Fabric Engine supports a maximum of 3 user-configurable DNS servers
     (primary, secondary, tertiary).
-  - Fabric Engine (VOSS) supports a single DNS domain suffix.
+  - Fabric Engine supports a single DNS domain suffix.
   - C(overridden) uses the PUT endpoint (create or full replace) and is
     idempotent — it skips the PUT when the desired state matches the current
     device config. C(replaced) uses POST/DELETE for individual entries and
@@ -110,12 +112,12 @@ options:
       domain:
         description:
           - The DNS domain suffix for the device.
-          - Fabric Engine (VOSS) supports only a single domain.
+          - Fabric Engine supports only a single domain.
         type: str
       servers:
         description:
           - List of DNS servers to configure.
-          - Fabric Engine (VOSS) supports a maximum of 3 user-configurable servers.
+          - Fabric Engine supports a maximum of 3 user-configurable servers.
         type: list
         elements: dict
         suboptions:
@@ -320,12 +322,12 @@ DNS_DOMAIN_PATH = "/v0/configuration/dns/domain"
 # Example: /v0/configuration/dns/domain/example.com
 DNS_DOMAIN_DELETE_TEMPLATE = "/v0/configuration/dns/domain/{domain_name}"
 
-# VOSS only supports the "GlobalRouter" virtual router for DNS.
-# This value is hardcoded because VOSS does not allow other VR names.
+# Fabric Engine only supports the "GlobalRouter" virtual router for DNS.
+# This value is hardcoded because Fabric Engine does not allow other VR names.
 DEFAULT_VR_NAME = "GlobalRouter"
 
-# Maximum number of user-configurable DNS servers on VOSS.
-# VOSS supports primary, secondary, and tertiary — no more.
+# Maximum number of user-configurable DNS servers on Fabric Engine.
+# Fabric Engine supports primary, secondary, and tertiary — no more.
 MAX_DNS_SERVERS = 3
 
 # State constants — each state defines a different module behaviour.
@@ -350,10 +352,10 @@ ARGUMENT_SPEC = {
         "type": "dict",
         "options": {
             # domain — the DNS domain suffix (e.g. "example.com")
-            # VOSS supports only a single domain
+            # Fabric Engine supports only a single domain
             "domain": {"type": "str"},
             # servers — list of DNS servers to configure
-            # VOSS supports up to 3 user-configurable servers
+            # Fabric Engine supports up to 3 user-configurable servers
             "servers": {
                 "type": "list",
                 "elements": "dict",
@@ -390,13 +392,13 @@ class FeDnsError(Exception):
         details: Optional dict with extra context (shown in Ansible output).
     """
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
+    def to_fail_kwargs(self) -> dict[str, Any]:
         """Convert this exception into keyword args for module.fail_json()."""
-        data: Dict[str, Any] = {"msg": to_text(self)}
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -406,7 +408,7 @@ class FeDnsError(Exception):
 # These utility functions handle common tasks: detecting errors in REST
 # responses, establishing the device connection, and sending API requests.
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     """Check if the REST response contains an error (HTTP 4xx/5xx or error list).
 
     This is called after every API request to detect failures that the
@@ -469,9 +471,9 @@ def _call_api(
     *,
     method: str,
     path: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
     """Send a single REST API request to the device and return the response.
@@ -538,9 +540,9 @@ def _call_api(
 def _fetch_dns_config(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch the full DNS configuration from the device.
 
     Sends GET /v0/configuration/dns which returns a DnsSettings object
@@ -573,7 +575,7 @@ def _fetch_dns_config(
 #   Ansible format:  {"address": "8.8.8.8", "address_type": "IPv4"}
 #   REST API format: {"ipAddress": {"ipAddressType": "IPv4", "address": "8.8.8.8"}, "vrName": "GlobalRouter"}
 
-def _build_put_payload(config: Dict[str, Any]) -> Dict[str, Any]:
+def _build_put_payload(config: dict[str, Any]) -> dict[str, Any]:
     """Build a complete DnsSettings REST payload for PUT (replaced/overridden).
 
     The PUT endpoint replaces the ENTIRE DNS configuration on the device.
@@ -587,11 +589,11 @@ def _build_put_payload(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         A DnsSettings dict ready to send as the PUT request body.
     """
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
     # Convert each Ansible server entry to the REST API's nested format
     servers_config = config.get("servers") or []
-    rest_servers: List[Dict[str, Any]] = []
+    rest_servers: list[dict[str, Any]] = []
     for srv in servers_config:
         address = srv["address"]
         addr_type = srv.get("address_type", "IPv4")
@@ -608,14 +610,14 @@ def _build_put_payload(config: Dict[str, Any]) -> Dict[str, Any]:
                 "ipAddressType": addr_type,
                 "address": address,
             },
-            # VOSS requires vrName but only supports "GlobalRouter"
+            # Fabric Engine requires vrName but only supports "GlobalRouter"
             "vrName": DEFAULT_VR_NAME,
         })
     payload["servers"] = rest_servers
 
     # The REST API expects domains as a list of DnsDomain objects,
-    # but VOSS only supports a single domain, so the list has 0 or 1 entry
-    domains: List[Dict[str, Any]] = []
+    # but Fabric Engine only supports a single domain, so the list has 0 or 1 entry
+    domains: list[dict[str, Any]] = []
     if config.get("domain"):
         domains.append({"name": config["domain"]})
     payload["domains"] = domains
@@ -624,7 +626,7 @@ def _build_put_payload(config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _validate_server_addresses(
-    module: AnsibleModule, servers: List[Dict[str, Any]]
+    module: AnsibleModule, servers: list[dict[str, Any]]
 ) -> None:
     """Validate DNS server addresses and address_type consistency.
 
@@ -643,18 +645,18 @@ def _validate_server_addresses(
             parsed = ip_address(addr)
         except ValueError:
             module.fail_json(
-                msg="Invalid IP address '{0}' in DNS server config".format(addr)
+                msg=f"Invalid IP address '{addr}' in DNS server config"
             )
         detected_version = "IPv6" if parsed.version == 6 else "IPv4"
         if detected_version != addr_type:
             module.fail_json(
                 msg=(
-                    "Address '{0}' is {1} but address_type is set to '{2}'"
-                ).format(addr, detected_version, addr_type),
+                    f"Address '{addr}' is {detected_version} but address_type is set to '{addr_type}'"
+                ),
             )
 
 
-def _build_server_post_payload(server: Dict[str, Any]) -> Dict[str, Any]:
+def _build_server_post_payload(server: dict[str, Any]) -> dict[str, Any]:
     """Build a DnsServer REST payload for POST (adding a single server).
 
     Used by the 'merged' state to add individual servers one at a time.
@@ -680,8 +682,8 @@ def _build_server_post_payload(server: Dict[str, Any]) -> Dict[str, Any]:
 # module's return data so the user can see exactly what was modified.
 
 def _compute_diff(
-    before: Dict[str, Any], after: Dict[str, Any]
-) -> Dict[str, Dict[str, Any]]:
+    before: dict[str, Any], after: dict[str, Any]
+) -> dict[str, dict[str, Any]]:
     """Compute differences between before and after DNS states.
 
     Compares servers (sorted by type+address for stable comparison)
@@ -695,7 +697,7 @@ def _compute_diff(
         A dict where each key is a changed field, and the value is
         a dict with 'before' and 'after' values.  Empty if nothing changed.
     """
-    diff: Dict[str, Dict[str, Any]] = {}
+    diff: dict[str, dict[str, Any]] = {}
 
     # Sort servers by (address_type, address) so order doesn't cause false diffs
     before_servers = sorted(
@@ -721,7 +723,7 @@ def _compute_diff(
 # REST API response format back into the simpler Ansible format that users
 # see in playbook output and registered variables.
 
-def _to_ansible_output(dns_data: Dict[str, Any]) -> Dict[str, Any]:
+def _to_ansible_output(dns_data: dict[str, Any]) -> dict[str, Any]:
     """Convert a REST DnsSettings response to the Ansible output format.
 
     The REST API returns a nested structure with ipAddress objects and
@@ -744,7 +746,7 @@ def _to_ansible_output(dns_data: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         A simplified dict with 'servers' (list) and 'domain' (str or None).
     """
-    servers: List[Dict[str, str]] = []
+    servers: list[dict[str, str]] = []
     for srv in dns_data.get("servers") or []:
         # Skip dynamic servers — these are learned via DHCP and are read-only
         if srv.get("dynamic", False):
@@ -766,13 +768,13 @@ def _to_ansible_output(dns_data: Dict[str, Any]) -> Dict[str, Any]:
             "address_type": address_type,
         })
 
-    domain: Optional[str] = None
+    domain: str | None = None
     for dom in dns_data.get("domains") or []:
         # Skip dynamic domains — learned via DHCP, read-only
         if dom.get("dynamic", False):
             continue
         domain = dom.get("name")
-        break  # VOSS supports only a single domain, so take the first one
+        break  # Fabric Engine supports only a single domain, so take the first one
 
     return {"servers": servers, "domain": domain}
 
@@ -812,13 +814,13 @@ def _handle_overridden(module, connection, config, current, result):
                 "address_type": addr_type,
             })
 
-    # Pre-flight: de-duplicated server count must not exceed VOSS limit
+    # Pre-flight: de-duplicated server count must not exceed Fabric Engine limit
     if len(desired_servers) > MAX_DNS_SERVERS:
         module.fail_json(
             msg=(
-                "The maximum number of configurable DNS servers is {0}. "
-                "Desired config specifies {1} servers."
-            ).format(MAX_DNS_SERVERS, len(desired_servers)),
+                f"The maximum number of configurable DNS servers is {MAX_DNS_SERVERS}. "
+                f"Desired config specifies {len(desired_servers)} servers."
+            ),
             api_responses=result["api_responses"],
         )
 
@@ -919,7 +921,7 @@ def _predict_replaced_after(desired_servers, desired_domain, current_domain):
 
 def _handle_replaced(module, connection, config, current, result):
     """STATE_REPLACED — set-level server replacement via POST/DELETE."""
-    changes_made_rep: List[Tuple[str, Any]] = []
+    changes_made_rep: list[tuple[str, Any]] = []
 
     # Build sets of current and desired server keys for comparison
     current_server_keys = {
@@ -949,13 +951,13 @@ def _handle_replaced(module, connection, config, current, result):
         ]
         desired_keys = set(current_server_keys)
 
-    # Pre-flight check: desired list itself must not exceed VOSS limit
+    # Pre-flight check: desired list itself must not exceed Fabric Engine limit
     if len(desired_keys) > MAX_DNS_SERVERS:
         module.fail_json(
             msg=(
-                "The maximum number of configurable DNS servers is {0}. "
-                "Desired config specifies {1} servers."
-            ).format(MAX_DNS_SERVERS, len(desired_keys)),
+                f"The maximum number of configurable DNS servers is {MAX_DNS_SERVERS}. "
+                f"Desired config specifies {len(desired_keys)} servers."
+            ),
             api_responses=result["api_responses"],
         )
 
@@ -981,7 +983,7 @@ def _handle_replaced(module, connection, config, current, result):
                 path=delete_path,
                 expect_content=False,
                 api_responses=result["api_responses"],
-                response_key="delete_server_{0}".format(addr),
+                response_key=f"delete_server_{addr}",
             )
         changes_made_rep.append(("delete_server", {"address": addr, "address_type": addr_type}))
 
@@ -1011,7 +1013,7 @@ def _handle_replaced(module, connection, config, current, result):
                     payload=post_payload,
                     expect_content=False,
                     api_responses=result["api_responses"],
-                    response_key="post_server_{0}".format(addr),
+                    response_key=f"post_server_{addr}",
                 )
             changes_made_rep.append(("add_server", {"address": addr, "address_type": addr_type}))
 
@@ -1073,7 +1075,7 @@ def _handle_replaced(module, connection, config, current, result):
 def _handle_merged(module, connection, config, current, result):
     """STATE_MERGED — additive, only add what is not already there."""
     # Track all changes so we know if anything was modified
-    changes_made: List[Tuple[str, Any]] = []
+    changes_made: list[tuple[str, Any]] = []
 
     # Build a set of (address, address_type) tuples for quick lookup
     # to determine which servers already exist on the device
@@ -1084,7 +1086,7 @@ def _handle_merged(module, connection, config, current, result):
     desired_servers = config.get("servers") or []
     _validate_server_addresses(module, desired_servers)
 
-    # Pre-flight check: ensure merged result won't exceed VOSS limit
+    # Pre-flight check: ensure merged result won't exceed Fabric Engine limit
     desired_keys = set()
     for s in desired_servers:
         addr = s["address"]
@@ -1099,10 +1101,10 @@ def _handle_merged(module, connection, config, current, result):
     if total_after_merge > MAX_DNS_SERVERS:
         module.fail_json(
             msg=(
-                "VOSS supports a maximum of {0} DNS servers. "
-                "After merge, total would be {1}. "
+                f"Fabric Engine supports a maximum of {MAX_DNS_SERVERS} DNS servers. "
+                f"After merge, total would be {total_after_merge}. "
                 "Remove servers first or use 'overridden' to replace all."
-            ).format(MAX_DNS_SERVERS, total_after_merge),
+            ),
             api_responses=result["api_responses"],
         )
 
@@ -1133,11 +1135,11 @@ def _handle_merged(module, connection, config, current, result):
                     payload=post_payload,
                     expect_content=False,  # POST returns 204 No Content
                     api_responses=result["api_responses"],
-                    response_key="post_server_{0}".format(addr),
+                    response_key=f"post_server_{addr}",
                 )
             changes_made.append(("add_server", {"address": addr, "address_type": addr_type}))
 
-    # Handle domain — VOSS supports only one domain, so if the user
+    # Handle domain — Fabric Engine supports only one domain, so if the user
     # wants a different domain, we need to delete the old one first
     desired_domain = config.get("domain")
     current_domain = current.get("domain")
@@ -1205,7 +1207,7 @@ def _handle_merged(module, connection, config, current, result):
 
 def _handle_deleted(module, connection, config, current, result):
     """STATE_DELETED — remove specified entries or all entries."""
-    changes_made_del: List[Tuple[str, Any]] = []
+    changes_made_del: list[tuple[str, Any]] = []
 
     if config:
         # ── Delete specific servers listed in config ─────────
@@ -1240,7 +1242,7 @@ def _handle_deleted(module, connection, config, current, result):
                         path=delete_path,
                         expect_content=False,
                         api_responses=result["api_responses"],
-                        response_key="delete_server_{0}".format(addr),
+                        response_key=f"delete_server_{addr}",
                     )
                 changes_made_del.append(("delete_server", {"address": addr, "address_type": addr_type}))
 
@@ -1352,7 +1354,7 @@ def run_module() -> None:
         return
 
     # Initialize the result dict — this is what gets returned to the user
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,       # Will be set to True if we modify anything
         "api_responses": {},    # Stores raw API responses for debugging
     }

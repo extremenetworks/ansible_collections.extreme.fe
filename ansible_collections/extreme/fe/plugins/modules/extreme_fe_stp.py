@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Ansible module to manage STP per-port settings on Fabric Engine switches.
 
 Manages BPDU Guard and STP per-port configuration (edge port, priority,
@@ -14,13 +13,13 @@ from __future__ import annotations
 
 # ── Standard library imports ─────────────────────────────────────────────────
 import re as _re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import quote
 
 # ── Ansible SDK imports ──────────────────────────────────────────────────────
 from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -28,8 +27,7 @@ module: extreme_fe_stp
 short_description: Manage STP per-port settings on ExtremeNetworks Fabric Engine switches
 version_added: 1.1.0
 description:
-- Configure STP per-port settings on ExtremeNetworks Fabric Engine
-  (VOSS) switches using the C(extreme_fe) HTTPAPI connection plugin.
+- Configure STP per-port settings on ExtremeNetworks Fabric Engine switches using the C(extreme_fe) HTTPAPI connection plugin.
 - Supports BPDU Guard, edge port, port priority, path cost, and
   per-port STP enable/disable.
 - Uses C(config) list for per-port STP entries and C(stp_instance) as
@@ -42,12 +40,12 @@ notes:
 - BPDU Guard requires STP to be active on the device.
 - C(stp_instance) is required and identifies the STP domain to
   operate on.  Use C(0) for CIST/RSTP, or C(0)-C(63) for MSTP
-  instances.  This mirrors the VOSS CLI and REST API, which
+  instances.  This mirrors the Fabric Engine CLI and REST API, which
   always require an explicit STP instance.
-- On VOSS, C(bpduRestrictEnabled) is not separately configurable; it
+- On Fabric Engine, C(bpduRestrictEnabled) is not separately configurable; it
   is always C(true) when C(bpduProtection) is C(GUARD).
 - B(Breaking changes since 1.0.0:)
-- LAG interfaces are no longer supported.  The VOSS STP REST API
+- LAG interfaces are no longer supported.  The Fabric Engine STP REST API
   only accepts physical ports in C(slot:port) format.  Playbooks
   that used C(LAG:N) must be updated to use physical port names.
 - Per-port runtime STP state (C(GET /v0/state/stp/.../ports/...))
@@ -81,7 +79,7 @@ options:
         description:
         - Seconds before a BPDU Guard disabled port is re-enabled.
         - A value of C(0) means the port stays disabled forever.
-        - Valid range is C(0) or C(10-65535).  Default on VOSS is 120.
+        - Valid range is C(0) or C(10-65535).  Default on Fabric Engine is 120.
         type: int
       is_edge_port:
         description:
@@ -115,7 +113,7 @@ options:
     description:
     - Desired module operation.
     - '`merged` applies the provided parameters incrementally without removing unspecified STP settings.'
-    - '`replaced` treats the supplied values as authoritative for the target interface. Omitted STP fields are reset to factory defaults (except C(path_cost), which has no documented VOSS default and is left unchanged unless explicitly set).'
+    - '`replaced` treats the supplied values as authoritative for the target interface. Omitted STP fields are reset to factory defaults (except C(path_cost), which has no documented Fabric Engine default and is left unchanged unless explicitly set).'
     - '`overridden` is like C(replaced) but also resets other ports within the same STP instance to factory defaults (C(path_cost) exception applies — see C(replaced)).'
     - '`deleted` resets STP per-port settings to factory defaults (C(path_cost) is left unchanged).'
     - '`gathered` returns the current STP per-port settings without applying changes.'
@@ -306,7 +304,7 @@ stp:
             elements: dict
 """
 
-ARGUMENT_SPEC: Dict[str, Any] = {
+ARGUMENT_SPEC: dict[str, Any] = {
     "config": {
         "type": "list",
         "elements": "dict",
@@ -356,7 +354,7 @@ _REMOVED_FLAT_PARAMS = frozenset(
     }
 )
 
-KNOWN_INTERFACE_TYPES: Set[str] = {"PORT"}
+KNOWN_INTERFACE_TYPES: set[str] = {"PORT"}
 
 STATE_MERGED = "merged"
 STATE_REPLACED = "replaced"
@@ -390,8 +388,7 @@ BPDU_FULL_DEFAULTS = {
     "isEdgePort": False,
     "priority": 128,
     "enabled": True,
-    # pathCost intentionally omitted: pathCost=0 is EXOS-only,
-    # no VOSS factory default documented.
+    # pathCost intentionally omitted: no Fabric Engine factory default documented.
 }
 
 # Validation ranges
@@ -403,13 +400,13 @@ class FeStpError(Exception):
     """Base exception for the STP module."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, object]] = None
+        self, message: str, *, details: dict[str, object] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, object]:
-        data: Dict[str, object] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, object]:
+        data: dict[str, object] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -422,11 +419,11 @@ class FeStpError(Exception):
 
 # Port name pattern: slot:port format (e.g. "1:5", "1:10", "2:3").
 # Used to validate that parsed interface names match the format the
-# VOSS STP REST API expects.
+# Fabric Engine STP REST API expects.
 _PORT_NAME_RE = _re.compile(r'^\d{1,3}:\d{1,3}$')
 
 
-def parse_interface_name(name: str) -> Tuple[str, str]:
+def parse_interface_name(name: str) -> tuple[str, str]:
     """Parse 'PORT:1:5' or '1:5' into (type, name).
 
     Only physical ports in slot:port format are supported.
@@ -448,26 +445,24 @@ def parse_interface_name(name: str) -> Tuple[str, str]:
             port_name = rest.strip()
             if not _PORT_NAME_RE.match(port_name):
                 raise FeStpError(
-                    "Interface name '{0}' is not in valid slot:port format "
-                    "(e.g. 'PORT:1:5' or '1:5').".format(name)
+                    f"Interface name '{name}' is not in valid slot:port format "
+                    "(e.g. 'PORT:1:5' or '1:5')."
                 )
             return prefix_upper, port_name
         # Check if it looks like an unsupported type prefix
         # (alphabetic prefix followed by colon)
         if prefix_upper.isalpha():
             raise FeStpError(
-                "Unsupported interface type '{0}' in '{1}'. "
+                f"Unsupported interface type '{prefix_upper}' in '{name}'. "
                 "Only physical ports are supported for STP per-port "
-                "settings (e.g. 'PORT:1:5' or '1:5').".format(
-                    prefix_upper, name,
-                )
+                "settings (e.g. 'PORT:1:5' or '1:5')."
             )
 
     # No recognised prefix — treat as bare slot:port
     if not _PORT_NAME_RE.match(raw):
         raise FeStpError(
-            "Interface name '{0}' is not in valid slot:port format "
-            "(e.g. 'PORT:1:5' or '1:5').".format(name)
+            f"Interface name '{name}' is not in valid slot:port format "
+            "(e.g. 'PORT:1:5' or '1:5')."
         )
     return "PORT", raw
 
@@ -493,7 +488,7 @@ def _normalize_port_display_name(port_name: str) -> str:
     This ensures gathered output uses the same naming convention as
     ``config[].name`` and the RETURN documentation.
     """
-    return "PORT:{0}".format(port_name)
+    return f"PORT:{port_name}"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -501,7 +496,7 @@ def _normalize_port_display_name(port_name: str) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _is_not_found_response(payload: Optional[object]) -> bool:
+def _is_not_found_response(payload: object | None) -> bool:
     if not isinstance(payload, dict):
         return False
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -517,7 +512,7 @@ def _is_not_found_response(payload: Optional[object]) -> bool:
     return False
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     """Check whether a REST response indicates an error."""
     if not isinstance(payload, dict):
         return None
@@ -549,7 +544,7 @@ def _call_api(
     *,
     method: str,
     path: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
     allow_not_found: bool = False,
 ) -> Any:
@@ -626,7 +621,7 @@ def _is_cist(stp_instance: str) -> bool:
 def _fetch_stp_domains(
     module: AnsibleModule,
     connection: Connection,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """GET /v0/configuration/stp → list of STP domain objects."""
     data = _call_api(
         module, connection, method="GET", path=STP_CONFIG_PATH, allow_not_found=True
@@ -650,9 +645,9 @@ def _fetch_stp_domains(
 
 
 def _build_port_settings_map(
-    domains: List[Dict[str, Any]],
-    target_instance: Optional[str] = None,
-) -> Tuple[str, Dict[str, Dict[str, Any]]]:
+    domains: list[dict[str, Any]],
+    target_instance: str | None = None,
+) -> tuple[str, dict[str, dict[str, Any]]]:
     """Parse STP domain list into {port_name: settings} map.
 
     When *target_instance* is given, only ports from that specific STP
@@ -662,7 +657,7 @@ def _build_port_settings_map(
     Returns (domain_name, port_map).
     """
     default_domain = ""
-    port_map: Dict[str, Dict[str, Any]] = {}
+    port_map: dict[str, dict[str, Any]] = {}
 
     for domain in domains:
         if not isinstance(domain, dict):
@@ -705,25 +700,21 @@ def _build_port_settings_map(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _validate_entry_params(entry: Dict[str, Any]) -> None:
+def _validate_entry_params(entry: dict[str, Any]) -> None:
     """Validate STP parameter values for a single config entry."""
 
     timeout = entry.get("recovery_timeout")
     if timeout is not None:
         if isinstance(timeout, bool):
             raise FeStpError(
-                "recovery_timeout must be 0 or {0}-{1}".format(
-                    RECOVERY_TIMEOUT_MIN, RECOVERY_TIMEOUT_MAX
-                ),
+                f"recovery_timeout must be 0 or {RECOVERY_TIMEOUT_MIN}-{RECOVERY_TIMEOUT_MAX}",
                 details={"received": timeout},
             )
         if timeout != 0 and not (
             RECOVERY_TIMEOUT_MIN <= timeout <= RECOVERY_TIMEOUT_MAX
         ):
             raise FeStpError(
-                "recovery_timeout must be 0 or {0}-{1}".format(
-                    RECOVERY_TIMEOUT_MIN, RECOVERY_TIMEOUT_MAX
-                ),
+                f"recovery_timeout must be 0 or {RECOVERY_TIMEOUT_MIN}-{RECOVERY_TIMEOUT_MAX}",
                 details={"received": timeout},
             )
 
@@ -755,9 +746,9 @@ def _validate_entry_params(entry: Dict[str, Any]) -> None:
 
 
 def _pre_validate_config_entries(
-    config: List[Dict[str, Any]],
+    config: list[dict[str, Any]],
     stp_instance: str,
-) -> List[Tuple[Dict[str, Any], str, str, str]]:
+) -> list[tuple[dict[str, Any], str, str, str]]:
     """Pre-validate and parse all config entries before any device writes.
 
     Validates parameter ranges, parses interface names, detects
@@ -770,8 +761,8 @@ def _pre_validate_config_entries(
     Returns a list of ``(entry, iface_type, iface_name, port_name)``
     tuples that callers can reuse to avoid re-parsing.
     """
-    seen_ports: Dict[str, str] = {}  # port_name → first config name
-    parsed: List[Tuple[Dict[str, Any], str, str, str]] = []
+    seen_ports: dict[str, str] = {}  # port_name → first config name
+    parsed: list[tuple[dict[str, Any], str, str, str]] = []
     is_cist = _is_cist(stp_instance)
 
     for entry in config:
@@ -788,18 +779,16 @@ def _pre_validate_config_entries(
         if not is_cist and entry.get("is_edge_port") is not None:
             raise FeStpError(
                 "'is_edge_port' is only valid for CIST (stp_instance 0). "
-                "STP instance '{0}' is an MSTI instance. "
+                f"STP instance '{stp_instance}' is an MSTI instance. "
                 "Remove 'is_edge_port' from the config entry for "
-                "port '{1}'.".format(stp_instance, name)
+                f"port '{name}'."
             )
 
         # Detect duplicate port references within the same config list
         if port_name in seen_ports:
             raise FeStpError(
-                "Duplicate port '{0}' in config (from '{1}' and '{2}'). "
-                "Each port may only appear once per task.".format(
-                    port_name, seen_ports[port_name], name,
-                )
+                f"Duplicate port '{port_name}' in config (from '{seen_ports[port_name]}' and '{name}'). "
+                "Each port may only appear once per task."
             )
         seen_ports[port_name] = name
 
@@ -808,7 +797,7 @@ def _pre_validate_config_entries(
     return parsed
 
 
-# Maximum MSTP instance number (VOSS supports 0-63).
+# Maximum MSTP instance number (Fabric Engine supports 0-63).
 _STP_INSTANCE_MAX = 63
 
 
@@ -832,28 +821,25 @@ def _validate_stp_instance(stp_instance: str) -> str:
         num_str = normalized
     if not num_str.isdigit():
         raise FeStpError(
-            "stp_instance must be a number 0-{0} or 's0'-'s{0}', "
-            "got '{1}'".format(_STP_INSTANCE_MAX, stp_instance),
+            f"stp_instance must be a number 0-{_STP_INSTANCE_MAX} or 's0'-'s{_STP_INSTANCE_MAX}', "
+            f"got '{stp_instance}'",
         )
     num = int(num_str)
     if num < 0 or num > _STP_INSTANCE_MAX:
         raise FeStpError(
-            "stp_instance must be 0-{0}, got {1}".format(
-                _STP_INSTANCE_MAX,
-                num,
-            ),
+            f"stp_instance must be 0-{_STP_INSTANCE_MAX}, got {num}",
         )
     # Return canonical form: strip leading zeros ("00" → "0",
     # "s02" → "s2") so _is_cist() and _matches_stp_instance()
     # work correctly.
     if normalized.startswith("s"):
-        return "s{0}".format(num)
+        return f"s{num}"
     return str(num)
 
 
-def _build_merged_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _build_merged_payload(entry: dict[str, Any]) -> dict[str, Any]:
     """Build a BPDU Guard payload with only user-supplied fields (merged)."""
-    payload: Dict[str, Any] = {}
+    payload: dict[str, Any] = {}
 
     for param, rest_field in BPDU_FIELD_MAP.items():
         value = entry.get(param)
@@ -867,7 +853,7 @@ def _build_merged_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _build_replaced_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
+def _build_replaced_payload(entry: dict[str, Any]) -> dict[str, Any]:
     """Build a full BPDU Guard payload, defaulting omitted fields (replaced)."""
     payload = dict(BPDU_FULL_DEFAULTS)
 
@@ -883,21 +869,21 @@ def _build_replaced_payload(entry: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
-def _build_defaults_payload() -> Dict[str, Any]:
+def _build_defaults_payload() -> dict[str, Any]:
     """Return the payload that resets STP settings to factory defaults."""
     return dict(BPDU_FULL_DEFAULTS)
 
 
 def _compute_diff(
-    current: Dict[str, Any],
-    desired: Dict[str, Any],
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    current: dict[str, Any],
+    desired: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Compare desired payload against current settings.
 
     Returns (differences, patch_payload).
     """
-    differences: Dict[str, Any] = {}
-    patch_payload: Dict[str, Any] = {}
+    differences: dict[str, Any] = {}
+    patch_payload: dict[str, Any] = {}
 
     for field, desired_value in desired.items():
         current_value = current.get(field)
@@ -908,9 +894,9 @@ def _compute_diff(
     return differences, patch_payload
 
 
-def _to_ansible_output(settings: Dict[str, Any]) -> Dict[str, Any]:
+def _to_ansible_output(settings: dict[str, Any]) -> dict[str, Any]:
     """Convert STP REST settings to Ansible-friendly output dict."""
-    output: Dict[str, Any] = {}
+    output: dict[str, Any] = {}
 
     bpdu = settings.get("bpduProtection")
     if bpdu is not None:
@@ -951,11 +937,11 @@ def _to_ansible_output(settings: Dict[str, Any]) -> Dict[str, Any]:
 def _overridden_reset_ports(
     module: AnsibleModule,
     connection: Connection,
-    config_port_names: Set[str],
-    port_settings_map: Dict[str, Dict[str, Any]],
+    config_port_names: set[str],
+    port_settings_map: dict[str, dict[str, Any]],
     default_domain: str,
     stp_instance: str = "0",
-) -> Tuple[bool, List[Dict[str, Any]]]:
+) -> tuple[bool, list[dict[str, Any]]]:
     """Reset every non-listed port that deviates from STP factory defaults.
 
     *config_port_names* is the set of port names the user listed in
@@ -970,7 +956,7 @@ def _overridden_reset_ports(
     Returns ``(changed, reset_ports_list)``.
     """
     changed = False
-    reset_ports: List[Dict[str, Any]] = []
+    reset_ports: list[dict[str, Any]] = []
     defaults_payload = _build_defaults_payload()
 
     # isEdgePort is CIST-only (instance 0).  On MSTI instances the
@@ -986,7 +972,7 @@ def _overridden_reset_ports(
         if not diff:
             continue
         port_domain = settings.get("_domain") or default_domain
-        port_entry: Dict[str, Any] = {
+        port_entry: dict[str, Any] = {
             "port": port,
             "before": _to_ansible_output(settings),
         }
@@ -1036,7 +1022,7 @@ def _apply_stp_patch(
     connection: Connection,
     domain: str,
     port_name: str,
-    patch_payload: Dict[str, Any],
+    patch_payload: dict[str, Any],
 ) -> None:
     """Send PATCH to the device for the target STP port."""
     patch_path = STP_PORT_CONFIG_TEMPLATE.format(
@@ -1051,9 +1037,7 @@ def _apply_stp_patch(
         )
     except ConnectionError as exc:
         raise FeStpError(
-            "Failed to apply STP configuration on port {0}: {1}".format(
-                port_name, to_text(exc)
-            ),
+            f"Failed to apply STP configuration on port {port_name}: {to_text(exc)}",
         )
 
     if isinstance(resp, dict):
@@ -1075,14 +1059,14 @@ def _apply_stp_patch(
 
 def _process_config_entry(
     connection: Connection,
-    entry: Dict[str, Any],
+    entry: dict[str, Any],
     state: str,
     stp_instance: str,
     domain: str,
-    port_settings_map: Dict[str, Dict[str, Any]],
+    port_settings_map: dict[str, dict[str, Any]],
     check_mode: bool,
-    port_name: Optional[str] = None,
-) -> Dict[str, Any]:
+    port_name: str | None = None,
+) -> dict[str, Any]:
     """Process a single config entry for merged/replaced/overridden/deleted states.
 
     Returns a per-interface result dict with name, before, after, differences.
@@ -1098,7 +1082,7 @@ def _process_config_entry(
 
     current = port_settings_map.get(port_name, {})
 
-    iface_result: Dict[str, Any] = {
+    iface_result: dict[str, Any] = {
         "name": _normalize_port_display_name(port_name),
         "before": _to_ansible_output(current),
     }
@@ -1164,7 +1148,7 @@ def _process_config_entry(
 
 def _handle_config_states(
     module: AnsibleModule, connection: Connection, state: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Handle merged, replaced, deleted states with config list.
 
     Processing order:
@@ -1177,7 +1161,7 @@ def _handle_config_states(
     """
     config = module.params.get("config") or []
     if not config:
-        raise FeStpError("'config' must not be empty for state '{0}'".format(state))
+        raise FeStpError(f"'config' must not be empty for state '{state}'")
     stp_instance = _validate_stp_instance(module.params["stp_instance"])
     check_mode = module.check_mode
 
@@ -1192,12 +1176,12 @@ def _handle_config_states(
     )
     if not default_domain:
         raise FeStpError(
-            "STP instance '{0}' not found on the device.".format(stp_instance)
+            f"STP instance '{stp_instance}' not found on the device."
         )
 
     # ── Step 3: Apply changes per entry ──────────────────────────────
     overall_changed = False
-    interfaces: List[Dict[str, Any]] = []
+    interfaces: list[dict[str, Any]] = []
 
     for entry, _iface_type, _iface_name, port_name in parsed_entries:
         result = _process_config_entry(
@@ -1237,7 +1221,7 @@ def _handle_config_states(
     }
 
 
-def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[str, Any]:
+def _handle_overridden(module: AnsibleModule, connection: Connection) -> dict[str, Any]:
     """Handle overridden state: reset unlisted ports, then apply replaced per entry.
 
     Processing order:
@@ -1268,14 +1252,14 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
     )
     if not default_domain:
         raise FeStpError(
-            "STP instance '{0}' not found on the device.".format(stp_instance)
+            f"STP instance '{stp_instance}' not found on the device."
         )
 
     overall_changed = False
 
     # Build set of config port names for exclusion from reset
     # (reuse parsed data from pre-validation to avoid re-parsing)
-    config_port_names: Set[str] = {
+    config_port_names: set[str] = {
         port_name for _, _, _, port_name in parsed_entries
     }
 
@@ -1300,7 +1284,7 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
         )
 
     # ── Step 4 (Phase 2): Apply replaced treatment per config entry ──
-    interfaces: List[Dict[str, Any]] = []
+    interfaces: list[dict[str, Any]] = []
     for entry, _iface_type, _iface_name, port_name in parsed_entries:
         result = _process_config_entry(
             connection,
@@ -1335,7 +1319,7 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
                 if refreshed is not None:
                     port_entry["after"] = _to_ansible_output(refreshed)
 
-    stp_result: Dict[str, Any] = {
+    stp_result: dict[str, Any] = {
         "stp_domain": default_domain,
         "interfaces": interfaces,
     }
@@ -1347,12 +1331,9 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
     if skipped:
         port_names = ", ".join(p["port"] for p in skipped)
         module.warn(
-            "Overridden state: {0} port(s) could not be reset to "
-            "defaults and were skipped: {1}. Inspect "
-            "result.stp.reset_ports for details.".format(
-                len(skipped),
-                port_names,
-            )
+            f"Overridden state: {len(skipped)} port(s) could not be reset to "
+            f"defaults and were skipped: {port_names}. Inspect "
+            "result.stp.reset_ports for details."
         )
 
     return {
@@ -1361,7 +1342,7 @@ def _handle_overridden(module: AnsibleModule, connection: Connection) -> Dict[st
     }
 
 
-def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str, Any]:
+def _handle_gathered(module: AnsibleModule, connection: Connection) -> dict[str, Any]:
     """Handle gathered state: return current STP config without changes.
 
     When ``config`` is provided, only the listed ports are gathered.
@@ -1380,10 +1361,10 @@ def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str,
     )
     if not default_domain:
         raise FeStpError(
-            "STP instance '{0}' not found on the device.".format(stp_instance)
+            f"STP instance '{stp_instance}' not found on the device."
         )
 
-    interfaces: List[Dict[str, Any]] = []
+    interfaces: list[dict[str, Any]] = []
 
     if config:
         # Gather specific ports requested by the user
@@ -1394,10 +1375,8 @@ def _handle_gathered(module: AnsibleModule, connection: Connection) -> Dict[str,
             current = port_settings_map.get(port_name)
             if current is None:
                 module.warn(
-                    "Port '{0}' (resolved to '{1}') was not found in STP "
-                    "instance '{2}'. Returning empty settings.".format(
-                        name, port_name, stp_instance,
-                    )
+                    f"Port '{name}' (resolved to '{port_name}') was not found in STP "
+                    f"instance '{stp_instance}'. Returning empty settings."
                 )
                 current = {}
             iface_data = _to_ansible_output(current)

@@ -4,14 +4,14 @@
 - Release date: August 2026
 
 ### New Features
-- **extreme_fe_fabric_l2**: Added `SUNI` and `TUNI` I-SID types support.
-- **extreme_fe_lag**: Added the `flex_uni` option, required before a LAG can be used by a `SUNI` I-SID endpoint.
+- **extreme_fe_fabric_l2**: Added `SUNI` and `TUNI` ISID types support.
+- **extreme_fe_lag**: Added the `flex_uni` option, required before a LAG can be used by a `SUNI` ISID endpoint.
 
 ### Bug Fixes
 - **extreme_fe_autosense**:
     - Fixed `overridden` not resetting omitted port attributes.
     - Fixed `replaced` and `overridden` silently resetting nothing.
-    - Fixed `deleted` reporting `changed=True` for a port that had no overrides. On VOSS 9.4 the `DELETE` endpoint returns 405 and the module falls back to a `PATCH` with default values, which was applied and reported unconditionally.
+    - Fixed `deleted` reporting `changed=True` for a port that had no overrides. On Fabric Engine 9.4 the `DELETE` endpoint returns 405 and the module falls back to a `PATCH` with default values, which was applied and reported unconditionally.
     - Documented the before/after snapshots, which the module already returned.
     - Renamed the `ports` list to `config`, with `ports` kept as a deprecated alias.
 - **extreme_fe_interfaces**:
@@ -32,7 +32,7 @@
     - Grouped the `vlans` and `ports` lists under a single `config` dict, matching `extreme_fe_mlag`. SLPP manages two distinct resource types and a task may configure both in one run, so they are kept as separate lists rather than merged. The former top-level `vlans` and `ports` still work and emit a deprecation warning; the two forms cannot be mixed in one task.
 - **extreme_fe_vlans**:
     - Fixed `overridden` not enforcing VLAN membership authoritatively, and refactored to the `config` list pattern so one task can manage several VLANs.
-    - `overridden` now **deletes** VLANs absent from `config` instead of resetting them to factory defaults. VLANs 1 and 4048 are never deleted, and any VLAN the device refuses to remove — typically one still referenced by an L3 interface, SPBM I-SID or RSMLT instance — is reported in `skipped_vlans` and raised as a warning rather than failing the task. Playbooks that relied on the previous reset behaviour should use `replaced`.
+    - `overridden` now **deletes** VLANs absent from `config` instead of resetting them to factory defaults. VLANs 1 and 4048 are never deleted, and any VLAN the device refuses to remove — typically one still referenced by an L3 interface, SPBM ISID or RSMLT instance — is reported in `skipped_vlans` and raised as a warning rather than failing the task. Playbooks that relied on the previous reset behaviour should use `replaced`.
     - The former top-level parameters (`vlan_id`, `vlan_name`, `vlan_type`, ...) still work as a single-entry `config` and emit a deprecation warning, so existing playbooks keep running. The two forms cannot be mixed in one task.
     - Added the before/after snapshot support.
     - `state: gathered` returns the VLAN list under the standard `gathered` key. It is also still returned under `vlans`, the key used up to 1.2.0, so existing playbooks keep working; that form is deprecated and will be removed.
@@ -46,16 +46,16 @@
 ### New Modules
 - **extreme_fe_anycast_gateway**: Manages Anycast Gateway interfaces
 - **extreme_fe_dns**: Manages DNS settings (servers and domain)
-- **extreme_fe_spbm_l3vsn**: Manages SPBM Layer3 VSN
+- **extreme_fe_spbm_l3vsn**: Manages SPBM Layer3 VSN 
 - **extreme_fe_snmp**: Manages the SNMP system name
 - **extreme_fe_vrf**: Manages VRFs (Virtual Routing and Forwarding)
 - **extreme_fe_vrf_static_routes**: Manages static routes on VRFs
 
 ### Bug Fixes
-- **extreme_fe_fabric_l2** module no longer requires the name parameter for replaced state
-- **extreme_fe_facts** fixed v1→v0 API fallback
-- **extreme_fe_l2_interfaces** module refactored to use the config-list pattern
-- **extreme_fe_stp** module refactored to use the config-list pattern
+- **extreme_fe_fabric_l2**: No longer requires the `name` parameter for `state: replaced`.
+- **extreme_fe_facts**: Fixed `v1→v0` API fallback.
+- **extreme_fe_l2_interfaces**: Refactored to use the config-list pattern.
+- **extreme_fe_stp**: Refactored to use the config-list pattern.
 
 ## 1.1.0
 - Release date: April 2026

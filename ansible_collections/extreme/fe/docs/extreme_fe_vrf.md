@@ -55,7 +55,7 @@ This module manages VRF instances on Fabric Engine devices using the REST API en
 | GET | `/v0/configuration/vrf` | List all VRFs on the device |
 | POST | `/v0/configuration/vrf` | Create a new VRF |
 | GET | `/v0/configuration/vrf/{vr_name}` | Get a single VRF by name |
-| PATCH | `/v0/configuration/vrf/{vr_name}` | Update VRF settings (VOSS only) |
+| PATCH | `/v0/configuration/vrf/{vr_name}` | Update VRF settings (Fabric Engine only) |
 | DELETE | `/v0/configuration/vrf/{vr_name}` | Delete a VRF by name |
 
 ---
@@ -63,7 +63,7 @@ This module manages VRF instances on Fabric Engine devices using the REST API en
 ## [Platform Constraints](#table-of-contents)
 
 - VRF name: string, 1–16 characters (OpenAPI spec says 32, but firmware enforces 16)
-- Only `VRF` type is supported on VOSS (`VR` type is EXOS-only)
+- Only `VRF` type is supported on Fabric Engine
 - `GlobalRouter` and `MgmtRouter` are system VRFs that cannot be deleted
 - The only writable field via PATCH is `ipRoutingEnabled`
 - Port associations are managed through brouter interfaces, not directly via VRF API

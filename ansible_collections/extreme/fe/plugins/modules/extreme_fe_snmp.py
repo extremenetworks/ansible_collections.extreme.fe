@@ -1,11 +1,10 @@
-# -*- coding: utf-8 -*-
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Ansible module to manage the SNMP system name on Extreme Fabric Engine switches.
 
 Module Architecture Overview
 ============================
 This module manages the SNMP system name (sysName) on Extreme
-Fabric Engine (VOSS) switches via the REST OpenAPI.
+Fabric Engine switches via the REST OpenAPI.
 
 REST Endpoints used:
   GET   /v1/configuration/snmp
@@ -13,7 +12,7 @@ REST Endpoints used:
   PATCH /v0/configuration/snmp
         → Update SNMP common settings (we send only the 'name' field)
 
-VOSS constraints:
+Fabric Engine constraints:
   - System name is a string, 0-255 characters
   - An empty string ("") effectively clears the system name
   - This is a singleton resource (one system name per device)
@@ -36,16 +35,18 @@ Code Flow (run_module):
 from __future__ import annotations
 
 # Type hints make the code self-documenting and help IDEs catch mistakes
-from typing import Any, Dict, Optional
+from typing import Any
 
 # AnsibleModule — the core class every Ansible module must instantiate;
 # it handles argument parsing, check mode, exit/fail, etc.
 from ansible.module_utils.basic import AnsibleModule
+
+# to_text — safely converts bytes/strings to unicode text
+from ansible.module_utils.common.text.converters import to_text
+
 # Connection — communicates with the device through the httpapi plugin;
 # ConnectionError — raised when the device is unreachable or returns a transport error
 from ansible.module_utils.connection import Connection, ConnectionError
-# to_text — safely converts bytes/strings to unicode text
-from ansible.module_utils.common.text.converters import to_text
 
 # ── Module Documentation ──────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ module: extreme_fe_snmp
 short_description: Manage SNMP system name on Extreme Fabric Engine switches
 description:
   - This module manages the SNMP system name (sysName) on Extreme
-    Fabric Engine (VOSS) switches using the REST API.
+    Fabric Engine switches using the REST API.
   - Supports all five Ansible resource module states.
 version_added: "1.2.0"
 author:
@@ -87,7 +88,7 @@ options:
       - gathered
     default: merged
 notes:
-  - This module targets Fabric Engine (VOSS) only.
+  - This module targets Fabric Engine only.
   - Uses GET /v1/configuration/snmp to read the current system name,
     falling back to GET /v0/configuration/snmp if v1 returns no data.
   - Uses PATCH /v0/configuration/snmp to update the system name.
@@ -202,7 +203,7 @@ api_responses:
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # REST endpoints for reading SNMP settings — try v1 first, fall back to v0
-# (some older VOSS firmware versions only expose the v0 endpoint)
+# (some older Fabric Engine firmware versions only expose the v0 endpoint)
 SNMP_GET_PATHS = ["/v1/configuration/snmp", "/v0/configuration/snmp"]
 
 # REST endpoint for updating SNMP common settings (v0 for PATCH)
@@ -211,8 +212,8 @@ SNMP_PATCH_PATH = "/v0/configuration/snmp"
 # Ansible parameter → REST API field name mapping
 # (name maps directly — same key in both Ansible and REST API)
 
-# Factory defaults — what a clean VOSS device looks like
-# When system name is cleared, VOSS returns "none" (the string) or null.
+# Factory defaults — what a clean Fabric Engine device looks like
+# When system name is cleared, Fabric Engine returns "none" (the string) or null.
 # We normalize both to None in Ansible output.
 DEFAULTS = {
     "name": None,
@@ -235,7 +236,7 @@ ARGUMENT_SPEC = {
         "type": "dict",
         "options": {
             # name — the system name (sysName)
-            # VOSS supports 0-255 characters
+            # Fabric Engine supports 0-255 characters
             "name": {"type": "str"},
         },
     },
@@ -254,14 +255,14 @@ class FeSnmpError(Exception):
     """Raised for SNMP module validation or response issues."""
 
     def __init__(
-        self, message: str, *, details: Optional[Dict[str, Any]] = None
+        self, message: str, *, details: dict[str, Any] | None = None
     ) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
+    def to_fail_kwargs(self) -> dict[str, Any]:
         """Convert to keyword args for module.fail_json()."""
-        data: Dict[str, Any] = {"msg": to_text(self)}
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
@@ -270,7 +271,7 @@ class FeSnmpError(Exception):
 # ── Helper Functions ──────────────────────────────────────────────────────────
 
 
-def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
+def _extract_error(payload: Any) -> dict[str, Any] | None:
     """Extract error information from a REST response.
 
     This is called after every API request to detect failures that the
@@ -300,7 +301,7 @@ def _extract_error(payload: Any) -> Optional[Dict[str, Any]]:
                 ),
             }
     # Check for errors list
-    if "errors" in payload and payload["errors"]:
+    if payload.get("errors"):
         return {
             "code": 400,
             "message": str(payload["errors"]),
@@ -329,9 +330,9 @@ def _call_api(
     *,
     method: str,
     path: str,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-    payload: Optional[Any] = None,
+    payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
     """Send a single REST API request to the device.
@@ -389,9 +390,9 @@ def _call_api(
 def _fetch_snmp_config(
     module: AnsibleModule,
     connection: Connection,
-    api_responses: Dict[str, Any],
+    api_responses: dict[str, Any],
     response_key: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch the SNMP configuration from the device.
 
     Tries GET /v1/configuration/snmp first, falls back to /v0 if v1
@@ -458,10 +459,10 @@ def _fetch_snmp_config(
 # ── Output Formatter ──────────────────────────────────────────────────────────
 
 
-def _normalize_name(raw_name: Any) -> Optional[str]:
+def _normalize_name(raw_name: Any) -> str | None:
     """Normalize the system name from the REST API.
 
-    VOSS returns the literal string "none" or null when no system name
+    Fabric Engine returns the literal string "none" or null when no system name
     is configured. This function normalizes both to Python None.
     A non-empty, non-"none" string is returned as-is.
     """
@@ -472,7 +473,7 @@ def _normalize_name(raw_name: Any) -> Optional[str]:
     return raw_name
 
 
-def _to_ansible_output(snmp_data: Dict[str, Any]) -> Dict[str, Any]:
+def _to_ansible_output(snmp_data: dict[str, Any]) -> dict[str, Any]:
     """Convert REST SNMP response to Ansible output format.
 
     Extracts only the 'name' field from the full SNMP settings.
@@ -491,12 +492,12 @@ def _to_ansible_output(snmp_data: Dict[str, Any]) -> Dict[str, Any]:
 # ── Diff / Comparison ─────────────────────────────────────────────────────────
 
 
-def _compute_diff(before: Dict[str, Any], after: Dict[str, Any]) -> Dict[str, Any]:
+def _compute_diff(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
     """Compute the differences between before and after states.
 
     Returns a dict of fields that changed with their old and new values.
     """
-    diff: Dict[str, Any] = {}
+    diff: dict[str, Any] = {}
     for key in ("name",):
         old_val = before.get(key)
         new_val = after.get(key)
@@ -524,10 +525,10 @@ def run_module() -> None:
 
     # Validate: merged/replaced/overridden require config
     if state in REQUIRES_CONFIG and not config:
-        module.fail_json(msg="'config' is required when state is '{0}'".format(state))
+        module.fail_json(msg=f"'config' is required when state is '{state}'")
 
     # Initialize result structure
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "changed": False,
         "api_responses": {},
     }
@@ -560,16 +561,14 @@ def run_module() -> None:
             # config provided but 'name' key is missing — fail with a clear
             # message so playbook mistakes are easy to detect.
             module.fail_json(
-                msg="config.name is required for state={0}. "
-                    "Use an empty string to clear the system name.".format(state),
+                msg=f"config.name is required for state={state}. "
+                    "Use an empty string to clear the system name.",
             )
             return
 
         if len(desired_name) > 255:
             module.fail_json(
-                msg="config.name must be 0-255 characters, got {0}".format(
-                    len(desired_name)
-                ),
+                msg=f"config.name must be 0-255 characters, got {len(desired_name)}",
             )
             return
 
@@ -625,7 +624,7 @@ def run_module() -> None:
 
     # ── DELETED — reset system name to empty/none ─────────────────
     # Deleted clears the system name by sending an empty string ("") to
-    # the REST API. VOSS stores this as "none" internally.
+    # the REST API. Fabric Engine stores this as "none" internally.
     # The module normalizes the result to Python None in output.
     if state == STATE_DELETED:
         current_name = current.get("name")
@@ -648,7 +647,7 @@ def run_module() -> None:
 
         if not module.check_mode:
             # Send empty string to REST API to clear the name
-            # (VOSS stores it as "none"/null internally)
+            # (Fabric Engine stores it as "none"/null internally)
             patch_payload = {"name": ""}
             _call_api(
                 module,

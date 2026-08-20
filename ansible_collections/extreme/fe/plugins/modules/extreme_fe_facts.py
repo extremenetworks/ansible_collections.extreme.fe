@@ -1,16 +1,15 @@
-# -*- coding: utf-8 -*-
 """Ansible module to gather ExtremeNetworks Fabric Engine facts via HTTPAPI."""
 
 from __future__ import annotations
 
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.connection import Connection, ConnectionError
-from ansible.module_utils.common.text.converters import to_text
-
-from typing import Any, Dict, Iterable, List, Optional, Set
+import re
+from collections.abc import Iterable
+from typing import Any
 from urllib.parse import quote
 
-import re
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_facts
@@ -26,7 +25,7 @@ author:
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
-- Targets Fabric Engine (VOSS) platforms. Resources not available on Fabric Engine are
+- Targets Fabric Engine platforms. Resources not available on Fabric Engine are
   skipped automatically.
 options:
   gather_subset:
@@ -159,8 +158,8 @@ ARGUMENT_SPEC = {
     "gather_network_resources": {"type": "list", "elements": "str"},
 }
 
-VALID_SUBSETS: Set[str] = {"default", "hardware", "interfaces", "config", "neighbors"}
-VALID_RESOURCES: Set[str] = {
+VALID_SUBSETS: set[str] = {"default", "hardware", "interfaces", "config", "neighbors"}
+VALID_RESOURCES: set[str] = {
     "interfaces",
     "l2_interfaces",
     "l3_interfaces",
@@ -180,7 +179,7 @@ VALID_RESOURCES: Set[str] = {
     "isid",
 }
 
-PORT_NAME_KEYS: Set[str] = {
+PORT_NAME_KEYS: set[str] = {
     "port",
     "portid",
     "portname",
@@ -191,7 +190,7 @@ PORT_NAME_KEYS: Set[str] = {
     "memberport",
     "untaggedport",
 }
-PORT_LIST_KEYS: Set[str] = {
+PORT_LIST_KEYS: set[str] = {
     "ports",
     "memberports",
     "taggedports",
@@ -199,24 +198,24 @@ PORT_LIST_KEYS: Set[str] = {
     "allowedports",
 }
 
-_VRF_NAME_CACHE: Optional[Set[str]] = None
+_VRF_NAME_CACHE: set[str] | None = None
 
 
 class FeFactsError(Exception):
     """Base exception for the extreme_fe_facts module."""
 
-    def __init__(self, message: str, *, details: Optional[Dict[str, Any]] = None) -> None:
+    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.details = details or {}
 
-    def to_fail_kwargs(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {"msg": to_text(self)}
+    def to_fail_kwargs(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
         return data
 
 
-def _is_not_found_response(payload: Optional[Any]) -> bool:
+def _is_not_found_response(payload: Any | None) -> bool:
     if not isinstance(payload, dict):
         return False
     code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
@@ -232,11 +231,11 @@ def _is_not_found_response(payload: Optional[Any]) -> bool:
     return False
 
 
-def _normalize_subset_requests(values: Optional[Iterable[str]]) -> Set[str]:
+def _normalize_subset_requests(values: Iterable[str] | None) -> set[str]:
     if not values:
         return {"default"}
-    includes: Set[str] = set()
-    excludes: Set[str] = set()
+    includes: set[str] = set()
+    excludes: set[str] = set()
     saw_all = False
     for raw in values:
         if raw is None:
@@ -267,11 +266,11 @@ def _normalize_subset_requests(values: Optional[Iterable[str]]) -> Set[str]:
     return result
 
 
-def _normalize_resource_requests(values: Optional[Iterable[str]]) -> Set[str]:
+def _normalize_resource_requests(values: Iterable[str] | None) -> set[str]:
     if not values:
         return set()
-    includes: Set[str] = set()
-    excludes: Set[str] = set()
+    includes: set[str] = set()
+    excludes: set[str] = set()
     saw_all = False
     for raw in values:
         if raw is None:
@@ -299,7 +298,7 @@ def _normalize_resource_requests(values: Optional[Iterable[str]]) -> Set[str]:
     return result
 
 
-def _http_get(connection: Connection, path: str) -> Optional[Any]:
+def _http_get(connection: Connection, path: str) -> Any | None:
     try:
         data = connection.send_request(None, path=path, method="GET")
     except ConnectionError as exc:
@@ -345,7 +344,7 @@ def _normalize_ports(payload: Any) -> Any:
             if sanitized in PORT_NAME_KEYS and isinstance(value, str):
                 payload[key] = _normalize_port_name(value)
             elif sanitized in PORT_LIST_KEYS and isinstance(value, list):
-                normalized_list: List[Any] = []
+                normalized_list: list[Any] = []
                 for item in value:
                     if isinstance(item, str):
                         normalized_list.append(_normalize_port_name(item))
@@ -360,7 +359,7 @@ def _normalize_ports(payload: Any) -> Any:
     return payload
 
 
-def _normalize_payload(payload: Optional[Any]) -> Optional[Any]:
+def _normalize_payload(payload: Any | None) -> Any | None:
     if payload is None:
         return None
     if isinstance(payload, (dict, list)):
@@ -368,20 +367,20 @@ def _normalize_payload(payload: Optional[Any]) -> Optional[Any]:
     return payload
 
 
-def _merge_dicts(**kwargs: Optional[Any]) -> Dict[str, Any]:
-    data: Dict[str, Any] = {}
+def _merge_dicts(**kwargs: Any | None) -> dict[str, Any]:
+    data: dict[str, Any] = {}
     for key, value in kwargs.items():
         if value is not None:
             data[key] = value
     return data
 
 
-def _get_vrf_names(connection: Connection) -> Set[str]:
+def _get_vrf_names(connection: Connection) -> set[str]:
     global _VRF_NAME_CACHE
     if _VRF_NAME_CACHE is not None:
         return set(_VRF_NAME_CACHE)
     data = _http_get(connection, "/v0/configuration/vrf")
-    names: Set[str] = set()
+    names: set[str] = set()
     if isinstance(data, dict):
         for value in data.values():
             names.update(_extract_vrf_names(value))
@@ -393,8 +392,8 @@ def _get_vrf_names(connection: Connection) -> Set[str]:
     return set(names)
 
 
-def _extract_vrf_names(payload: Any) -> Set[str]:
-    names: Set[str] = set()
+def _extract_vrf_names(payload: Any) -> set[str]:
+    names: set[str] = set()
     if isinstance(payload, dict):
         candidate = (
             payload.get("vrName")
@@ -415,21 +414,21 @@ def _extract_vrf_names(payload: Any) -> Set[str]:
     return names
 
 
-def gather_default_subset(connection: Connection) -> Dict[str, Any]:
+def gather_default_subset(connection: Connection) -> dict[str, Any]:
     system = _normalize_payload(_http_get(connection, "/v0/state/system"))
     services = _normalize_payload(_http_get(connection, "/v0/state/system-services"))
     reboot = _normalize_payload(_http_get(connection, "/v0/state/system/reboot"))
     return _merge_dicts(system=system, system_services=services, reboot=reboot)
 
 
-def gather_hardware_subset(connection: Connection) -> Dict[str, Any]:
+def gather_hardware_subset(connection: Connection) -> dict[str, Any]:
     fans = _normalize_payload(_http_get(connection, "/v0/state/system/fans"))
     power = _normalize_payload(_http_get(connection, "/v0/state/system/power-supplies"))
     poe = _normalize_payload(_http_get(connection, "/v0/state/poe-power/ports"))
     return _merge_dicts(fans=fans, power_supplies=power, poe=poe)
 
 
-def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
+def gather_interfaces_subset(connection: Connection) -> dict[str, Any]:
     ports_payload = _http_get(connection, "/v1/state/ports")
     if ports_payload is None:
         ports_payload = _http_get(connection, "/v0/state/ports")
@@ -440,7 +439,7 @@ def gather_interfaces_subset(connection: Connection) -> Dict[str, Any]:
     return _merge_dicts(ports=ports, port_capabilities=capabilities)
 
 
-def gather_config_subset(connection: Connection) -> Dict[str, Any]:
+def gather_config_subset(connection: Connection) -> dict[str, Any]:
     services = _normalize_payload(_http_get(connection, "/v0/configuration/system-services"))
     mgmt_payload = _http_get(connection, "/v1/configuration/mgmt-interface")
     if mgmt_payload is None:
@@ -456,7 +455,7 @@ def gather_config_subset(connection: Connection) -> Dict[str, Any]:
     )
 
 
-def gather_neighbors_subset(connection: Connection) -> Dict[str, Any]:
+def gather_neighbors_subset(connection: Connection) -> dict[str, Any]:
     lldp = _normalize_payload(_http_get(connection, "/v0/state/lldp"))
     cdp = _normalize_payload(_http_get(connection, "/v0/state/cdp"))
     fabric_attach = _normalize_payload(_http_get(connection, "/v0/state/fabric-attach"))
@@ -480,13 +479,13 @@ def gather_l2_interfaces_resource(connection: Connection) -> Any:
     return _normalize_payload(_http_get(connection, "/v0/configuration/vlan/ports"))
 
 
-def gather_l3_interfaces_resource(connection: Connection) -> Dict[str, Any]:
+def gather_l3_interfaces_resource(connection: Connection) -> dict[str, Any]:
     payload = _http_get(connection, "/v0/configuration/vlan")
     if payload is None:
         return {}
 
     normalized = _normalize_payload(payload)
-    entries: List[Dict[str, Any]]
+    entries: list[dict[str, Any]]
     if isinstance(normalized, list):
         entries = [item for item in normalized if isinstance(item, dict)]
     elif isinstance(normalized, dict):
@@ -494,7 +493,7 @@ def gather_l3_interfaces_resource(connection: Connection) -> Dict[str, Any]:
     else:
         return {}
 
-    result: Dict[str, Dict[str, Any]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for item in entries:
         vrf = str(
             item.get("vrName")
@@ -522,8 +521,8 @@ def gather_vrfs_resource(connection: Connection) -> Any:
     return _normalize_payload(_http_get(connection, "/v0/configuration/vrf"))
 
 
-def gather_static_routes_resource(connection: Connection) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
+def gather_static_routes_resource(connection: Connection) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     for vrf in sorted(_get_vrf_names(connection)):
         path = f"/v0/configuration/vrf/{quote(vrf, safe='')}/route"
         result[vrf] = _normalize_payload(_http_get(connection, path))
@@ -594,8 +593,8 @@ RESOURCE_HANDLERS = {
 }
 
 
-def _gather_isid_data(connection: Connection) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
+def _gather_isid_data(connection: Connection) -> dict[str, Any]:
+    result: dict[str, Any] = {}
 
     all_isids = _normalize_payload(_http_get(connection, "/v0/configuration/spbm/l2/isid"))
     if all_isids is not None:
@@ -628,7 +627,7 @@ def main() -> None:
 
         connection = Connection(module._socket_path)
 
-        subset_results: Dict[str, Any] = {}
+        subset_results: dict[str, Any] = {}
         for subset in sorted(subsets):
             handler = SUBSET_HANDLERS.get(subset)
             if not handler:
@@ -636,7 +635,7 @@ def main() -> None:
             data = handler(connection)
             subset_results[subset] = data if data is not None else {}
 
-        resource_results: Dict[str, Any] = {}
+        resource_results: dict[str, Any] = {}
         for resource in sorted(resources):
             handler = RESOURCE_HANDLERS.get(resource)
             if not handler:
