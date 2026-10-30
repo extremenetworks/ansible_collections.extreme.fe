@@ -1,12 +1,15 @@
-"""Ansible module to manage global LLDP settings on Fabric Engine switches."""
+# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-3.0-or-later
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
+"""Ansible module to manage global LLDP settings on Fabric Engine switches.
+
+REST endpoints used:
+  GET   /v0/configuration/lldp
+  PATCH /v0/configuration/lldp
+  GET   /v0/state/lldp
+"""
 
 from __future__ import annotations
-
-from typing import Any
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.common.text.converters import to_text
-from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -14,24 +17,46 @@ module: extreme_fe_lldp_global
 short_description: Manage global LLDP settings on ExtremeNetworks Fabric Engine switches
 version_added: "1.1.0"
 description:
-  - Manage device-wide LLDP timer settings on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
+  - Manage device-wide LLDP timer settings on ExtremeNetworks Fabric Engine switches using the custom
+    C(extreme_fe) HTTPAPI plugin.
   - Uses C(/v0/configuration/lldp) from the NOS OpenAPI schema.
-  - C(init_delay_seconds) is returned in gathered output when present on the device, but it is not configurable on Fabric Engine.
+  - C(init_delay_seconds) is returned in C(lldp.config), C(lldp.before) and C(lldp.after) when present on
+    the device, but it is not configurable on Fabric Engine.
 author:
-  - ExtremeNetworks Networking Automation Team
+  - Bjorn Haas (@bhaas_extr)
 notes:
   - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
+  - A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read omits
+    an attempted timer, may have been applied, so the task reports C(changed=true); with no timer confirmed
+    applied, C(details.outcome=unknown).
   - This module manages the singleton global LLDP resource only. It does not manage per-port LLDP settings.
   - C(overridden) is functionally equivalent to C(replaced) because the LLDP global configuration is a singleton object.
-  - C(deleted) resets supplied attributes to device defaults. If C(config) is omitted with C(state=deleted), all configurable global LLDP attributes are reset.
+  - C(deleted) resets supplied attributes to device defaults. If C(config) is omitted with C(state=deleted),
+    all configurable global LLDP attributes are reset.
+  - Supports check mode and diff mode. The top-level C(before) and C(after) keys hold the configurable LLDP
+    global settings; in check mode C(after) is the predicted configuration, and when nothing changes it equals
+    C(before).
+  - C(state=gathered) returns the configurable settings under C(gathered) in the shape of C(config), so the value
+    can be fed straight back as C(config) into a C(merged), C(replaced) or C(overridden) task, which then reports
+    no change. The read-only C(init_delay_seconds) is left out of it. The gather fails when the device does not
+    report one of the two timers (absent or null), since re-applying a configuration without it would reset it.
+  - Both timers are sent in one PATCH. If the device rejects it, the module re-reads the LLDP configuration
+    and reports in C(details.applied_fields) and C(details.not_applied_fields) which REST fields the device
+    applied, together with C(details.attempted_payload), C(details.status_code) and C(details.resource); the
+    task then reports C(changed=true) if any field was applied. If the re-read fails too,
+    C(details.reread_error) says why and nothing is attributed. A re-read that does not report an attempted
+    field (or reports it as null) lists it in C(details.unknown_fields), without assuming a default, and
+    still attributes the fields it reports (one that reports none of them counts as a failed re-read).
 requirements:
   - ansible.netcommon
 options:
   config:
     description:
       - Structured LLDP global settings to manage.
-      - Required when C(state) is C(merged), C(replaced), or C(overridden).
-      - Optional when C(state=deleted); if omitted, all configurable LLDP global settings are reset to defaults.
+      - Required when C(state) is C(merged), C(replaced), or C(overridden), with at least one suboption set; an
+        empty C(config) fails the task before any request.
+      - Optional when C(state=deleted); if omitted or empty, all configurable LLDP global settings are reset to
+        defaults.
     type: dict
     suboptions:
       advertisement_interval:
@@ -53,9 +78,11 @@ options:
     description:
       - Desired module operation.
       - C(merged) incrementally applies only the supplied LLDP global attributes.
-      - C(replaced) treats configurable LLDP global attributes as authoritative and resets omitted configurable attributes to defaults.
+      - C(replaced) treats configurable LLDP global attributes as authoritative and resets omitted
+        configurable attributes to defaults.
       - C(overridden) behaves like C(replaced) for this singleton resource.
-      - C(deleted) resets the supplied attributes, or all configurable attributes when C(config) is omitted.
+      - C(deleted) resets the supplied attributes, or all configurable attributes when C(config) is omitted or
+        empty.
       - C(gathered) returns the current LLDP global configuration without making changes.
     type: str
     choices: [merged, replaced, overridden, deleted, gathered]
@@ -162,21 +189,54 @@ changed:
   description: Indicates whether any configuration changes were made.
   returned: always
   type: bool
+before:
+  description:
+    - Configurable LLDP global settings read before any requested change, in the shape of C(config).
+    - The read-only C(init_delay_seconds) is not included; it is in C(lldp.before).
+  returned: when state is not gathered
+  type: dict
+  sample: {"advertisement_interval": 30, "hold_multiplier": 4}
+after:
+  description:
+    - Configurable LLDP global settings read back after the change, in the shape of C(config).
+    - In check mode, the predicted configuration.
+    - Equal to C(before) when nothing changed.
+  returned: when state is not gathered
+  type: dict
+  sample: {"advertisement_interval": 20, "hold_multiplier": 4}
+gathered:
+  description:
+    - Current configurable LLDP global settings in the shape of C(config), so the value can be supplied back as
+      C(config).
+    - The read-only C(init_delay_seconds) is not included; it is in C(lldp.config).
+    - Always holds both timers; the gather fails when the device does not report one of them.
+  returned: when state == gathered
+  type: dict
+  sample: {"advertisement_interval": 30, "hold_multiplier": 4}
 lldp:
   description: LLDP global configuration details.
   returned: always
   type: dict
   contains:
     before:
-      description: LLDP global configuration before any requested change.
+      description:
+        - LLDP global configuration before any requested change, including C(init_delay_seconds) when the device
+          reports it.
+        - The top-level C(before) holds the configurable subset.
       returned: when state != gathered
       type: dict
     after:
-      description: LLDP global configuration after the requested change.
+      description:
+        - LLDP global configuration after the requested change, including C(init_delay_seconds) when the device
+          reports it.
+        - The top-level C(after) holds the configurable subset.
       returned: when state != gathered
       type: dict
     config:
-      description: Current LLDP global configuration in gathered mode.
+      description:
+        - Current LLDP global configuration in gathered mode, including C(init_delay_seconds) when the device reports
+          it.
+        - Use the top-level C(gathered) to feed the configuration back as C(config).
       returned: when state == gathered
       type: dict
     differences:
@@ -192,10 +252,23 @@ submitted:
   returned: when state != gathered and a change was required
   type: dict
 api_responses:
-  description: Raw API responses captured from the device for GET, PATCH, and optional state calls.
+  description:
+    - Raw API responses captured from the device for GET, PATCH, and optional state calls, for debugging.
+    - Deprecated and will be removed in 2.0.0.
+    - Use C(lldp.before) and C(lldp.after) for the configuration before and after a change,
+      C(gathered) or C(lldp.config) for C(state=gathered), and C(lldp.state) for the operational state returned
+      when C(gather_state=true).
   returned: always
   type: dict
 """
+
+from typing import Any
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
+
+from ansible_collections.extreme.fe.plugins.module_utils.extreme_fe_transport import answer_unknown, http_status
 
 ARGUMENT_SPEC = {
     "config": {
@@ -247,14 +320,27 @@ REQUIRES_CONFIG = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN}
 class FeLldpGlobalError(Exception):
     """Raised for LLDP global module validation or response issues."""
 
-    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+        changed: bool = False,
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
+        # Top-level fail_json keys (e.g. the 'code'/'err' of a ConnectionError).
+        self.extra = extra or {}
+        self.changed = changed
 
     def to_fail_kwargs(self) -> dict[str, Any]:
-        data: dict[str, Any] = {"msg": to_text(self)}
+        data: dict[str, Any] = dict(self.extra)
+        data["msg"] = to_text(self)
         if self.details:
             data["details"] = self.details
+        if self.changed:
+            data["changed"] = True
         return data
 
 
@@ -291,7 +377,6 @@ def _get_connection(module: AnsibleModule) -> Connection:
 
 
 def _call_api(
-    module: AnsibleModule,
     connection: Connection,
     *,
     method: str,
@@ -301,15 +386,8 @@ def _call_api(
     payload: Any | None = None,
     expect_content: bool = True,
 ) -> Any:
-    try:
-        response = connection.send_request(payload, path=path, method=method)
-    except ConnectionError as exc:
-        module.fail_json(
-            msg=to_text(exc),
-            code=getattr(exc, "code", None),
-            err=getattr(exc, "err", None),
-            api_responses=api_responses,
-        )
+    """Send one request; a ConnectionError propagates, an error body raises FeLldpGlobalError."""
+    response = connection.send_request(payload, path=path, method=method)
 
     if isinstance(response, bytes):
         response = to_text(response)
@@ -322,9 +400,164 @@ def _call_api(
     if isinstance(response, dict):
         error = _extract_error(response)
         if error:
-            module.fail_json(msg=error.get("message"), details=error, api_responses=api_responses)
+            # message can be missing or non-text (a nested object); never raise with msg None.
+            message = to_text(error["message"]) if error.get("message") else ""
+            if not message:
+                code = error.get("code")
+                message = "Device rejected %s %s%s" % (method, path, " (code %s)" % code if code else "")
+            raise FeLldpGlobalError(message, details=error)
 
     return response
+
+
+# -- PATCH Failure Attribution ------------------------------------------------
+
+
+def _reread_error_document(document: Any) -> str | None:
+    """Return a short description when a re-read answered with an error document, else None."""
+    if not isinstance(document, dict):
+        return None
+    status = document.get("statusCode", document.get("code"))
+    if isinstance(status, str) and status.isdigit():
+        status = int(status)
+    errors = document.get("errors")
+    is_error = bool(document.get("errorCode")) or (isinstance(status, int) and status >= 400)
+    if not (is_error or (isinstance(errors, list) and errors)):
+        return None
+    text = document.get("errorMessage") or document.get("message") or document.get("detail")
+    code = document.get("errorCode") or status
+    return "%s%s" % ("%s: " % code if code else "", text or "no message")
+
+
+def _extend_msg(msg: str, suffix: str) -> str:
+    """Append a sentence to an error message, adding the full stop it may lack."""
+    msg = (msg or "").rstrip()
+    return "%s %s" % (msg if msg.endswith((".", "!", "?")) else msg + ".", suffix)
+
+
+def _attribute_patch_failure(
+    connection: Connection, payload: dict[str, Any], exc: ConnectionError | FeLldpGlobalError
+) -> FeLldpGlobalError:
+    """Build the error for a rejected LLDP PATCH, naming the fields the device applied.
+
+    The LLDP configuration is re-read with the module's GET and every payload
+    field is compared with the read-back value. changed is True only when the
+    re-read shows a field applied (the payload holds changed fields only). A
+    field the re-read omits (or reports as null) is listed in unknown_fields,
+    never filled with a default, and the reported fields are still attributed.
+    """
+    fields = list(payload)
+    details: dict[str, Any] = dict(exc.details) if isinstance(exc, FeLldpGlobalError) else {}
+    details.update({"attempted_payload": dict(payload), "resource": CONFIG_PATH})
+    # Only an HTTP status (100-599) is reported: a negative JSON-RPC code (a lost answer) is not one.
+    status_code = http_status(getattr(exc, "code", None))
+    if status_code is None:
+        status_code = http_status(details.get("code"))
+    if status_code is not None:
+        details["status_code"] = status_code
+    extra = (
+        {"code": getattr(exc, "code", None), "err": getattr(exc, "err", None)}
+        if isinstance(exc, ConnectionError)
+        else {}
+    )
+
+    # A transport failure without an HTTP status (no answer): the PATCH may have
+    # been applied.
+    no_answer = isinstance(exc, ConnectionError) and answer_unknown(exc)
+    reread_error = None
+    try:
+        record = connection.send_request(None, path=CONFIG_PATH, method="GET")
+    except ConnectionError as reread_exc:
+        record = None
+        reread_error = to_text(reread_exc)
+    else:
+        embedded = _reread_error_document(record)
+        if embedded:
+            record = None
+            reread_error = "the re-read of %s returned an error document (%s)" % (CONFIG_PATH, embedded)
+        elif not isinstance(record, dict) or not record:
+            record = None
+            reread_error = "the device returned no configuration for %s" % CONFIG_PATH
+        elif all(record.get(field) is None for field in fields):
+            # Reports none of the attempted timers: nothing can be attributed.
+            record = None
+            reread_error = "the re-read of %s did not report %s" % (CONFIG_PATH, ", ".join(fields))
+    if record is None:
+        details["reread_error"] = reread_error
+        suffix = (
+            "The device may have applied part of the PATCH of %s before refusing it, but re-reading the "
+            "resource failed (%s), so it is unknown which of the %d attempted fields (%s) were applied."
+            % (CONFIG_PATH, reread_error, len(fields), ", ".join(fields))
+        )
+        # Without an answer the PATCH may have been applied: changed is reported.
+        if no_answer:
+            details["outcome"] = "unknown"
+        return FeLldpGlobalError(_extend_msg(to_text(exc), suffix), details=details, extra=extra, changed=no_answer)
+
+    # An attempted timer the re-read omits or reports as null is established
+    # neither way: unknown, without discarding what the other fields confirm.
+    unknown = [field for field in fields if record.get(field) is None]
+    applied = [field for field in fields if field not in unknown and record[field] == payload[field]]
+    not_applied = [field for field in fields if field not in unknown and field not in applied]
+    details["applied_fields"] = applied
+    details["not_applied_fields"] = not_applied
+    if unknown:
+        details["unknown_fields"] = unknown
+        details["reread_error"] = "the re-read of %s did not report %s" % (CONFIG_PATH, ", ".join(unknown))
+    if unknown:
+        parts = ["applied: %s" % ", ".join(applied)] if applied else []
+        if not_applied:
+            parts.append("not applied: %s" % ", ".join(not_applied))
+        parts.append("not reported by the re-read, so unknown: %s" % ", ".join(unknown))
+        suffix = "The device rejected the PATCH of %s; a re-read of the %d attempted fields shows %s." % (
+            CONFIG_PATH,
+            len(fields),
+            "; ".join(parts),
+        )
+    elif not applied:
+        suffix = "A re-read of %s shows none of the %d attempted fields was applied: %s." % (
+            CONFIG_PATH,
+            len(fields),
+            ", ".join(not_applied),
+        )
+    elif not not_applied:
+        suffix = "The device rejected the PATCH of %s, but a re-read shows all %d fields applied: %s." % (
+            CONFIG_PATH,
+            len(fields),
+            ", ".join(applied),
+        )
+    else:
+        suffix = "The device rejected the PATCH of %s after applying %d of %d fields: %s; not applied: %s." % (
+            CONFIG_PATH,
+            len(applied),
+            len(fields),
+            ", ".join(applied),
+            ", ".join(not_applied),
+        )
+    # Without an answer a timer the re-read omits may have been applied: unknown,
+    # and changed is reported.
+    lost_unknown = no_answer and bool(unknown)
+    if lost_unknown and not applied:
+        details["outcome"] = "unknown"
+    return FeLldpGlobalError(
+        _extend_msg(to_text(exc), suffix), details=details, extra=extra, changed=bool(applied) or lost_unknown
+    )
+
+
+def _patch_config(connection: Connection, payload: dict[str, Any], api_responses: dict[str, Any]) -> None:
+    """PATCH /v0/configuration/lldp; on a rejection, fail with an attributed error."""
+    try:
+        _call_api(
+            connection,
+            method="PATCH",
+            path=CONFIG_PATH,
+            payload=payload,
+            expect_content=False,
+            api_responses=api_responses,
+            response_key="patch",
+        )
+    except (ConnectionError, FeLldpGlobalError) as exc:
+        raise _attribute_patch_failure(connection, payload, exc) from exc
 
 
 def _normalize_config_response(payload: Any) -> dict[str, Any]:
@@ -347,20 +580,45 @@ def _normalize_config_response(payload: Any) -> dict[str, Any]:
     return normalized
 
 
-def _validate_config(config: dict[str, Any] | None, state: str) -> dict[str, Any]:
-    normalized = dict(config or {})
+def _config_view(normalized: dict[str, Any]) -> dict[str, Any]:
+    """Return the configurable subset of a normalized response, in the shape of the 'config' option.
 
-    if state in REQUIRES_CONFIG and not normalized:
+    Read-only fields such as init_delay_seconds are dropped, so the value can be
+    fed back as 'config' (it is used for 'gathered' and the top-level
+    'before'/'after'). 'lldp.config', 'lldp.before' and 'lldp.after' keep them.
+    """
+    return {key: value for key, value in normalized.items() if key in SETTABLE_FIELDS}
+
+
+def _require_complete_gather(normalized: dict[str, Any]) -> None:
+    """Fail a gather whose configuration lacks a settable timer (absent or null).
+
+    'gathered' is published as reusable configuration: re-applying an incomplete
+    one with replaced or overridden would reset the missing timer to its
+    default although its current value is unknown. The API schema's defaults
+    describe omitted input, not an omitted response field, so a missing timer
+    is not filled in. (The failure-attribution re-read stays raw and lists such
+    a field as unknown.)
+    """
+    missing = [option for option in SETTABLE_FIELDS if normalized.get(option) is None]
+    if missing:
         raise FeLldpGlobalError(
-            "config is required when state is one of: merged, replaced, overridden"
+            "The device did not report %s in %s, so the LLDP global configuration cannot be gathered as "
+            "reusable configuration" % (", ".join(SETTABLE_FIELDS[option]["rest"] for option in missing), CONFIG_PATH),
+            details={"missing_fields": missing, "resource": CONFIG_PATH},
         )
 
-    if state == STATE_MERGED and normalized:
-        managed_keys = [key for key in normalized if key in SETTABLE_FIELDS and normalized.get(key) is not None]
-        if not managed_keys:
-            raise FeLldpGlobalError(
-                "At least one configurable LLDP global attribute must be supplied when state='merged'"
-            )
+
+def _validate_config(config: dict[str, Any] | None, state: str) -> dict[str, Any]:
+    # Ansible fills every omitted suboption with None, so 'config: {}' arrives as a dict
+    # of None values. Drop them: such a config is empty (deleted then resets everything).
+    normalized = {key: value for key, value in (config or {}).items() if value is not None}
+
+    if state in REQUIRES_CONFIG and config is None:
+        raise FeLldpGlobalError("value of config parameter must not be empty for state %s" % state)
+
+    if state in REQUIRES_CONFIG and not normalized:
+        raise FeLldpGlobalError("value of config parameter must not be empty for state %s" % state)
 
     for option, meta in SETTABLE_FIELDS.items():
         if option not in normalized or normalized.get(option) is None:
@@ -413,7 +671,7 @@ def _build_target_config(current: dict[str, Any], config: dict[str, Any], state:
     if state == STATE_GATHERED:
         return current
 
-    raise FeLldpGlobalError("Unsupported state supplied", details={"state": state})
+    raise FeLldpGlobalError("Unsupported state '%s'" % state, details={"state": state})
 
 
 def _build_patch_payload(current: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
@@ -466,7 +724,6 @@ def run_module() -> None:
         requested_config = _validate_config(module.params.get("config"), state)
 
         current_raw = _call_api(
-            module,
             connection,
             method="GET",
             path=CONFIG_PATH,
@@ -476,16 +733,21 @@ def run_module() -> None:
         current_config = _normalize_config_response(current_raw)
 
         if state == STATE_GATHERED:
+            _require_complete_gather(current_config)
             result["lldp"] = {"config": current_config}
+            # Standard key, in the 'config' shape so it can be fed straight back.
+            result["gathered"] = _config_view(current_config)
             if gather_state:
-                result["lldp"]["state"] = _call_api(
-                    module,
-                    connection,
-                    method="GET",
-                    path=STATE_PATH,
-                    api_responses=result["api_responses"],
-                    response_key="state",
-                ) or {}
+                result["lldp"]["state"] = (
+                    _call_api(
+                        connection,
+                        method="GET",
+                        path=STATE_PATH,
+                        api_responses=result["api_responses"],
+                        response_key="state",
+                    )
+                    or {}
+                )
             module.exit_json(**result)
 
         target_config = _build_target_config(current_config, requested_config, state)
@@ -499,7 +761,6 @@ def run_module() -> None:
         }
 
         if patch_payload:
-            result["changed"] = True
             result["submitted"] = {
                 "operation": state,
                 "path": CONFIG_PATH,
@@ -509,18 +770,10 @@ def run_module() -> None:
             if module.check_mode:
                 result["lldp"]["after"] = _merge_after(current_config, patch_payload)
             else:
-                _call_api(
-                    module,
-                    connection,
-                    method="PATCH",
-                    path=CONFIG_PATH,
-                    payload=patch_payload,
-                    expect_content=False,
-                    api_responses=result["api_responses"],
-                    response_key="patch",
-                )
+                _patch_config(connection, patch_payload, result["api_responses"])
+            result["changed"] = True
+            if not module.check_mode:
                 after_raw = _call_api(
-                    module,
                     connection,
                     method="GET",
                     path=CONFIG_PATH,
@@ -531,25 +784,38 @@ def run_module() -> None:
         else:
             result["api_responses"]["patch"] = None
 
+        # Full snapshots in the 'config' shape: 'after' is the read-back
+        # (predicted in check mode) and equals 'before' when nothing changed.
+        result["before"] = _config_view(result["lldp"]["before"])
+        result["after"] = _config_view(result["lldp"]["after"])
+        if module._diff:
+            result["diff"] = {"before": result["before"], "after": result["after"]}
+
         if gather_state:
-            result["lldp"]["state"] = _call_api(
-                module,
-                connection,
-                method="GET",
-                path=STATE_PATH,
-                api_responses=result["api_responses"],
-                response_key="state",
-            ) or {}
+            result["lldp"]["state"] = (
+                _call_api(
+                    connection,
+                    method="GET",
+                    path=STATE_PATH,
+                    api_responses=result["api_responses"],
+                    response_key="state",
+                )
+                or {}
+            )
 
         module.exit_json(**result)
     except FeLldpGlobalError as exc:
-        module.fail_json(api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs())
+        kwargs = exc.to_fail_kwargs()
+        # A failure after a successful PATCH (re-read or state GET) still changed the device.
+        kwargs["changed"] = bool(kwargs.get("changed") or result["changed"])
+        module.fail_json(api_responses=result.get("api_responses", {}), **kwargs)
     except ConnectionError as exc:
         module.fail_json(
             msg=to_text(exc),
             code=getattr(exc, "code", None),
             err=getattr(exc, "err", None),
             api_responses=result.get("api_responses", {}),
+            changed=result["changed"],
         )
 
 

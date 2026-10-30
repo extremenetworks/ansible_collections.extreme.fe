@@ -30,12 +30,18 @@ This module manages the SNMP system name (`sysName`) on Fabric Engine devices vi
 
 - The system name is a singleton resource — exactly one per device.
 - An empty string clears the system name.
+- An unset system name is reported as an empty string in `gathered`, `before` and `after`.
+- Supports check mode and diff mode (`--diff`).
 
 ---
 
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
+- A task that fails after its PATCH was applied (for example when the re-read of the result fails) reports `changed: true`. A PATCH that fails without an answer (a lost connection) may have been applied, so it reports `changed: true` with `details.outcome: unknown` as well.
+- Secret values are never returned. The SNMP community strings and the SNMPv3 authentication and encryption passwords of the device are removed from every returned value, including `api_responses`.
+- The secret values read from the device are also removed from every message text the device returns, so they never appear in `msg`, `details` or `api_responses`.
+- A failed read of the SNMP configuration is reported generically, with the path and the HTTP status code only. The text of the device error is not returned.
 
 ---
 
@@ -92,9 +98,13 @@ This module manages the SNMP system name (`sysName`) on Fabric Engine devices vi
 | `changed` | bool | Whether the system name was modified |
 | `snmp.before` | dict | SNMP config before changes |
 | `snmp.after` | dict | SNMP config after changes |
+| `before` | dict | SNMP config before the task (action states) |
+| `after` | dict | SNMP config after the task, equal to `before` when nothing changed; the predicted state in check mode (action states) |
+| `diff` | dict | `before` and `after`, in diff mode (`--diff`) |
+| `gathered` | dict | Current SNMP config (`state: gathered`). An unset system name is `""`, so the result can be applied back as `config` |
 | `snmp.config` | dict | Current SNMP config (gathered state) |
 | `snmp.differences` | dict | Fields that differ between before and after |
-| `api_responses` | dict | Raw REST API responses |
+| `api_responses` | dict | REST API responses, for debugging, with every secret value removed (SNMP community strings, SNMPv3 authentication and encryption passwords; non-secret siblings such as `isEncrypted` are kept). The secret values read from the device are also removed from every message text of a response, and the error text of a failed read is replaced by a generic text wherever it appears in the response (top level, list entries and nested wrappers), and so is a bare text answer or a bare text entry of an array answer or wrapper (an array of strings inside the configuration, such as `view[].oids`, is kept), with the status codes kept. **Deprecated**, will be removed in 2.0.0 - use `snmp.before` and `snmp.after` for the configuration before and after a change, and `gathered` or `snmp.config` for `state: gathered` |
 
 
 ---

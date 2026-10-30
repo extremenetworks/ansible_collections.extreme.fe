@@ -6,7 +6,7 @@ Manages global LLDP settings on Fabric Engine devices.
 
 ---
 
-Version added: 1.0.0
+Version added: 1.1.0
 
 ## Table of Contents
 
@@ -33,6 +33,10 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
 
 - `overridden` is functionally equivalent to `replaced` because LLDP global is a singleton.
 - Tested against Fabric Engine Version 9.3.2.
+- A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read omits an attempted timer, may have been applied, so the task reports `changed: true`; with no timer confirmed applied, `details.outcome: unknown`.
+- Supports check mode and diff mode. The top-level `before` and `after` keys hold the configurable LLDP global settings (`advertisement_interval`, `hold_multiplier`); in check mode `after` is the predicted configuration, and when nothing changes it equals `before`.
+- `state: gathered` returns the configurable settings under `gathered` in the shape of `config`, so the value can be fed straight back as `config` into a `merged`, `replaced` or `overridden` task, which then reports no change. The read-only `init_delay_seconds` is not configurable on Fabric Engine and is left out of `gathered`, `before` and `after`; it is still reported in `lldp.config`, `lldp.before` and `lldp.after`. The gather fails when the device does not report one of the two timers (absent or null), since re-applying a configuration without it would reset it.
+- Both timers are sent in one PATCH. If the device rejects it, the module re-reads the LLDP configuration and the failure reports in `details.applied_fields` and `details.not_applied_fields` which REST fields (`advertisementInterval`, `holdMultiplier`) the device applied, with `details.attempted_payload`, `details.status_code` and `details.resource`; the task reports `changed: true` when any field was applied. If the re-read fails too, `details.reread_error` says why and nothing is attributed. A re-read that does not report an attempted field (or reports it as null) lists it in `details.unknown_fields`, without assuming a default, and still attributes the fields it reports (one that reports none of them counts as a failed re-read).
 
 ---
 
@@ -59,7 +63,7 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `state` | str | No | `merged` | Operation state |
-| `config` | dict | No | - | Global LLDP configuration |
+| `config` | dict | No | - | Global LLDP configuration. Required for `merged`, `replaced` and `overridden` with at least one suboption set; an empty `config` fails the task before any request. Optional for `deleted`; omitted or empty resets all settings to defaults |
 | `config.advertisement_interval` | int | No | - | LLDP advertisement interval in seconds |
 | `config.hold_multiplier` | int | No | - | Multiplier for TTL calculation |
 | `gather_state` | bool | No | `false` | Include LLDP operational state |
@@ -73,7 +77,7 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
 | `merged` | Apply provided timer settings incrementally. | GET, PATCH |
 | `replaced` | Make supplied values authoritative for global LLDP config. | GET, PATCH |
 | `overridden` | Same as `replaced` (singleton resource). | GET, PATCH |
-| `deleted` | Reset supplied attributes to device defaults; all if `config` omitted. | GET, PATCH |
+| `deleted` | Reset supplied attributes to device defaults; all if `config` omitted or empty. | GET, PATCH |
 | `gathered` | Read-only — return current global LLDP configuration. | GET |
 
 ---
@@ -83,13 +87,16 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
-| `lldp.before` | dict | LLDP config before changes |
-| `lldp.after` | dict | LLDP config after changes |
-| `lldp.config` | dict | Current LLDP config (gathered) |
+| `before` | dict | Returned for every state except `gathered`. Configurable LLDP global settings read before any change, in the shape of `config`. |
+| `after` | dict | Returned for every state except `gathered`. Configurable LLDP global settings read back after the change, the predicted configuration in check mode, or the same value as `before` when unchanged. |
+| `gathered` | dict | Returned when `state=gathered`. Current configurable LLDP global settings in the shape of `config`, so the value can be supplied back as `config`. Always holds both timers; the gather fails when the device does not report one of them. |
+| `lldp.before` | dict | LLDP config before changes, including `init_delay_seconds` when the device reports it. |
+| `lldp.after` | dict | LLDP config after changes, including `init_delay_seconds` when the device reports it. |
+| `lldp.config` | dict | Current LLDP config (gathered), including `init_delay_seconds` when the device reports it |
 | `lldp.differences` | dict | Changed attributes with before/after values |
 | `lldp.state` | dict | LLDP operational state |
 | `submitted` | dict | Payload submitted to the device |
-| `api_responses` | dict | Raw API responses |
+| `api_responses` | dict | Raw API responses, for debugging. **Deprecated**, will be removed in 2.0.0 - use `lldp.before` and `lldp.after` for the configuration before and after a change, `gathered` or `lldp.config` for `state: gathered`, and `lldp.state` for the operational state when `gather_state` is true |
 
 ---
 
@@ -122,6 +129,11 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
     state: gathered
     gather_state: true
   register: lldp_info
+
+- name: Re-apply the gathered settings (reports no change)
+  extreme.fe.extreme_fe_lldp_global:
+    state: replaced
+    config: "{{ lldp_info.gathered }}"
 ```
 
 ---

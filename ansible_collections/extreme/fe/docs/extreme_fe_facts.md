@@ -33,6 +33,11 @@ This module collects state, hardware, interface, configuration, and neighbor fac
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
+- Secret values are never returned in the facts. Every secret field is removed from the device data before it is stored in `ansible_facts`, so it does not reach hostvars or a fact cache. This covers the SNMP community strings, the SNMPv3 authentication and encryption passwords, the web server and IQ agent HTTP proxy passwords and the OSPF authentication key strings. Non-secret fields such as the authentication type or the `isEncrypted` flags are kept.
+- An endpoint that answers with an error document, or with 404, is left out of the facts. For an error document a warning names the endpoint and the error code. A 404 is left out silently, also when it is embedded in the answer (a status of 404 with no other failure status next to it, or a "not found" message with no status at all, including a multi-status answer whose every entry is one, unless the wrapper itself carries another failure status); an embedded error with any other status is an error document and warned about, even when its message says "not found". An error document is a response carrying `errorCode`, `statusCode`, `code` or `status` of 400 or more, a non-empty `errors` list, an `error` object, or an `errorMessage` without any status code; a list response counts as one when any of its entries does, and so does a `responses` or `items` wrapper whose list holds one. A bare text entry of such an array or wrapper (for example `["Invalid community: ..."]`) counts as one too, except in the documented string array of `/v0/configuration/system/images`; strings inside a configuration object, such as `view[].oids`, are data. An HTTP 207 (multi-status) answer is checked the same way, so a failed multi-status read leaves the endpoint out with a warning instead of failing the task.
+- Text from the device, such as the message of an error document or of a failed request, is never copied into a warning or a failure message, since it could quote a secret.
+- An endpoint whose response is not structured data (a body that could not be parsed as JSON) is left out of the facts with a warning.
+- An endpoint the device does not serve or refuses (HTTP 400, 403, 405, 410 or 501, for example the PoE endpoint of a switch without PoE) is left out with a warning that names the endpoint and the status code, and the other facts are still gathered. Any other HTTP status (such as 401, 429 or a server error) and a request that gets no answer at all fail the task, since the facts would be incomplete.
 
 ---
 
@@ -61,7 +66,7 @@ This module collects state, hardware, interface, configuration, and neighbor fac
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `gather_subset` | list of str | No | `[default]` | Fact subsets to collect: `default`, `hardware`, `interfaces`, `config`, `neighbors`, `all` |
+| `gather_subset` | list of str | No | `[default]` | Fact subsets to collect: `default`, `hardware`, `interfaces`, `config`, `neighbors`, `all`. Prefix with `!` to exclude one from `all`. `min` is the same as `default`, the minimal set; `!all` gathers that minimal set plus only the subsets listed next to it, also when `all` is listed too |
 | `gather_network_resources` | list of str | No | - | Network resources to collect: `interfaces`, `l2_interfaces`, `l3_interfaces`, `vlans`, `lag_interfaces`, `vrfs`, `static_routes`, `ospfv2`, `vrrp`, `lldp`, `cdp`, `ntp`, `dns`, `snmp_server`, `syslog`, `anycast_gateway`, `isid`, `all` |
 
 ---

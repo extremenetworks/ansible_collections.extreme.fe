@@ -134,7 +134,10 @@ options:
                     type: bool
                   guard_timeout:
                     description:
-                      - Time in seconds a port remains disabled after SLPP guard triggers. A value of C(0) means the port will never be automatically re-enabled. Valid range is C(0) or C(10-65535).
+                      - Time in seconds a port remains disabled after SLPP guard triggers.
+                        A value of C(0) means the port will never be automatically re-enabled.
+                        Valid range is C(0) or C(10-65535). The factory default is C(60),
+                        which C(replaced), C(overridden) and C(deleted) restore.
                     type: int
                   enable_packet_rx:
                     description:
@@ -181,7 +184,8 @@ options:
                 description:
                     - Time in seconds a port remains disabled after SLPP guard triggers.
                       A value of C(0) means the port will never be automatically re-enabled.
-                      Valid range is C(0) or C(10-65535).
+                      Valid range is C(0) or C(10-65535). The factory default is C(60),
+                      which C(replaced), C(overridden) and C(deleted) restore.
                 type: int
             enable_packet_rx:
                 description:
@@ -616,10 +620,11 @@ VLAN_FIELD_MAP: dict[str, str] = {
 PORT_FULL_DEFAULTS: dict[str, Any] = {
     "enableGuard": False,      # OpenAPI SlppPortSettings.enableGuard default: false
     # No default in the OpenAPI spec (guardTimeout is an anyOf of 0 and
-    # 10-65535).  The User Guide states 60 seconds, but the device disagrees:
-    # verified via "show slpp-guard" on factory-default ports, which report
-    # Timeout 0.  0 means a guard-disabled port stays down until reenabled.
-    "guardTimeout": 0,
+    # 10-65535).  The User Guide states 60 seconds, and never-configured ports
+    # report Timeout 60 in "show slpp-guard" with no slpp-guard line in the
+    # running configuration.  0 is a configuration, not the default:
+    # it keeps a guard-disabled port down until it is re-enabled by hand.
+    "guardTimeout": 60,
     "enablePacketRx": False,   # OpenAPI SlppPortSettings.enablePacketRx default: false
     "packetRxThreshold": 1,    # OpenAPI SlppPortSettings.packetRxThreshold default: 1
 }
@@ -1078,7 +1083,7 @@ def apply_port_settings(
 # ─── Delete Port Override ─────────────────────────────────────────────────────
 # "Deleting" a port override doesn't actually remove it from the switch;
 # instead, it resets all SLPP fields to their factory defaults:
-#   enableGuard=false, guardTimeout=0, enablePacketRx=false, packetRxThreshold=1
+#   enableGuard=false, guardTimeout=60, enablePacketRx=false, packetRxThreshold=1
 # This is because the Fabric Engine API doesn't support DELETE on individual port entries.
 
 

@@ -1,5 +1,4 @@
 import os
-import ast
 import re
 
 MODULES_DIR = '../plugins/modules'

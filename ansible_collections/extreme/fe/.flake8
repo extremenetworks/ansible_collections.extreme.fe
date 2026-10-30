@@ -8,7 +8,12 @@ max-complexity = 20
 extend-ignore =
     E203,
     E501,
-    W503
+    W503,
+    # ansible-test sanity (validate-modules) requires module-level imports to sit
+    # BELOW DOCUMENTATION/EXAMPLES/RETURN, which is exactly what E402 forbids. The
+    # two checks contradict each other; every peer vendor collection resolves it
+    # this way. Do not move imports back to the top to silence E402.
+    E402
 
 # Exclude directories
 exclude =

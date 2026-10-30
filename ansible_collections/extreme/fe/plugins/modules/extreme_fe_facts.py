@@ -1,15 +1,9 @@
+# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-3.0-or-later
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 """Ansible module to gather ExtremeNetworks Fabric Engine facts via HTTPAPI."""
 
 from __future__ import annotations
-
-import re
-from collections.abc import Iterable
-from typing import Any
-from urllib.parse import quote
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.common.text.converters import to_text
-from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 module: extreme_fe_facts
@@ -21,17 +15,51 @@ description:
 - Optionally gather structured network resource data for interfaces, VLANs, routing,
   and other subsystems to support idempotent automation plays.
 author:
-- ExtremeNetworks Networking Automation Team
+- Bjorn Haas (@bhaas_extr)
 notes:
 - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
   with this project.
 - Targets Fabric Engine platforms. Resources not available on Fabric Engine are
   skipped automatically.
+- Secret values are never returned in the facts. Every secret field is removed from the
+  device data before it is stored in C(ansible_facts), so it does not reach hostvars or a
+  fact cache. This covers the SNMP community strings, the SNMPv3 authentication and
+  encryption passwords, the web server and IQ agent HTTP proxy passwords and the OSPF
+  authentication key strings. Non-secret fields such as the authentication type or the
+  C(isEncrypted) flags are kept.
+- An endpoint that answers with an error document, or with 404, is left out of the facts.
+  For an error document a warning names the endpoint and the error code. A 404 is left out
+  silently, also when it is embedded in the answer (a status of 404 with no other failure
+  status next to it, or a "not found" message with no status at all, including a
+  multi-status answer whose every entry is one, unless the wrapper itself carries another
+  failure status); an embedded error with any other status is an error document and
+  warned about, even when its message says "not found".
+  An error document is a response carrying C(errorCode), C(statusCode), C(code) or
+  C(status) of 400 or more, a non-empty C(errors) list, an C(error) object, or an C(errorMessage)
+  without any status code; a list response counts as one when any of its entries does,
+  and so does a C(responses) or C(items) wrapper whose list holds one. A bare text entry of
+  such an array or wrapper (for example a quoted device message) counts as one too,
+  except in the documented string array of C(/v0/configuration/system/images); strings
+  inside a configuration object, such as C(view[].oids), are data. An HTTP 207
+  (multi-status) answer is checked the same way, so a failed multi-status read leaves
+  the endpoint out with a warning instead of failing the task.
+- An endpoint the device does not serve or refuses (HTTP 400, 403, 405, 410 or 501, for example the
+  PoE endpoint of a switch without PoE) is left out with a warning that names the endpoint and the
+  status code, and the other facts are still gathered. Any other HTTP status (such as 401, 429 or a
+  server error) and a request that gets no answer at all fail the task, since the facts would be
+  incomplete.
+- Text from the device, such as the message of an error document or of a failed request,
+  is never copied into a warning or a failure message, since it could quote a secret.
+- An endpoint whose response is not structured data (a body that could not be parsed as
+  JSON) is left out of the facts with a warning.
 options:
   gather_subset:
     description:
     - List of fact subsets to collect. Use C(all) to gather every supported subset.
       Prefix a subset with C(!) to exclude it when C(all) is specified.
+    - C(min) is the same as C(default), the minimal set. C(!all) gathers that minimal set plus
+      only the subsets listed next to it, as in other Ansible network facts modules. It also
+      overrides C(all) in the same list.
     - "Supported subsets: C(default), C(hardware), C(interfaces), C(config), C(neighbors)."
     type: list
     elements: str
@@ -152,6 +180,16 @@ ansible_facts:
       type: list
 """
 
+import re
+from collections.abc import Iterable
+from typing import Any
+from urllib.parse import quote
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
+
+from ansible_collections.extreme.fe.plugins.module_utils.extreme_fe_transport import http_status
 
 ARGUMENT_SPEC = {
     "gather_subset": {"type": "list", "elements": "str", "default": ["default"]},
@@ -198,7 +236,22 @@ PORT_LIST_KEYS: set[str] = {
     "allowedports",
 }
 
+# Secret fields of the payloads read by this module (OpenAPI schemas):
+#   /v0|v1/configuration/snmp: v1v2.access[].community,
+#       v3.access[].authenticationPassword and encryptionPassword (Secret: isEncrypted + value)
+#   /v0/configuration/system-services: webServer.roPassword, webServer.rwaPassword,
+#       iqagent.httpProxy.password (isEncrypted + value)
+#   /v0/configuration/ospf: interface[].auth.keyString, virtual_circuits[].auth.keyString
+# "secret" and "passphrase" are defensive. Keys are matched with '-'/'_' removed,
+# case-insensitively. A key named in SECRET_KEYS, or ending in "password", is a secret:
+# a scalar value is removed with its key, a dict value keeps only its SECRET_FLAG_KEYS.
+SECRET_KEYS: set[str] = {"community", "keystring", "secret", "passphrase"}
+SECRET_FLAG_KEYS: set[str] = {"isencrypted"}
+
 _VRF_NAME_CACHE: set[str] | None = None
+
+# Warnings collected while reading the device, reported by main().
+_WARNINGS: list[str] = []
 
 
 class FeFactsError(Exception):
@@ -215,14 +268,53 @@ class FeFactsError(Exception):
         return data
 
 
+_STATUS_KEYS = ("errorCode", "statusCode", "code", "status")
+
+
+def _parse_code(value: Any) -> int | None:
+    """A numeric status as an int (digit strings trimmed of whitespace), or None."""
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _status_codes(entry: dict[str, Any]) -> list[int]:
+    """Every numeric status of an entry (errorCode, statusCode, code, status), in that order."""
+    return [code for code in (_parse_code(entry.get(key)) for key in _STATUS_KEYS) if code is not None]
+
+
 def _is_not_found_response(payload: Any | None) -> bool:
+    """True for an answer that only says the resource does not exist, which is skipped silently.
+
+    That is a status of 404 with no other failure status next to it, or no
+    status at all with a "not found" / "does not exist" message. Any other
+    failure status (for example a 500 whose message mentions "not found", or
+    a statusCode 500 next to an errorCode 404) is an error document instead, left out with a
+    warning by _http_get(). A list, or a responses/items wrapper, counts when
+    every entry is a not-found answer and the wrapper itself carries no other
+    failure status: the all-404 multi-status answer the
+    httpapi plugin used to turn into an HTTP 404 before 207 bodies were passed
+    through to this module.
+    """
+    if isinstance(payload, list):
+        return bool(payload) and all(_is_not_found_response(entry) for entry in payload)
     if not isinstance(payload, dict):
         return False
-    code = payload.get("errorCode") or payload.get("statusCode") or payload.get("code")
-    if isinstance(code, str) and code.isdigit():
-        code = int(code)
-    if code == 404:
-        return True
+    codes = _status_codes(payload)
+    # Every numeric status field counts, not just the first: an errorCode 404
+    # next to a statusCode 500 is a server failure, not an absent resource. A
+    # wrapper's own failure status also comes before its entries: a 500
+    # wrapping 404 entries is an error. A 207 (or other non-error) wrapper, or
+    # a 404 one, is decided by its entries.
+    if any(code >= 400 and code != 404 for code in codes):
+        return False
+    for wrapper in ("responses", "items"):
+        if isinstance(payload.get(wrapper), list):
+            return _is_not_found_response(payload[wrapper])
+    if codes:
+        return 404 in codes
     message = payload.get("errorMessage") or payload.get("message") or payload.get("detail")
     if isinstance(message, str):
         lowered = message.lower()
@@ -231,12 +323,110 @@ def _is_not_found_response(payload: Any | None) -> bool:
     return False
 
 
+def _error_document(payload: Any | None, *, text_entries_ok: bool = False) -> str | None:
+    """Describe an error document returned with a 2xx status, or return None.
+
+    An error document carries errorCode, statusCode, code or status >= 400, a non-empty
+    errors list, a singular error, or an errorMessage without any status code
+    (as the httpapi plugin's multi-status parser counts it), instead of the
+    requested data. A list is one when any of its entries is, and so is a
+    responses or items wrapper whose list holds one (the multi-status shapes
+    the plugin parses), at any depth. The device's free-text message is left
+    out of the description, as it could quote a secret.
+    """
+    if isinstance(payload, list):
+        for index, entry in enumerate(payload):
+            # A text entry at a response boundary (the answer's own array, a nested
+            # array or a responses/items wrapper) is device text, for example
+            # ["Invalid community: ..."], unless the endpoint's schema is an array
+            # of strings (*text_entries_ok*, see TEXT_LIST_PATHS). Strings inside a
+            # configuration object, such as view[].oids, are not reached here.
+            if isinstance(entry, str):
+                if text_entries_ok:
+                    continue
+                return f"entry {index}: a text entry"
+            # Every other entry, nested lists included ([[{...}]]).
+            error = _error_document(entry)
+            if error:
+                return f"entry {index}: {error}"
+        return None
+    if not isinstance(payload, dict):
+        return None
+    # The status keys the httpapi plugin's multi-status parser reads. 'status'
+    # matters for a 207 passed through (multi_status_passthrough), which that
+    # parser no longer checks; the fact endpoints' own 'status' fields are text
+    # (service states), never a numeric code. Parsed by _parse_code(), so a
+    # whitespace-padded " 500 " is a code too.
+    codes = _status_codes(payload)
+    has_code = bool(codes)
+    # The object's own failure status comes first, as in _is_not_found_response():
+    # a 500 wrapping 404 entries is reported as the 500. A 404 of its own is
+    # reported only when no entry carries an error of its own.
+    failure = next((code for code in codes if code >= 400 and code != 404), None)
+    if failure is not None:
+        return f"error {failure}"
+    for wrapper in ("responses", "items"):
+        if isinstance(payload.get(wrapper), list):
+            error = _error_document(payload[wrapper])
+            if error:
+                return f"{wrapper} {error}"
+    if 404 in codes:
+        return "error 404"
+    errors = payload.get("errors")
+    if isinstance(errors, list) and errors:
+        return f"{len(errors)} error(s) in the errors list"
+    # The singular form ({"error": {...}} or {"error": "..."}) occurs on Fabric
+    # Engine too; its content is device text, so it is not echoed.
+    if payload.get("error"):
+        return "an error object"
+    if payload.get("errorMessage") and not has_code:
+        return "an error message"
+    return None
+
+
+def _is_secret_key(key: Any) -> bool:
+    """Return True when a payload key holds a secret value."""
+    if not isinstance(key, str):
+        return False
+    sanitized = key.replace("-", "").replace("_", "").lower()
+    return sanitized in SECRET_KEYS or sanitized.endswith("password")
+
+
+def _redact_secrets(payload: Any) -> Any:
+    """Return a copy of payload with every secret leaf removed (not masked).
+
+    Non-secret siblings are kept, e.g. the auth type and keyId next to an OSPF
+    keyString, communityIsEncrypted, and the isEncrypted flag of a password object.
+    """
+    if isinstance(payload, dict):
+        redacted: dict[Any, Any] = {}
+        for key, value in payload.items():
+            if not _is_secret_key(key):
+                redacted[key] = _redact_secrets(value)
+                continue
+            if isinstance(value, dict):
+                flags = {
+                    k: v
+                    for k, v in value.items()
+                    if isinstance(k, str) and k.lower() in SECRET_FLAG_KEYS and not isinstance(v, (dict, list))
+                }
+                if flags:
+                    redacted[key] = flags
+        return redacted
+    if isinstance(payload, list):
+        return [_redact_secrets(item) for item in payload]
+    return payload
+
+
 def _normalize_subset_requests(values: Iterable[str] | None) -> set[str]:
     if not values:
         return {"default"}
+    # Subsets named explicitly, kept apart from the expansion of 'all', which
+    # '!all' discards: [all, '!all', hardware] is the minimal set plus hardware.
     includes: set[str] = set()
     excludes: set[str] = set()
     saw_all = False
+    minimal = False
     for raw in values:
         if raw is None:
             continue
@@ -246,7 +436,15 @@ def _normalize_subset_requests(values: Iterable[str] | None) -> set[str]:
         lowered = item.lower()
         if lowered == "all":
             saw_all = True
-            includes.update(VALID_SUBSETS)
+            continue
+        if lowered in ("min", "default"):
+            # 'min' is the Ansible network-facts name of the minimal set.
+            includes.add("default")
+            continue
+        if lowered == "!all":
+            # The Ansible convention: the minimal set ('default') plus only the
+            # subsets named explicitly next to it.
+            minimal = True
             continue
         if lowered.startswith("!"):
             name = lowered[1:]
@@ -257,13 +455,15 @@ def _normalize_subset_requests(values: Iterable[str] | None) -> set[str]:
         if lowered not in VALID_SUBSETS:
             raise FeFactsError(f"Unsupported subset '{item}'")
         includes.add(lowered)
-    if not includes and not saw_all:
-        includes.add("default")
-    result = includes - excludes
-    if not result and saw_all:
-        # Could happen if all subsets were excluded; return empty set.
-        return set()
-    return result
+    if minimal:
+        # '!all' wins over 'all': the minimal set plus the explicit subsets.
+        selected = includes | {"default"}
+    elif saw_all:
+        selected = set(VALID_SUBSETS)
+    else:
+        selected = includes or {"default"}
+    # 'all' with every subset excluded gathers nothing (an empty set).
+    return selected - excludes
 
 
 def _normalize_resource_requests(values: Iterable[str] | None) -> set[str]:
@@ -298,20 +498,67 @@ def _normalize_resource_requests(values: Iterable[str] | None) -> set[str]:
     return result
 
 
+def _http_status(code: Any) -> str:
+    """Return ' (HTTP <code>)' for a failed request, or '' when there is no status code."""
+    return f" (HTTP {code})" if code is not None else ""
+
+
+# HTTP statuses that mean the device does not serve or refuses one endpoint (a
+# switch without PoE answers its PoE endpoint with 400; 403 a role without
+# access; 405/410/501 an endpoint this release does not implement). Such an
+# endpoint is left out with a warning. Any other status (401, 408, 429 and the
+# other 5xx: an expired session, throttling, a failing REST service) fails the
+# task: skipping it would return incomplete facts as a success. 404 is handled
+# on its own (left out without a warning).
+SKIPPABLE_HTTP_STATUSES = frozenset({400, 403, 405, 410, 501})
+
+# Endpoints whose documented answer is an array of strings (OpenAPI), so text
+# entries of that top-level array are data, not device error text.
+TEXT_LIST_PATHS = ("/v0/configuration/system/images",)
+
+
 def _http_get(connection: Connection, path: str) -> Any | None:
     try:
-        data = connection.send_request(None, path=path, method="GET")
+        # A 207 answer is returned as data rather than raised, so a multi-status
+        # error is skipped with a warning below like any other error document,
+        # instead of failing the whole facts task. Other failed requests still raise.
+        data = connection.send_request(None, path=path, method="GET", multi_status_passthrough=True)
     except ConnectionError as exc:
-        if getattr(exc, "code", None) == 404:
+        code = getattr(exc, "code", None)
+        if code == 404:
             return None
+        status = http_status(code)
+        if status in SKIPPABLE_HTTP_STATUSES:
+            # The device answered, but refused this endpoint (for example one a
+            # switch without PoE does not serve): it is left out with a warning,
+            # like an error document, instead of failing every other fact. The
+            # exception text and .err can quote the device's response, so only
+            # the code is kept.
+            _WARNINGS.append(f"Skipped {path}, the device answered{_http_status(status)}")
+            return None
+        # Any other HTTP status (an expired session, throttling, a server error)
+        # or no answer at all (a lost connection; no code, or a negative JSON-RPC
+        # code of the persistent connection): the facts would be incomplete.
         raise FeFactsError(
-            f"Failed to retrieve data from {path}", details={"error": to_text(exc)}
+            f"Failed to retrieve data from {path}{_http_status(status)}",
+            details={"status_code": status} if status is not None else {},
         )
     if data is None:
         return None
     if _is_not_found_response(data):
         return None
-    return data
+    error = _error_document(data, text_entries_ok=path in TEXT_LIST_PATHS)
+    if error:
+        # Treated like a failed read: the endpoint is left out, as for a 404.
+        _WARNINGS.append(f"Skipped {path}, the device returned an error document ({error})")
+        return None
+    if not isinstance(data, (dict, list)):
+        # Text the plugin could not parse as JSON (or a bare scalar) may quote a secret that
+        # _redact_secrets() cannot find. Every endpoint read here returns a JSON object or list.
+        _WARNINGS.append(f"{path} returned an unstructured response; left out of the facts")
+        return None
+    # Every payload passes here before it can reach ansible_facts.
+    return _redact_secrets(data)
 
 
 def _normalize_port_name(value: Any) -> Any:
@@ -381,10 +628,12 @@ def _get_vrf_names(connection: Connection) -> set[str]:
         return set(_VRF_NAME_CACHE)
     data = _http_get(connection, "/v0/configuration/vrf")
     names: set[str] = set()
-    if isinstance(data, dict):
+    if isinstance(data, dict) and "name" not in data:
+        # Wrapper object: the VRF entries are in its list values.
         for value in data.values():
-            names.update(_extract_vrf_names(value))
-    elif isinstance(data, list):
+            if isinstance(value, list):
+                names.update(_extract_vrf_names(value))
+    else:
         names.update(_extract_vrf_names(data))
     if not names:
         names.add("GlobalRouter")
@@ -393,24 +642,19 @@ def _get_vrf_names(connection: Connection) -> set[str]:
 
 
 def _extract_vrf_names(payload: Any) -> set[str]:
+    """Return the name of each top-level VRF entry of a GET /v0/configuration/vrf payload.
+
+    The payload is a list of VRF objects (OpenAPI l3protocol/vrf). Only their
+    name is taken, never nested strings such as portList entries or the names
+    in segmentedVrfList.
+    """
     names: set[str] = set()
-    if isinstance(payload, dict):
-        candidate = (
-            payload.get("vrName")
-            or payload.get("vr")
-            or payload.get("vr_name")
-            or payload.get("name")
-        )
-        if candidate:
-            names.add(str(candidate))
-        for value in payload.values():
-            names.update(_extract_vrf_names(value))
-    elif isinstance(payload, list):
-        for item in payload:
-            names.update(_extract_vrf_names(item))
-    elif isinstance(payload, str):
-        if payload:
-            names.add(payload)
+    entries = payload if isinstance(payload, list) else [payload]
+    for entry in entries:
+        if isinstance(entry, dict):
+            name = entry.get("name")
+            if isinstance(name, str) and name:
+                names.add(name)
     return names
 
 
@@ -433,9 +677,7 @@ def gather_interfaces_subset(connection: Connection) -> dict[str, Any]:
     if ports_payload is None:
         ports_payload = _http_get(connection, "/v0/state/ports")
     ports = _normalize_payload(ports_payload)
-    capabilities = _normalize_payload(
-        _http_get(connection, "/v0/state/capabilities/system/ports")
-    )
+    capabilities = _normalize_payload(_http_get(connection, "/v0/state/capabilities/system/ports"))
     return _merge_dicts(ports=ports, port_capabilities=capabilities)
 
 
@@ -495,13 +737,7 @@ def gather_l3_interfaces_resource(connection: Connection) -> dict[str, Any]:
 
     result: dict[str, dict[str, Any]] = {}
     for item in entries:
-        vrf = str(
-            item.get("vrName")
-            or item.get("vr")
-            or item.get("vr_name")
-            or item.get("vrf")
-            or "GlobalRouter"
-        )
+        vrf = str(item.get("vrName") or item.get("vr") or item.get("vr_name") or item.get("vrf") or "GlobalRouter")
         vlan_id = item.get("id") or item.get("vlanId") or item.get("vlan_id")
         key = str(vlan_id) if vlan_id is not None else str(item.get("name") or "unknown")
         result.setdefault(vrf, {})[key] = item
@@ -621,6 +857,7 @@ def main() -> None:
     gather_subset_param = module.params.get("gather_subset")
     gather_resources_param = module.params.get("gather_network_resources")
 
+    del _WARNINGS[:]
     try:
         subsets = _normalize_subset_requests(gather_subset_param)
         resources = _normalize_resource_requests(gather_resources_param)
@@ -650,12 +887,17 @@ def main() -> None:
             "extreme_fe_facts_gathered_network_resources": sorted(resources),
         }
 
+        for warning in _WARNINGS:
+            module.warn(warning)
         module.exit_json(changed=False, ansible_facts=ansible_facts)
 
     except FeFactsError as exc:
         module.fail_json(**exc.to_fail_kwargs())
     except ConnectionError as exc:
-        module.fail_json(msg=f"Unable to communicate with device: {to_text(exc)}")
+        # The exception text can quote the device's response, so only the code is kept.
+        module.fail_json(
+            msg=f"Unable to communicate with device{_http_status(http_status(getattr(exc, 'code', None)))}"
+        )
     except Exception as exc:
         module.fail_json(msg=f"Unexpected error: {to_text(exc)}")
 

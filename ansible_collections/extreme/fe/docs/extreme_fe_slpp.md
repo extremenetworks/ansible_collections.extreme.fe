@@ -75,7 +75,7 @@ This module manages global, per-VLAN, and per-port SLPP settings on Fabric Engin
 | `config.ports` | list of dict | No | - | Per-port SLPP settings |
 | `config.ports[].name` | str | Yes | - | Port identifier (slot:port) |
 | `config.ports[].enable_guard` | bool | No | - | Enable SLPP guard on the port |
-| `config.ports[].guard_timeout` | int | No | - | SLPP guard timeout in seconds |
+| `config.ports[].guard_timeout` | int | No | - | SLPP guard timeout in seconds. `0` means a port disabled by SLPP guard is never re-enabled automatically. The factory default is `60`, which `replaced`, `overridden` and `deleted` restore |
 | `config.ports[].enable_packet_rx` | bool | No | - | Enable SLPP packet-rx detection |
 | `config.ports[].packet_rx_threshold` | int | No | - | Packet-rx detection threshold |
 | `vlans` | list of dict | No | - | **Deprecated** pre-1.2.1 form of `config.vlans`. Still accepted, warns, and cannot be combined with `config` |
@@ -106,7 +106,7 @@ entry, and as the reset payload for `deleted`.
 | Field | Default Value | Source |
 |-------|---------------|--------|
 | `config.ports[].enable_guard` | `false` | OpenAPI `SlppPortSettings.enableGuard` |
-| `config.ports[].guard_timeout` | `0` | Not in OpenAPI. Verified on device with `show slpp-guard` (Timeout column reads 0 on factory-default ports). The User Guide states 60 seconds, which does not match device behaviour |
+| `config.ports[].guard_timeout` | `60` | Not in OpenAPI. The User Guide states 60 seconds; never-configured ports report Timeout 60 in `show slpp-guard`, with no `slpp-guard` line in the running configuration. `0` (never re-enable automatically) is a configuration, not the default |
 | `config.ports[].enable_packet_rx` | `false` | OpenAPI `SlppPortSettings.enablePacketRx` |
 | `config.ports[].packet_rx_threshold` | `1` | OpenAPI `SlppPortSettings.packetRxThreshold` |
 | `config.vlans[].enabled` | `false` | OpenAPI `SlppVlanSettings.enabled` |
