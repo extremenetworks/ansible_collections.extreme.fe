@@ -3,5 +3,10 @@ __pycache__
 tests/output
 
 # Collection build artifacts — 'ansible-galaxy collection build' writes
-# <namespace>-<name>-<version>.tar.gz here.
+# <namespace>-<name>-<version>.tar.gz here, or into dist/ with --output-path.
 extreme-fe-*.tar.gz
+dist/
+skills/
+collections/
+.mypy_cache/
+.ruff_cache/

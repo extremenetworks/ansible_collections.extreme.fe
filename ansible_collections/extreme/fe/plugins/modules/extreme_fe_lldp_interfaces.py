@@ -1,15 +1,9 @@
+# -*- coding: utf-8 -*-
+# SPDX-License-Identifier: GPL-3.0-or-later
+# GNU General Public License v3.0+ (see COPYING or https://www.gnu.org/licenses/gpl-3.0.txt)
 """Ansible module to manage LLDP interface settings on Fabric Engine switches."""
 
 from __future__ import annotations
-
-from collections.abc import Iterable
-from copy import deepcopy
-from typing import Any
-from urllib.parse import quote
-
-from ansible.module_utils.basic import AnsibleModule
-from ansible.module_utils.common.text.converters import to_text
-from ansible.module_utils.connection import Connection, ConnectionError
 
 DOCUMENTATION = r"""
 ---
@@ -17,17 +11,39 @@ module: extreme_fe_lldp_interfaces
 short_description: Manage LLDP interface settings on ExtremeNetworks Fabric Engine switches
 version_added: "1.1.0"
 description:
-  - Manage LLDP interface-level settings on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe) HTTPAPI plugin.
-  - Uses C(/v0/configuration/lldp/ports/{port}) and C(/v0/configuration/lldp/ports/{port}/med-policy) from the NOS OpenAPI schema.
-  - Supports the Fabric Engine LLDP port attributes exposed by the schema, including basic transmit or receive control, advertised TLVs, location data, and MED network policy entries.
-  - When C(med_policy) is supplied, it is treated as the authoritative list for that interface because the device API replaces the full MED policy list.
+  - Manage LLDP interface-level settings on ExtremeNetworks Fabric Engine switches using the custom C(extreme_fe)
+    HTTPAPI plugin.
+  - Uses C(/v0/configuration/lldp/ports/{port}) and C(/v0/configuration/lldp/ports/{port}/med-policy) from the NOS
+    OpenAPI schema.
+  - Supports the Fabric Engine LLDP port attributes exposed by the schema,
+    including basic transmit or receive control, advertised TLVs, location
+    data, and MED network policy entries.
+  - When C(med_policy) is supplied, it is treated as the authoritative list for that interface because the device API
+    replaces the full MED policy list.
 author:
-  - ExtremeNetworks Networking Automation Team
+  - Bjorn Haas (@bhaas_extr)
 notes:
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-  - Port identifiers must use slot:port notation such as C(1:5).
-  - On Fabric Engine, C(transmit_enabled) and C(receive_enabled) should be set to the same value. If only one is supplied, this module mirrors the same value to the other field.
-  - If LLDP transmit or receive is disabled, the device ignores advertisement and location attributes in the same request. This module submits only the basic LLDP enable flags in that case.
+  - Tested against Fabric Engine Version 9.3.2.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - Name ports using slot:port notation, such as C(1:5). The list was named C(interfaces) up to 1.2.1; that name
+    still works but is deprecated.
+  - Fabric Engine needs C(transmit_enabled) and C(receive_enabled) to have the same value. If you set only one,
+    the module sets the other to match; setting them to different values fails.
+  - When LLDP is off on a port, the switch ignores the advertisement, location and MED policy settings, so the
+    module sends only the enable flags and the port keeps its other settings.
+  - When you supply C(med_policy) for a port, it replaces that port's whole MED policy list.
+  - C(civic_address) must start with C(country-code) and a two-letter code, followed by at least one more label,
+    each with a value. A misspelled label (for example C(postal-code)) fails the task, because the switch would
+    otherwise advertise a wrong emergency location. Quote a value that contains a label word, for example
+    C(street "Main room").
+  - C(deleted) without C(config) resets LLDP on every port to its defaults.
+  - The C(gathered) result can be passed back as C(config). The old C(interfaces_settings) result is still
+    returned but is deprecated and will be removed in 2.0.0.
+  - Each port's LLDP settings and MED policy are written separately. If a write fails, the error message says
+    which parts and ports were already changed, and the task reports C(changed=true) when the switch was modified.
+  - If the connection drops during a change, the task reports C(changed=true) with C(details.outcome=unknown),
+    because the change may have been applied. Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 requirements:
   - ansible.netcommon
 options:
@@ -35,17 +51,25 @@ options:
     description:
       - Desired module operation.
       - C(merged) applies the supplied interface settings incrementally without removing unspecified configuration.
-      - C(replaced) treats the supplied values as authoritative for the targeted interfaces and resets omitted LLDP attributes to device defaults.
-      - C(overridden) behaves like C(replaced) for the listed interfaces and resets LLDP settings on discovered interfaces that are not provided.
-      - C(deleted) resets the listed interfaces to LLDP defaults.
+      - C(replaced) treats the supplied values as authoritative for the targeted interfaces and resets omitted LLDP
+        attributes to device defaults.
+      - C(overridden) behaves like C(replaced) for the listed interfaces and resets LLDP settings on discovered
+        interfaces that are not provided.
+      - C(deleted) resets the listed interfaces to LLDP defaults. Without C(config) (or with an empty list) it
+        resets every discovered interface.
       - C(gathered) returns current LLDP interface configuration without applying changes.
     type: str
     choices: [merged, replaced, overridden, deleted, gathered]
     default: merged
-  interfaces:
+  config:
+    aliases:
+      - interfaces
     description:
       - Interface LLDP definitions to manage.
-      - Required when C(state) is C(merged), C(replaced), C(overridden), or C(deleted).
+      - Required when C(state) is C(merged), C(replaced), or C(overridden).
+      - Optional for C(deleted), which resets every discovered interface when it is omitted.
+      - Named C(interfaces) up to version 1.2.1. That name still works as a deprecated alias and will be removed in
+        2.0.0.
     type: list
     elements: dict
     suboptions:
@@ -118,7 +142,23 @@ options:
         suboptions:
           civic_address:
             description:
-              - Civic address location string in Fabric Engine civic address format.
+              - Civic address location string in Fabric Engine civic address format, starting with C(country-code)
+                followed by two characters, then at least one more label and its value.
+              - Supported labels are C(country-code), C(additional-code), C(additional-information), C(apartment),
+                C(block), C(building), C(city), C(city-district), C(county), C(floor), C(house-number),
+                C(house-number-suffix), C(landmark), C(leading-street-direction), C(name), C(place-type), C(pobox),
+                C(postal-community-name), C(postal-zip-code), C(room-number), C(state), C(street), C(street-suffix)
+                and C(trailing-street-suffix).
+              - The value must start with C(country-code) followed by exactly two letters, and at least one other
+                supported label must follow; C(country-code) alone is rejected.
+              - Any other label (for example C(postal-code), C(province-state), C(postal-zip), C(room), C(unit) or
+                C(language)) is rejected before any request is sent, because the device would silently drop it or
+                append it to the previous value and advertise a wrong emergency location.
+              - An unquoted value runs up to the next supported label, so C(city San Jose) is valid. Quote a value that
+                contains a label-like word, for example C(street "Main room"); the word directly after a label is
+                always taken as part of its value.
+              - Labels and quoted values may appear in any order; the comparison with the device is order and
+                quoting independent.
             type: str
           ecs_elin:
             description:
@@ -213,7 +253,7 @@ EXAMPLES = r"""
 - name: Ensure LLDP advertises system identity information
   extreme.fe.extreme_fe_lldp_interfaces:
     state: merged
-    interfaces:
+    config:
       - name: "1:10"
         transmit_enabled: true
         receive_enabled: true
@@ -235,7 +275,7 @@ EXAMPLES = r"""
 - name: Set authoritative LLDP interface configuration
   extreme.fe.extreme_fe_lldp_interfaces:
     state: replaced
-    interfaces:
+    config:
       - name: "1:10"
         transmit_enabled: true
         receive_enabled: true
@@ -252,7 +292,7 @@ EXAMPLES = r"""
           network_policy: true
           inventory: true
         location:
-          civic_address: "country-code US city Raleigh street Main building 100"
+          civic_address: "country-code US state NC city Raleigh street Main postal-zip-code 27601 building 100"
           ecs_elin: "5551234567"
         med_policy:
           - type: VOICE
@@ -273,7 +313,7 @@ EXAMPLES = r"""
 - name: Reset LLDP port settings to defaults
   extreme.fe.extreme_fe_lldp_interfaces:
     state: deleted
-    interfaces:
+    config:
       - name: "1:10"
 
 # -------------------------------------------------------------------------
@@ -301,8 +341,22 @@ changed:
   description: Indicates whether any configuration changes were made.
   returned: always
   type: bool
+gathered:
+  description:
+    - LLDP interface configuration gathered from the device.
+    - Each entry has the shape of a C(config) entry (C(name), C(transmit_enabled), C(receive_enabled), C(advertise),
+      C(location), C(med_policy)), so the list can be applied back as C(config) without a change.
+    - Returned only for C(state=gathered).
+  returned: when state is gathered
+  type: list
+  elements: dict
 interfaces_settings:
-  description: Normalized LLDP settings for gathered or modified interfaces.
+  description:
+    - Normalized LLDP settings for gathered or modified interfaces.
+    - Each entry holds C(name) and the interface settings under C(settings).
+    - Under C(state=gathered) this lists the C(gathered) interfaces in that form, which is what the
+      module returned for that state up to 1.2.1. That form is deprecated and
+      will be removed in 2.0.0 - use C(gathered).
   returned: when interfaces are gathered or changed
   type: list
   elements: dict
@@ -322,10 +376,45 @@ interfaces_state:
   type: list
   elements: dict
 api_responses:
-  description: Raw API responses captured during execution.
+  description:
+    - Raw API responses captured during execution, for debugging.
+    - Deprecated and will be removed in 2.0.0.
+    - Use C(before) and C(after) for the configuration before and after a change, C(gathered) for C(state=gathered), and
+      C(interfaces_state) for the operational state returned when C(gather_state=true). The normalized snapshots do not
+      contain the raw responses.
   returned: always
   type: dict
+before:
+  description:
+    - LLDP settings for every targeted interface as they were before the task ran.
+    - Each entry has the shape of a C(config) entry, like C(gathered).
+    - Covers the interfaces named in C(config) plus any that C(state=overridden) reset, or every discovered
+      interface for C(state=deleted) without C(config).
+    - Returned whether or not anything changed.
+  returned: when state is not gathered
+  type: list
+  elements: dict
+after:
+  description:
+    - LLDP settings for every targeted interface once the task has run.
+    - Each entry has the shape of a C(config) entry, like C(gathered).
+    - In check mode this is the predicted state rather than a device read.
+  returned: when state is not gathered
+  type: list
+  elements: dict
 """
+
+import re
+from collections.abc import Iterable
+from copy import deepcopy
+from typing import Any
+from urllib.parse import quote
+
+from ansible.module_utils.basic import AnsibleModule
+from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
+
+from ansible_collections.extreme.fe.plugins.module_utils.extreme_fe_transport import is_answer_unknown_code
 
 STATE_MERGED = "merged"
 STATE_REPLACED = "replaced"
@@ -336,18 +425,18 @@ STATE_GATHERED = "gathered"
 ARGUMENT_SPEC = {
     "state": {
         "type": "str",
-        "choices": [
-            STATE_MERGED,
-            STATE_REPLACED,
-            STATE_OVERRIDDEN,
-            STATE_DELETED,
-            STATE_GATHERED,
-        ],
+        "choices": [STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DELETED, STATE_GATHERED],
         "default": STATE_MERGED,
     },
-    "interfaces": {
+    # Renamed from 'interfaces' to 'config' so every resource module in the
+    # collection uses the same parameter name. The old name stays as a
+    # deprecated alias, so existing playbooks keep working and Ansible
+    # resolves both to module.params["config"].
+    "config": {
         "type": "list",
         "elements": "dict",
+        "aliases": ["interfaces"],
+        "deprecated_aliases": [{"name": "interfaces", "version": "2.0.0", "collection_name": "extreme.fe"}],
         "options": {
             "name": {"type": "str", "required": True},
             "transmit_enabled": {"type": "bool"},
@@ -426,34 +515,37 @@ ADVERTISE_FIELD_MAP = {
     "inventory": "inventory",
 }
 
-LOCATION_FIELD_MAP = {
-    "civic_address": "civicAddress",
-    "ecs_elin": "ecsElin",
-    "coordinate": "coordinate",
-}
+LOCATION_FIELD_MAP = {"civic_address": "civicAddress", "ecs_elin": "ecsElin", "coordinate": "coordinate"}
 
-MED_POLICY_FIELD_MAP = {
-    "type": "type",
-    "dscp": "dscp",
-    "priority": "priority",
-    "tagged": "tagged",
-    "vlan_id": "vlanId",
-}
+MED_POLICY_FIELD_MAP = {"type": "type", "dscp": "dscp", "priority": "priority", "tagged": "tagged", "vlan_id": "vlanId"}
 
-REQUIRES_INTERFACES = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN, STATE_DELETED}
+# `deleted` without config resets every discovered interface instead.
+REQUIRES_INTERFACES = {STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN}
 
 
 class FeLldpInterfacesError(Exception):
     """Raised for LLDP interface validation and response issues."""
 
-    def __init__(self, message: str, *, details: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
+        changed: bool = False,
+    ) -> None:
         super().__init__(message)
         self.details = details or {}
+        # Top-level fail_json keys (code, err) of a transport failure.
+        self.extra = extra or {}
+        # True when the device was already changed before this error.
+        self.changed = changed
 
     def to_fail_kwargs(self) -> dict[str, Any]:
         data: dict[str, Any] = {"msg": to_text(self)}
         if self.details:
             data["details"] = self.details
+        data.update(self.extra)
         return data
 
 
@@ -486,12 +578,20 @@ def _call_api(
     try:
         response = connection.send_request(payload, path=path, method=method)
     except ConnectionError as exc:
-        module.fail_json(
-            msg=to_text(exc),
-            code=getattr(exc, "code", None),
-            err=getattr(exc, "err", None),
-            api_responses=api_responses,
-        )
+        # Raised rather than failed here so a failure after an earlier write
+        # can say what was applied; run_module() fails with the same msg, code
+        # and err, plus api_responses.
+        code = getattr(exc, "code", None)
+        if method != "GET" and is_answer_unknown_code(code):
+            # No answer (a lost connection): the write may have been applied.
+            raise FeLldpInterfacesError(
+                "%s. The %s %s may have been applied before the answer was lost; check the port on the device."
+                % (to_text(exc).rstrip("."), method, path),
+                details={"outcome": "unknown", "resource": path},
+                extra={"code": None, "err": getattr(exc, "err", None)},
+                changed=True,
+            )
+        raise FeLldpInterfacesError(to_text(exc), extra={"code": code, "err": getattr(exc, "err", None)})
 
     api_responses[response_key] = response
 
@@ -505,7 +605,7 @@ def _call_api(
     if isinstance(response, dict):
         error = _extract_error(response)
         if error:
-            module.fail_json(msg=error.get("message"), details=error, api_responses=api_responses)
+            raise FeLldpInterfacesError(to_text(error.get("message")), details=error)
 
     return response
 
@@ -529,11 +629,7 @@ def _is_poe_capable(capability: dict[str, Any]) -> bool:
     caps = capability.get("capabilities")
     if not isinstance(caps, dict):
         return False
-    return bool(
-        caps.get("poe")
-        or caps.get("poeMaxPower") is not None
-        or caps.get("poeMaxClassification") is not None
-    )
+    return bool(caps.get("poe") or caps.get("poeMaxPower") is not None or caps.get("poeMaxClassification") is not None)
 
 
 def _default_interface_settings(is_poe_capable: bool) -> dict[str, Any]:
@@ -568,10 +664,7 @@ def _normalize_med_policy_item(item: dict[str, Any]) -> dict[str, Any]:
             try:
                 value = int(value)
             except (TypeError, ValueError):
-                raise FeLldpInterfacesError(
-                    f"MED policy field '{param}' must be an integer",
-                    details={"policy": item},
-                )
+                raise FeLldpInterfacesError(f"MED policy field '{param}' must be an integer", details={"policy": item})
         if param == "dscp" and not (0 <= value <= 63):
             raise FeLldpInterfacesError("MED policy dscp must be between 0 and 63", details={"policy": item})
         if param == "priority" and not (0 <= value <= 7):
@@ -602,16 +695,194 @@ def _sort_med_policy(entries: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     )
 
 
+# Civic address labels Fabric Engine accepts (OpenAPI schema LldpLocation,
+# field civicAddress). country-code is required by the device and accepted
+# although the schema list omits it.
 CIVIC_ADDRESS_FIELDS = {
-    "country-code", "language", "province-state", "county", "city",
-    "city-division", "neighborhood", "street-group", "leading-street-direction",
-    "trailing-street-suffix", "street", "house-number", "house-number-suffix",
-    "landmark", "additional-info", "name", "postal-zip", "building",
-    "unit", "floor", "room", "type-of-place", "postal-community-name",
-    "post-office-box", "additional-code", "seat", "primary-road-name",
-    "road-section", "branch-road-name", "sub-branch-road-name",
-    "street-name-pre-modifier", "street-name-post-modifier",
+    "country-code",
+    "additional-code",
+    "additional-information",
+    "apartment",
+    "block",
+    "building",
+    "city",
+    "city-district",
+    "county",
+    "floor",
+    "house-number",
+    "house-number-suffix",
+    "landmark",
+    "leading-street-direction",
+    "name",
+    "place-type",
+    "pobox",
+    "postal-community-name",
+    "postal-zip-code",
+    "room-number",
+    "state",
+    "street",
+    "street-suffix",
+    "trailing-street-suffix",
 }
+
+# Labels earlier module versions accepted but the device does not. The device
+# answers 204 and then drops the label or glues it onto the preceding value,
+# which silently corrupts the advertised emergency location. The value is the
+# obvious replacement (None where there is no clear one).
+CIVIC_ADDRESS_REJECTED_LABELS = {
+    "additional-info": "additional-information",
+    "branch-road-name": None,
+    "city-division": "city-district",
+    "language": None,
+    "neighborhood": None,
+    "post-office-box": "pobox",
+    "postal-zip": "postal-zip-code",
+    "primary-road-name": None,
+    "province-state": "state",
+    "road-section": None,
+    "room": "room-number",
+    "seat": None,
+    "street-group": None,
+    "street-name-post-modifier": None,
+    "street-name-pre-modifier": None,
+    "sub-branch-road-name": None,
+    "type-of-place": "place-type",
+    "unit": None,
+}
+
+# Splits a civic address into quoted values (a quote runs to its closing quote,
+# or to the end when unterminated) and bare whitespace-separated tokens.
+_CIVIC_TOKEN_RE = re.compile(r'"[^"]*(?:"|$)|\S+')
+# Shape of an attempted label: hyphenated words written all in lowercase
+# (postal-code) or all in uppercase (POSTAL-COD). Title-case words such as
+# Saint-Denis or Winston-Salem are deliberately not matched: they are real
+# place names and cannot be told apart from a mistyped label.
+_CIVIC_LABEL_SHAPE_RE = re.compile(r"^(?:[a-z]+(?:-[a-z]+)+|[A-Z]+(?:-[A-Z]+)+)$")
+
+_CIVIC_RULE = (
+    "a Fabric Engine civic address must always start with the 'country-code' label followed by 2 characters, "
+    "and at least one other supported label must also be set (for example: "
+    "country-code RO city Bucharest street Avenue building 10)"
+)
+_CIVIC_QUOTE_HINT = 'Quote the value if it is genuinely a value word, for example street "Main room".'
+
+
+def _unsupported_label_error(label: str) -> str:
+    """Build the message for an unsupported label (with a replacement hint where one is clear)."""
+    hint = CIVIC_ADDRESS_REJECTED_LABELS.get(label)
+    did_you_mean = " Did you mean '%s'?" % hint if hint else ""
+    return (
+        "it uses the unsupported label '%s'; Fabric Engine would silently drop it or attach it to the "
+        "previous value.%s %s Supported labels: %s"
+        % (label, did_you_mean, _CIVIC_QUOTE_HINT, ", ".join(sorted(CIVIC_ADDRESS_FIELDS)))
+    )
+
+
+def _civic_token_kind(token: str) -> str:
+    """Classify an unquoted token that follows a complete value: 'label', 'unsupported' or 'value'."""
+    lowered = token.lower()
+    if lowered in CIVIC_ADDRESS_FIELDS:
+        return "label"
+    if lowered in CIVIC_ADDRESS_REJECTED_LABELS or _CIVIC_LABEL_SHAPE_RE.match(token):
+        return "unsupported"
+    return "value"
+
+
+def _is_unsupported_label_first_value(token: str) -> bool:
+    """Tell whether an unquoted token right after a label is a mistyped hyphenated label.
+
+    Single words such as Room or unit stay valid first values; only hyphenated tokens
+    (postal-code, POSTAL-COD, postal-zip, province-state) are treated as labels.
+    """
+    lowered = token.lower()
+    if "-" not in token or lowered in CIVIC_ADDRESS_FIELDS:
+        return False
+    return lowered in CIVIC_ADDRESS_REJECTED_LABELS or bool(_CIVIC_LABEL_SHAPE_RE.match(token))
+
+
+def _civic_field_text(tokens: list[str]) -> str:
+    """Return the text of a field value with quotes removed, so an empty "" or " " counts as no value."""
+    return " ".join(token.strip('"').strip() for token in tokens).strip()
+
+
+def _split_civic_fields(tokens: list[str]) -> tuple[list[list[Any]], str | None]:
+    """Group tokens into [label, [value tokens]] pairs; return (fields, error).
+
+    A token directly after a label is part of its value (so street Room is fine),
+    unless it is itself a supported label in any letter case (the value is missing) or a
+    hyphenated unsupported label such as postal-code (an error).
+    Later unquoted tokens are labels when supported, errors when they look like an
+    unsupported label, and value text otherwise (device values run to the next label).
+    """
+    fields: list[list[Any]] = []
+    for token in tokens:
+        quoted = token.startswith('"')
+        if fields and not fields[-1][1]:
+            # Labels are case-insensitive everywhere else (_civic_token_kind, _parse_civic_address), so
+            # CITY STATE CA must be caught here too. A label word that really is the value must be quoted.
+            if not quoted and token.lower() in CIVIC_ADDRESS_FIELDS:
+                return fields, "the label '%s' has no value" % fields[-1][0]
+            if not quoted and _is_unsupported_label_first_value(token):
+                return fields, _unsupported_label_error(token.lower())
+            fields[-1][1].append(token)
+            continue
+        kind = "value" if quoted or not fields else _civic_token_kind(token)
+        if kind == "unsupported":
+            return fields, _unsupported_label_error(token.lower())
+        if kind == "label" or not fields:
+            fields.append([token.lower(), []])
+        else:
+            fields[-1][1].append(token)
+    return fields, None
+
+
+def _validate_civic_address(value: str) -> str | None:
+    """Validate a raw civic address against the documented Fabric Engine grammar.
+
+    Returns an error message (without the interface prefix) or None when valid.
+    Quoted values are always values; see _split_civic_fields for the label rules.
+    """
+    tokens = _CIVIC_TOKEN_RE.findall(value)
+    for token in tokens:
+        if token.startswith('"') and not (len(token) > 1 and token.endswith('"')):
+            return "it contains an unterminated double quote"
+    if not tokens or tokens[0].lower() != "country-code":
+        return "it does not start with 'country-code'; %s" % _CIVIC_RULE
+    fields, error = _split_civic_fields(tokens)
+    if error:
+        return error
+    # Every label needs real text: a bare "" (or whitespace in quotes) is not a value.
+    for label, value_tokens in fields:
+        if not _civic_field_text(value_tokens):
+            return "the label '%s' has no value" % label
+    country = _civic_field_text(fields[0][1])
+    if len(country) != 2 or not (country.isascii() and country.isalpha()):
+        return "the country-code value '%s' is not exactly 2 letters; %s" % (country, _CIVIC_RULE)
+    if len(fields) < 2:
+        return "country-code alone is not enough; %s" % _CIVIC_RULE
+    return None
+
+
+def _validate_civic_addresses(entries: Any, state: str) -> None:
+    """Reject malformed civic addresses before any request is made.
+
+    Only the states that write a location are checked (merged, replaced,
+    overridden). Raises FeLldpInterfacesError naming the interface and the problem.
+    """
+    if state not in (STATE_MERGED, STATE_REPLACED, STATE_OVERRIDDEN):
+        return
+    for item in entries or []:
+        location = item.get("location") if isinstance(item, dict) else None
+        civic = location.get("civic_address") if isinstance(location, dict) else None
+        if not civic or not isinstance(civic, str):
+            continue
+        problem = _validate_civic_address(civic)
+        if problem is None:
+            continue
+        raise FeLldpInterfacesError(
+            "Interface %s: invalid location.civic_address: %s" % (item.get("name"), problem),
+            details={"name": item.get("name"), "problem": problem},
+        )
 
 
 def _parse_civic_address(value: str) -> dict[str, str]:
@@ -630,7 +901,7 @@ def _parse_civic_address(value: str) -> dict[str, str]:
         # Check for multi-word field names (e.g. "country-code", "house-number-suffix")
         key = None
         for length in (3, 2, 1):
-            candidate = "-".join(tokens[i:i + length])
+            candidate = "-".join(tokens[i : i + length])
             if candidate.lower() in CIVIC_ADDRESS_FIELDS:
                 key = candidate.lower()
                 i += length
@@ -664,7 +935,7 @@ def _parse_civic_address(value: str) -> dict[str, str]:
                 # Look ahead: is this token the start of a new field?
                 is_field = False
                 for length in (3, 2, 1):
-                    candidate = "-".join(tokens[i:i + length])
+                    candidate = "-".join(tokens[i : i + length])
                     if candidate.lower() in CIVIC_ADDRESS_FIELDS:
                         is_field = True
                         break
@@ -716,6 +987,13 @@ def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> dict[str,
         for param, rest_key in LOCATION_FIELD_MAP.items():
             value = location.get(rest_key)
             if value not in (None, ""):
+                # Strip the device-prepended CLI prefix from civic_address
+                # Device returns: "ldp location-identification civic-address <fields>"
+                # We store only the fields part: "<fields>"
+                if param == "civic_address" and isinstance(value, str):
+                    CLI_PREFIX = "ldp location-identification civic-address "
+                    if value.startswith(CLI_PREFIX):
+                        value = value[len(CLI_PREFIX) :]
                 normalized_location[param] = value
         base["location"] = normalized_location
 
@@ -728,88 +1006,120 @@ def _normalize_current_settings(payload: Any, is_poe_capable: bool) -> dict[str,
     return base
 
 
-def _normalize_input_interfaces(module: AnsibleModule, state: str) -> list[dict[str, Any]]:
-    raw_entries = list(module.params.get("interfaces") or [])
-    if state in REQUIRES_INTERFACES and not raw_entries:
+def _normalize_tx_rx(item: dict[str, Any], name: str, normalized: dict[str, Any]) -> None:
+    """Mirror transmit/receive onto each other and reject a mismatched pair.
+
+    Fabric Engine requires the two flags to agree, so supplying one is taken as
+    supplying both.
+    """
+    tx_value = item.get("transmit_enabled")
+    rx_value = item.get("receive_enabled")
+    tx_present = tx_value is not None
+    rx_present = rx_value is not None
+    if tx_present and not rx_present:
+        rx_value = tx_value
+        rx_present = True
+    elif rx_present and not tx_present:
+        tx_value = rx_value
+        tx_present = True
+    if tx_present and rx_present and tx_value != rx_value:
         raise FeLldpInterfacesError(
-            "interfaces is required when state in merged, replaced, overridden, deleted"
+            "transmit_enabled and receive_enabled must use the same value on Fabric Engine", details={"name": name}
         )
+    if tx_present:
+        normalized["transmit_enabled"] = bool(tx_value)
+    if rx_present:
+        normalized["receive_enabled"] = bool(rx_value)
+
+
+def _normalize_input_advertise(item: dict[str, Any], name: str, normalized: dict[str, Any]) -> None:
+    """Copy across the advertise flags the caller actually supplied."""
+    advertise = item.get("advertise")
+    if advertise is None:
+        return
+    if not isinstance(advertise, dict):
+        raise FeLldpInterfacesError("advertise must be a dictionary", details={"name": name})
+    normalized_advertise: dict[str, Any] = {}
+    for param in ADVERTISE_FIELD_MAP:
+        if param in advertise and advertise.get(param) is not None:
+            normalized_advertise[param] = advertise.get(param)
+    if normalized_advertise:
+        normalized["advertise"] = normalized_advertise
+
+
+def _normalize_input_location(item: dict[str, Any], name: str, normalized: dict[str, Any]) -> None:
+    """Copy across the location fields, enforcing the ecs_elin length limit."""
+    location = item.get("location")
+    if location is None:
+        return
+    if not isinstance(location, dict):
+        raise FeLldpInterfacesError("location must be a dictionary", details={"name": name})
+    normalized_location: dict[str, Any] = {}
+    for param in LOCATION_FIELD_MAP:
+        value = location.get(param)
+        if value in (None, ""):
+            continue
+        if param == "ecs_elin" and len(str(value)) > 25:
+            raise FeLldpInterfacesError("location.ecs_elin must be 25 characters or less", details={"name": name})
+        normalized_location[param] = value
+    normalized["location"] = normalized_location
+
+
+def _normalize_input_med_policy(item: dict[str, Any], name: str, normalized: dict[str, Any]) -> None:
+    """Normalise and sort the MED policy list."""
+    med_policy = item.get("med_policy")
+    if med_policy is None:
+        return
+    if not isinstance(med_policy, list):
+        raise FeLldpInterfacesError("med_policy must be a list", details={"name": name})
+    normalized["med_policy"] = _sort_med_policy(
+        _normalize_med_policy_item(entry) for entry in med_policy if isinstance(entry, dict)
+    )
+
+
+def _normalize_input_entry(item: dict[str, Any], name: str, state: str) -> dict[str, Any]:
+    """Normalise a single config entry whose name has already been resolved."""
+    normalized: dict[str, Any] = {"name": name}
+    _normalize_tx_rx(item, name, normalized)
+    _normalize_input_advertise(item, name, normalized)
+    _normalize_input_location(item, name, normalized)
+    _normalize_input_med_policy(item, name, normalized)
+
+    # Only the name survived, so the caller supplied nothing to merge.
+    if state == STATE_MERGED and len(normalized) == 1:
+        raise FeLldpInterfacesError(
+            "At least one LLDP attribute besides 'name' is required for state merged (interface '%s')" % name,
+            details={"name": name},
+        )
+    return normalized
+
+
+def _normalize_input_interfaces(
+    module: AnsibleModule, state: str, discovered: Iterable[str] = ()
+) -> list[dict[str, Any]]:
+    raw_entries = list(module.params.get("config") or [])
+    if state == STATE_DELETED and not raw_entries:
+        # No config: reset every discovered interface to its defaults.
+        raw_entries = [{"name": name} for name in sorted(discovered)]
+    if state in REQUIRES_INTERFACES and not raw_entries:
+        raise FeLldpInterfacesError("value of config parameter must not be empty for state %s" % state)
 
     normalized_entries: list[dict[str, Any]] = []
     seen: set = set()
     for item in raw_entries:
+        # Shape and duplicate checks stay ahead of per-field normalisation, so a
+        # duplicate entry is still reported as such rather than as whatever
+        # field error it happens to also contain.
         if not isinstance(item, dict):
             raise FeLldpInterfacesError("Each interface entry must be a dictionary")
         name = _normalize_port_name(item.get("name"))
         if name in seen:
-            raise FeLldpInterfacesError("Duplicate interface entry detected", details={"name": name})
+            raise FeLldpInterfacesError(
+                "Interface '%s' is listed more than once in 'config'; list each interface once" % name,
+                details={"name": name},
+            )
         seen.add(name)
-
-        normalized: dict[str, Any] = {"name": name}
-
-        tx_value = item.get("transmit_enabled")
-        rx_value = item.get("receive_enabled")
-        tx_present = tx_value is not None
-        rx_present = rx_value is not None
-        if tx_present and not rx_present:
-            rx_value = tx_value
-            rx_present = True
-        elif rx_present and not tx_present:
-            tx_value = rx_value
-            tx_present = True
-        if tx_present and rx_present and tx_value != rx_value:
-            raise FeLldpInterfacesError(
-                "transmit_enabled and receive_enabled must use the same value on Fabric Engine",
-                details={"name": name},
-            )
-        if tx_present:
-            normalized["transmit_enabled"] = bool(tx_value)
-        if rx_present:
-            normalized["receive_enabled"] = bool(rx_value)
-
-        advertise = item.get("advertise")
-        if advertise is not None:
-            if not isinstance(advertise, dict):
-                raise FeLldpInterfacesError("advertise must be a dictionary", details={"name": name})
-            normalized_advertise: dict[str, Any] = {}
-            for param in ADVERTISE_FIELD_MAP:
-                if param in advertise and advertise.get(param) is not None:
-                    normalized_advertise[param] = advertise.get(param)
-            if normalized_advertise:
-                normalized["advertise"] = normalized_advertise
-
-        location = item.get("location")
-        if location is not None:
-            if not isinstance(location, dict):
-                raise FeLldpInterfacesError("location must be a dictionary", details={"name": name})
-            normalized_location: dict[str, Any] = {}
-            for param in LOCATION_FIELD_MAP:
-                value = location.get(param)
-                if value in (None, ""):
-                    continue
-                if param == "ecs_elin" and len(str(value)) > 25:
-                    raise FeLldpInterfacesError(
-                        "location.ecs_elin must be 25 characters or less",
-                        details={"name": name},
-                    )
-                normalized_location[param] = value
-            normalized["location"] = normalized_location
-
-        med_policy = item.get("med_policy")
-        if med_policy is not None:
-            if not isinstance(med_policy, list):
-                raise FeLldpInterfacesError("med_policy must be a list", details={"name": name})
-            normalized["med_policy"] = _sort_med_policy(
-                _normalize_med_policy_item(entry) for entry in med_policy if isinstance(entry, dict)
-            )
-
-        if state == STATE_MERGED and len(normalized) == 1:
-            raise FeLldpInterfacesError(
-                "At least one LLDP interface attribute must be provided when state='merged'",
-                details={"name": name},
-            )
-
-        normalized_entries.append(normalized)
+        normalized_entries.append(_normalize_input_entry(item, name, state))
 
     return normalized_entries
 
@@ -831,10 +1141,7 @@ def _overlay_settings(base: dict[str, Any], updates: dict[str, Any]) -> dict[str
 
 
 def _build_target_settings(
-    entry: dict[str, Any],
-    current: dict[str, Any],
-    defaults: dict[str, Any],
-    state: str,
+    entry: dict[str, Any], current: dict[str, Any], defaults: dict[str, Any], state: str
 ) -> dict[str, Any]:
     if state == STATE_MERGED:
         target = _overlay_settings(current, entry)
@@ -855,7 +1162,10 @@ def _settings_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
         return False
     # When either LLDP flag is explicitly disabled, _build_config_payload() returns
     # early without advertise/location, so those fields can never converge.  Skip
-    # their comparison to avoid perpetual changed=True.
+    # their comparison to avoid perpetual changed=True.  The MED policy goes with
+    # them: _normalize_tx_rx() keeps the two flags equal - mirroring a lone value
+    # and rejecting a mismatched pair - so one being off means LLDP is off, and
+    # _apply_interface() skips the policy write too.
     if right.get("transmit_enabled") is False or right.get("receive_enabled") is False:
         return True
     return (
@@ -910,19 +1220,42 @@ def _build_med_policy_payload(target: dict[str, Any]) -> list[dict[str, Any]]:
     return payload
 
 
+def _project_applied_settings(current: dict[str, Any] | None, target: dict[str, Any]) -> dict[str, Any]:
+    """Predict what a real run would leave on one port.
+
+    _build_config_payload() drops advertise and location once either LLDP flag
+    is off, and the MED policy PUT is skipped when transmit is off, so the
+    device keeps whatever it already had for those fields. Check mode has to
+    carry them over or it reports a target the request never submits.
+    """
+    projected = deepcopy(target)
+    if current is None:
+        return projected
+    transmit = target.get("transmit_enabled", True)
+    receive = target.get("receive_enabled", True)
+    if not transmit or not receive:
+        for field in ("advertise", "location"):
+            if field in current:
+                projected[field] = deepcopy(current[field])
+    if not transmit and "med_policy" in current:
+        projected["med_policy"] = deepcopy(current["med_policy"])
+    return projected
+
+
 def _fetch_capabilities(
-    module: AnsibleModule,
-    connection: Connection,
-    api_responses: dict[str, Any],
+    module: AnsibleModule, connection: Connection, api_responses: dict[str, Any]
 ) -> dict[str, dict[str, Any]]:
-    data = _call_api(
-        module,
-        connection,
-        method="GET",
-        path=PORT_CAPABILITIES_PATH,
-        api_responses=api_responses,
-        response_key="capabilities",
-    ) or []
+    data = (
+        _call_api(
+            module,
+            connection,
+            method="GET",
+            path=PORT_CAPABILITIES_PATH,
+            api_responses=api_responses,
+            response_key="capabilities",
+        )
+        or []
+    )
     if not isinstance(data, list):
         raise FeLldpInterfacesError("Unexpected response when retrieving port capabilities", details={"payload": data})
     capabilities: dict[str, dict[str, Any]] = {}
@@ -941,14 +1274,17 @@ def _fetch_all_interfaces(
     capabilities: dict[str, dict[str, Any]],
     api_responses: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
-    data = _call_api(
-        module,
-        connection,
-        method="GET",
-        path=LLDP_CONFIG_PATH,
-        api_responses=api_responses,
-        response_key="configuration",
-    ) or {}
+    data = (
+        _call_api(
+            module,
+            connection,
+            method="GET",
+            path=LLDP_CONFIG_PATH,
+            api_responses=api_responses,
+            response_key="configuration",
+        )
+        or {}
+    )
     if not isinstance(data, dict):
         raise FeLldpInterfacesError("Unexpected response when retrieving LLDP configuration", details={"payload": data})
 
@@ -961,7 +1297,6 @@ def _fetch_all_interfaces(
             continue
         settings = entry.get("settings")
         is_poe_capable_flag = _is_poe_capable(capabilities.get(name, {}))
-        defaults = _default_interface_settings(is_poe_capable_flag)
         norm_name = _normalize_port_name(name)
         normalized = _normalize_current_settings(settings, is_poe_capable_flag)
         interfaces[norm_name] = normalized
@@ -976,48 +1311,80 @@ def _fetch_single_interface(
     api_responses: dict[str, Any],
     response_key: str,
 ) -> dict[str, Any]:
-    data = _call_api(
-        module,
-        connection,
-        method="GET",
-        path=_port_config_path(port_name),
-        api_responses=api_responses,
-        response_key=response_key,
-    ) or {}
+    data = (
+        _call_api(
+            module,
+            connection,
+            method="GET",
+            path=_port_config_path(port_name),
+            api_responses=api_responses,
+            response_key=response_key,
+        )
+        or {}
+    )
     return _normalize_current_settings(data, is_poe_capable_flag)
 
 
+def _config_entry(name: str, settings: dict[str, Any]) -> dict[str, Any]:
+    """Return one interface in the shape of a `config` entry (name plus its settings)."""
+    entry: dict[str, Any] = {"name": name}
+    entry.update(deepcopy(settings))
+    return entry
+
+
 def _format_output_interfaces(
-    port_map: dict[str, dict[str, Any]],
-    names: Iterable[str] | None = None,
+    port_map: dict[str, dict[str, Any]], names: Iterable[str] | None = None, flat: bool = False
 ) -> list[dict[str, Any]]:
+    """List the selected ports, as `config` entries when *flat*, else in the
+    deprecated `{name, settings}` form of `interfaces_settings`."""
     selected_names = list(names) if names is not None else sorted(port_map.keys())
     output: list[dict[str, Any]] = []
     for name in selected_names:
         settings = port_map.get(name)
         if settings is None:
             continue
-        output.append({"name": name, "settings": settings})
+        output.append(_config_entry(name, settings) if flat else {"name": name, "settings": settings})
     return output
 
 
+def _snapshot_interfaces(
+    port_map: dict[str, dict[str, Any]], defaults_map: dict[str, dict[str, Any]], names: Iterable[str]
+) -> list[dict[str, Any]]:
+    """Build a before/after snapshot for the given ports.
+
+    Falls back to the port's device defaults when it is absent from port_map,
+    so both halves of the pair list the same ports and a newly configured
+    interface shows what it looked like beforehand rather than dropping out.
+    Each port is a `config` entry, like `gathered`.
+    """
+    snapshot: list[dict[str, Any]] = []
+    for name in names:
+        settings = port_map.get(name)
+        if settings is None:
+            settings = defaults_map.get(name)
+        if settings is None:
+            continue
+        snapshot.append(_config_entry(name, settings))
+    return snapshot
+
+
 def _gather_port_state(
-    module: AnsibleModule,
-    connection: Connection,
-    port_names: Iterable[str],
-    api_responses: dict[str, Any],
+    module: AnsibleModule, connection: Connection, port_names: Iterable[str], api_responses: dict[str, Any]
 ) -> list[dict[str, Any]]:
     state_responses = api_responses.setdefault("state", {})
     results: list[dict[str, Any]] = []
     for port_name in port_names:
-        payload = _call_api(
-            module,
-            connection,
-            method="GET",
-            path=_port_state_path(port_name),
-            api_responses=state_responses,
-            response_key=port_name,
-        ) or {}
+        payload = (
+            _call_api(
+                module,
+                connection,
+                method="GET",
+                path=_port_state_path(port_name),
+                api_responses=state_responses,
+                response_key=port_name,
+            )
+            or {}
+        )
         results.append({"name": port_name, "state": payload})
     return results
 
@@ -1039,8 +1406,25 @@ def _apply_interface(
     if module.check_mode:
         operations["config_put"] = None
         operations["med_policy_put"] = None
-        current_map[port_name] = deepcopy(target)
-        return deepcopy(target)
+        # A port absent from current_map is at its defaults, which is the same
+        # baseline the caller compared the target against.
+        baseline = current_map.get(port_name)
+        if baseline is None:
+            baseline = _default_interface_settings(is_poe_capable_flag)
+        projected = _project_applied_settings(baseline, target)
+        current_map[port_name] = projected
+        return deepcopy(projected)
+
+    # Both PUTs always send their full section, so a request that succeeded
+    # changed the port only when its section differs from the current settings
+    # (a MED-policy-only change still resends the unchanged LLDP settings).
+    baseline = current_map.get(port_name)
+    if baseline is None:
+        baseline = _default_interface_settings(is_poe_capable_flag)
+    settings_differ = not _settings_equal(baseline, dict(target, med_policy=baseline.get("med_policy") or []))
+    med_policy_differs = _sort_med_policy(baseline.get("med_policy") or []) != _sort_med_policy(
+        target.get("med_policy") or []
+    )
 
     _call_api(
         module,
@@ -1052,33 +1436,73 @@ def _apply_interface(
         api_responses=operations,
         response_key="config_put",
     )
-    if config_payload.get("transmitEnabled", True):
-        _call_api(
-            module,
-            connection,
-            method="PUT",
-            path=_port_med_policy_path(port_name),
-            payload=med_policy_payload,
-            expect_content=False,
-            api_responses=operations,
-            response_key="med_policy_put",
-        )
-
-    updated = _fetch_single_interface(
-        module,
-        connection,
-        port_name,
-        is_poe_capable_flag,
-        operations,
-        "after_get",
-    )
+    applied = ["PUT %s (LLDP settings)" % _port_config_path(port_name)]
+    changed = settings_differ
+    step = "PUT %s (MED policy)" % _port_med_policy_path(port_name)
+    try:
+        if config_payload.get("transmitEnabled", True):
+            _call_api(
+                module,
+                connection,
+                method="PUT",
+                path=_port_med_policy_path(port_name),
+                payload=med_policy_payload,
+                expect_content=False,
+                api_responses=operations,
+                response_key="med_policy_put",
+            )
+            applied.append(step)
+            changed = changed or med_policy_differs
+        step = "re-read GET %s" % _port_config_path(port_name)
+        updated = _fetch_single_interface(module, connection, port_name, is_poe_capable_flag, operations, "after_get")
+    except FeLldpInterfacesError as exc:
+        # A MED policy PUT without an answer may have been applied (exc.changed).
+        raise _after_write_error(port_name, applied, step, exc, changed or exc.changed)
     current_map[port_name] = updated
     operations["operation"] = operation
-    operations["submitted"] = {
-        "config": config_payload,
-        "med_policy": med_policy_payload,
-    }
+    operations["submitted"] = {"config": config_payload, "med_policy": med_policy_payload}
     return updated
+
+
+def _after_write_error(
+    port_name: str, applied: list[str], failed: str, exc: FeLldpInterfacesError, changed: bool
+) -> FeLldpInterfacesError:
+    """Re-raise a failure that follows the port's successful config PUT.
+
+    *applied* lists the requests that succeeded (always the LLDP settings PUT,
+    plus the MED policy PUT when the failure is the re-read) and *failed* names
+    the request that failed. Both are named in the message. *changed* says
+    whether any of the succeeded requests differed from the port's settings;
+    when none did, the message says the port was left unchanged.
+    """
+    outcome = "" if changed else " (the port's configuration was left unchanged)"
+    return FeLldpInterfacesError(
+        "Interface %s: %s %s applied%s, but the %s failed: %s"
+        % (
+            port_name,
+            " and ".join(applied),
+            "were" if len(applied) > 1 else "was",
+            outcome,
+            failed,
+            to_text(exc),
+        ),
+        details=dict(exc.details, interface=port_name, applied_requests=list(applied), failed_request=failed),
+        extra=exc.extra,
+        changed=changed,
+    )
+
+
+def _fail_after_writes(module: AnsibleModule, exc: FeLldpInterfacesError, result: dict[str, Any], done: list[str]):
+    """Fail the task, reporting changed=true and naming earlier ports when the task already wrote."""
+    kwargs = exc.to_fail_kwargs()
+    changed = bool(result.get("changed")) or exc.changed
+    if done and not module.check_mode:
+        kwargs["msg"] = "%s. Interfaces already changed by this task: %s." % (
+            to_text(kwargs["msg"]).rstrip().rstrip("."),
+            ", ".join(done),
+        )
+        kwargs["details"] = dict(kwargs.get("details") or {}, changed_interfaces=list(done))
+    module.fail_json(changed=changed, api_responses=result.get("api_responses", {}), **kwargs)
 
 
 def run_module() -> None:
@@ -1090,28 +1514,38 @@ def run_module() -> None:
         return
 
     result: dict[str, Any] = {"changed": False, "api_responses": {}}
+    # Ports whose writes all succeeded, in order, for the failure message.
+    done: list[str] = []
 
     try:
         state = module.params.get("state")
         gather_filter = module.params.get("gather_filter") or None
         gather_state = bool(module.params.get("gather_state"))
 
+        # Validate civic_address labels first so an unsupported label never
+        # reaches the device (also holds in check mode).
+        _validate_civic_addresses(module.params.get("config"), state)
+
         capabilities = _fetch_capabilities(module, connection, result["api_responses"])
         current_map = _fetch_all_interfaces(module, connection, capabilities, result["api_responses"])
-        normalized_entries = _normalize_input_interfaces(module, state)
+        # Snapshot the device state before anything is applied. _apply_interface
+        # mutates current_map in place (in check mode too), so without this copy
+        # there would be nothing left to compare the result against.
+        before_map = deepcopy(current_map)
+        normalized_entries = _normalize_input_interfaces(module, state, current_map.keys())
 
         if state == STATE_GATHERED:
             selected_names = (
-                [_normalize_port_name(item) for item in gather_filter]
-                if gather_filter else sorted(current_map.keys())
+                [_normalize_port_name(item) for item in gather_filter] if gather_filter else sorted(current_map.keys())
             )
+            # `gathered` holds `config` entries, so it can be applied back as is;
+            # `interfaces_settings` keeps the `{name, settings}` form returned
+            # up to 1.2.1 and is deprecated.
+            result["gathered"] = _format_output_interfaces(current_map, selected_names, flat=True)
             result["interfaces_settings"] = _format_output_interfaces(current_map, selected_names)
             if gather_state:
                 result["interfaces_state"] = _gather_port_state(
-                    module,
-                    connection,
-                    selected_names,
-                    result["api_responses"],
+                    module, connection, selected_names, result["api_responses"]
                 )
             module.exit_json(**result)
 
@@ -1119,12 +1553,14 @@ def run_module() -> None:
         desired_names = {_normalize_port_name(entry["name"]) for entry in normalized_entries}
         defaults_map: dict[str, dict[str, Any]] = {}
         for port_name in current_names.union(desired_names):
-            defaults_map[port_name] = _default_interface_settings(
-                _is_poe_capable(capabilities.get(port_name, {}))
-            )
+            defaults_map[port_name] = _default_interface_settings(_is_poe_capable(capabilities.get(port_name, {})))
 
         updated_names: list[str] = []
         removed_names: list[str] = []
+        # Every port `overridden` is authoritative over, not just the ones it
+        # had to write: an unlisted port already at its defaults is still a
+        # target of the task and belongs in the before/after pair.
+        reset_targets: list[str] = []
 
         for entry in normalized_entries:
             port_name = entry["name"]
@@ -1144,6 +1580,7 @@ def run_module() -> None:
                 state,
             )
             result["changed"] = True
+            done.append(port_name)
             if state == STATE_DELETED:
                 removed_names.append(port_name)
             else:
@@ -1152,6 +1589,7 @@ def run_module() -> None:
 
         if state == STATE_OVERRIDDEN:
             ports_to_reset = sorted(current_names.difference(desired_names))
+            reset_targets = list(ports_to_reset)
             for port_name in ports_to_reset:
                 current = deepcopy(current_map.get(port_name, defaults_map[port_name]))
                 defaults = deepcopy(defaults_map[port_name])
@@ -1168,6 +1606,7 @@ def run_module() -> None:
                     STATE_DELETED,
                 )
                 result["changed"] = True
+                done.append(port_name)
                 removed_names.append(port_name)
 
         if updated_names:
@@ -1180,22 +1619,32 @@ def run_module() -> None:
 
         if gather_state:
             selected_names = updated_names or removed_names or sorted(desired_names)
-            result["interfaces_state"] = _gather_port_state(
-                module,
-                connection,
-                selected_names,
-                result["api_responses"],
-            )
+            result["interfaces_state"] = _gather_port_state(module, connection, selected_names, result["api_responses"])
+
+        # Every interface this task targeted, whether or not it changed: the
+        # ports named in config, plus the ones `overridden` is authoritative
+        # over on its own.
+        affected_names = sorted(desired_names.union(removed_names).union(reset_targets))
+        result["before"] = _snapshot_interfaces(before_map, defaults_map, affected_names)
+        result["after"] = _snapshot_interfaces(current_map, defaults_map, affected_names)
+
+        # Diff mode (--diff): Ansible renders the before/after pair itself.
+        # Populated even when nothing changed, so `--check --diff` can show
+        # that a play is already converged.
+        if module._diff:
+            result["diff"] = {"before": result["before"], "after": result["after"]}
 
         module.exit_json(**result)
     except FeLldpInterfacesError as exc:
-        module.fail_json(api_responses=result.get("api_responses", {}), **exc.to_fail_kwargs())
+        _fail_after_writes(module, exc, result, done)
     except ConnectionError as exc:
-        module.fail_json(
-            msg=to_text(exc),
-            code=getattr(exc, "code", None),
-            err=getattr(exc, "err", None),
-            api_responses=result.get("api_responses", {}),
+        _fail_after_writes(
+            module,
+            FeLldpInterfacesError(
+                to_text(exc), extra={"code": getattr(exc, "code", None), "err": getattr(exc, "err", None)}
+            ),
+            result,
+            done,
         )
 
 

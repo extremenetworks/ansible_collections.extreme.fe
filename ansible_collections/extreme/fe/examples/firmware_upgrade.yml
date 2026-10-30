@@ -128,12 +128,28 @@
     # -------------------------------------------------------------------------
     # Steps 5-6: Check firmware file and add software
     # -------------------------------------------------------------------------
+    # extreme_fe_command fails the task when a command returns a non-200 status
+    # (continue_on_failure only lets the device run the remaining commands of a
+    # batch; it does not stop the module from failing). A missing file is such a
+    # failure, so the result is only registered here and judged in the next task.
     - name: "Check if firmware file exists on switch"
       extreme.fe.extreme_fe_command:
         commands:
           - "ls /intflash/{{ software_file }}"
-        continue_on_failure: true
       register: file_check_result
+      failed_when: false
+      when: upgrade_needed and not ansible_check_mode
+
+    # A successful run returns the device output in responses[].output; a failed
+    # one (msg "One or more CLI commands failed") returns it in
+    # details.failures[].output, and a connection or permission failure may
+    # return no output at all. Both shapes are read, and 'output' is a list of
+    # lines, so each line is searched.
+    - name: "Collect firmware file check output"
+      ansible.builtin.set_fact:
+        file_check_output: >-
+          {{ ((file_check_result.responses | default([])) + (file_check_result.details.failures | default([])))
+             | map(attribute='output', default=[]) | flatten | list }}
       when: upgrade_needed and not ansible_check_mode
 
     - name: "Verify firmware file exists"
@@ -142,16 +158,45 @@
           Firmware file '/intflash/{{ software_file }}' not found on switch.
           Please upload the file to /intflash/ before running this playbook.
           You can use SCP/SFTP or the switch CLI to upload the file.
+          Device response: {{ file_check_output | join(' ') }}
       when: >
         upgrade_needed and not ansible_check_mode and
-        (file_check_result.responses | default([]) | length == 0 or
-         file_check_result.responses[0].output | default('') | regex_search('No such file|not found', ignorecase=True) is not none)
+        file_check_output | map('replace', software_file, '')
+        | select('search', 'No such file|not found', ignorecase=True) | list | length > 0
+
+    # The listing is confirmed by a status 200, or by a 400 that extreme_fe_command
+    # accepts as a warning (status 400 with output that is not a CLI error) when
+    # that output names the requested file. Either way its output must carry no
+    # error wording (for example Permission denied), even with status 200. Anything else - no response,
+    # another status, or a 400 without the file - does not prove the file is there
+    # (nor that it is missing), so it is reported with the available diagnostic.
+    # The error wording is searched with the requested filename removed from each
+    # line, so a file named for example error-firmware.voss does not count as an
+    # error, while a real error on the same line (permission denied) still does.
+    - name: "Verify firmware file could be checked"
+      ansible.builtin.fail:
+        msg: |
+          Unable to verify the firmware file '/intflash/{{ software_file }}' on the switch.
+          Error: {{ file_check_result.msg | default('the device did not confirm the file') }}
+          Device output: {{ file_check_output | join(' ') | default('none', true) }}
+      vars:
+        file_check_status: "{{ (file_check_result.responses | default([{}]))[0].status_code | default(none) }}"
+        file_listed: >-
+          {{ file_check_output | select('search', software_file | regex_escape) | list | length > 0 }}
+        file_error_text: >-
+          {{ file_check_output | map('replace', software_file, '')
+             | select('search', 'No such file|not found|error|denied|permission', ignorecase=True)
+             | list | length > 0 }}
+      when: >
+        upgrade_needed and not ansible_check_mode and
+        not (file_check_result.responses | default([]) | length > 0 and not file_error_text | bool and
+             (file_check_status | string == '200' or
+              (file_check_status | string == '400' and file_listed | bool)))
 
     - name: "Add software {{ software_file }}"
       extreme.fe.extreme_fe_command:
         commands:
           - "software add {{ software_file }}"
-        continue_on_failure: true
       register: add_result
       vars:
         ansible_command_timeout: "{{ command_timeout }}"
@@ -159,13 +204,13 @@
 
     - name: "Extract version from add output"
       ansible.builtin.set_fact:
-        add_output: "{{ add_result.responses[0].output | default('') if (add_result.responses | default([]) | length > 0) else '' }}"
+        add_output: "{{ add_result.responses[0].output | default([]) | join('\n') if (add_result.responses | default([]) | length > 0) else '' }}"
       when: upgrade_needed and not ansible_check_mode
 
-    # Note: regex_search with capture groups returns a list, so | first is needed to extract the string
+    # Note: regex_search with capture groups returns a list (None without a match), so | first is needed to extract the string
     - name: "Parse extracted version"
       ansible.builtin.set_fact:
-        extracted_version: "{{ (add_output | regex_search('Extraction of (\\S+) to', '\\1')) | default([]) | first | default('') }}"
+        extracted_version: "{{ (add_output | regex_search('Extraction of (\\S+) to', '\\1')) | default([], true) | first | default('') }}"
       when: upgrade_needed and not ansible_check_mode
 
     - name: "Verify software add succeeded"
@@ -180,7 +225,6 @@
       extreme.fe.extreme_fe_command:
         commands:
           - "software activate {{ extracted_version }}"
-        continue_on_failure: true
       register: activate_result
       vars:
         ansible_command_timeout: "{{ command_timeout }}"
@@ -188,7 +232,7 @@
 
     - name: "Extract activation output"
       ansible.builtin.set_fact:
-        activate_output: "{{ activate_result.responses[0].output | default('') if (activate_result.responses | default([]) | length > 0) else '' }}"
+        activate_output: "{{ activate_result.responses[0].output | default([]) | join('\n') if (activate_result.responses | default([]) | length > 0) else '' }}"
       when: upgrade_needed and not ansible_check_mode
 
     - name: "Verify activation succeeded"
@@ -226,6 +270,11 @@
     # -------------------------------------------------------------------------
     # Step 10: Software commit
     # -------------------------------------------------------------------------
+    # continue_on_failure: true keeps the three commands in one request, so
+    # 'software commit' runs in the configuration mode the first two entered.
+    # A command that fails outright fails this task (a status 400 whose output is
+    # a CLI error, % or Error:, too); a status 400 with other output is only a
+    # warning there, so the commit status is checked below.
     - name: "Commit software upgrade"
       extreme.fe.extreme_fe_command:
         commands:
@@ -236,9 +285,30 @@
       register: commit_result
       when: upgrade_needed and not ansible_check_mode
 
+    # Each response's 'output' is a list of lines: flatten them into one text.
+    - name: "Collect software commit output"
+      ansible.builtin.set_fact:
+        commit_output: "{{ commit_result.responses | default([]) | map(attribute='output') | flatten | join('\n') }}"
+      when: upgrade_needed and not ansible_check_mode
+
+    # Only a status 200 confirms the commit. extreme_fe_command fails a 400 whose
+    # output is a CLI error (% or Error:), but accepts any other 400 with output as
+    # a warning, and a commit failure can be worded otherwise ("Commit failed"), so
+    # a 400 is not taken as success: check the device ('show software') before
+    # retrying.
     - name: "Verify software commit succeeded"
-      ansible.builtin.debug:
-        msg: "Software commit output: {{ commit_result.responses | default([]) | map(attribute='output') | list | join(' | ') }}"
+      ansible.builtin.assert:
+        that:
+          - commit_result.responses | default([]) | length == 3
+          - commit_result.responses[2].command == 'software commit'
+          - commit_result.responses[2].status_code == 200
+          - commit_output | regex_search('(?m)^(?:Error:|ERROR:|% Error)') is none
+        fail_msg: >-
+          Software commit not confirmed (status
+          {{ (commit_result.responses | default([{}, {}, {}]))[2].status_code | default('none') }}):
+          {{ commit_output | default('No output', true) }}. Check the committed release with 'show software'
+          before retrying.
+        success_msg: "Software commit output: {{ commit_output }}"
       when: upgrade_needed and not ansible_check_mode
 
     # -------------------------------------------------------------------------

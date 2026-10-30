@@ -9,12 +9,10 @@ Ensures every module has proper documentation blocks matching standards:
 - Fully populated argument_spec
 """
 
-import ast
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Optional
 
 
 class ModuleDocValidator:
@@ -60,7 +58,7 @@ class ModuleDocValidator:
             if not re.search(pattern, self.content, re.MULTILINE):
                 self.warnings.append(f"Missing optional {block_name} block")
     
-    def extract_doc_block(self, block_name: str) -> Optional[str]:
+    def extract_doc_block(self, block_name: str) -> str | None:
         """Extract a documentation block content."""
         # Match patterns like: DOCUMENTATION = r"""...""" or DOCUMENTATION = """..."""
         patterns = [
@@ -96,7 +94,7 @@ class ModuleDocValidator:
                     self.errors.append(f"DOCUMENTATION missing required field: {field}")
             
             # Validate options if present
-            if "options" in doc_data and doc_data["options"]:
+            if doc_data.get("options"):
                 self._validate_options(doc_data["options"])
             
         except yaml.YAMLError as e:

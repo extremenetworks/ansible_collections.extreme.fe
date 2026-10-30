@@ -287,6 +287,96 @@ ansible_httpapi_validate_certs=false
 # ansible_httpapi_ca_path=certs/fe_switch_cert.pem  # Not needed when validation is disabled
 ```
 
+### 5. Using DNS hostnames or FQDNs in the inventory
+
+Steps 1-6 above work with a hostname, but require the certificate's CN to match
+that hostname and an `/etc/hosts` entry mapping it to the switch IP. If your
+inventory is generated from a CMDB or IPAM system and identifies switches by DNS
+name, you can list those names directly, with nothing else per host:
+
+```ini
+[switches]
+switch_1
+switch_2
+switch_3
+```
+
+The connection settings in `[switches:vars]` stay exactly as documented above —
+no `ansible_host`, no `/etc/hosts` entry, and no change to
+`ansible_connection`.
+
+**Why this is needed:** Fabric Engine 9.3.2.0 and 9.4.0.0 abort the TLS
+handshake when the ClientHello carries the SNI (Server Name Indication)
+extension. A client sends SNI only when it connects by name — never for an IP
+address. The collection therefore resolves each hostname to an IP address and
+connects to that address, so no SNI extension is sent. The standard `httpapi`
+connection plugin performs the requests unmodified.
+
+**With `ansible_httpapi_validate_certs=true`**, the switch certificate should
+carry the switch IP address as an `iPAddress` subjectAltName entry, because the
+connection is verified against the address it was made to. You can add it when
+generating the certificate, for example:
+
+```bash
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 \
+  -keyout switch_1.key -out switch_1.pem \
+  -subj "/CN=switch_1" \
+  -addext "subjectAltName=DNS:switch_1,IP:192.168.1.100" \
+  -addext "basicConstraints=critical,CA:FALSE" \
+  -addext "extendedKeyUsage=serverAuth"
+```
+
+The last two lines matter beyond good hygiene: `openssl req -x509` marks a
+certificate `CA:TRUE` by default, which makes it indistinguishable from a trust
+anchor, and this collection will not guess. See the note on name-only
+certificates below.
+
+Listing both `DNS:` and `IP:` keeps the certificate valid whichever way the
+switch is addressed. Verification itself is unchanged — Python's `ssl` module
+still checks the chain of trust and the address, exactly as it does for an
+IP-based inventory.
+
+**A self-signed certificate that carries only the hostname keeps working as it
+did.** If `ansible_httpapi_validate_certs=true` and `ansible_httpapi_ca_path`
+points at a **self-signed** certificate that names the host as its CN or a
+`DNS:` SAN but carries no `IP:` SAN — which is what the default Fabric Engine
+certificate looks like, and what steps 1-6 above set up — that host is connected
+to by name, not by address. Nothing needs adding to the inventory: the
+certificate is inspected before connecting and the name is kept, because
+verifying it against a resolved address would fail with `certificate verify
+failed: IP address mismatch`.
+
+This applies only when `ca_path` holds the switch's own self-signed
+certificate and nothing else — a file with more than one certificate is a trust
+store by construction, and a name matching one entry of it says nothing about
+which certificate the peer serves. It also applies only when that certificate
+identifies itself as a server certificate — its `extendedKeyUsage` names
+`serverAuth`, or, where that extension is absent, `basicConstraints` marks it as
+not a CA. A root CA may legally omit both, so a certificate carrying neither is
+read as a trust anchor rather than guessed at. A **CA-signed** switch
+certificate carrying only a `DNS:` SAN is likewise resolved to an address like
+any other host and would then fail verification with that same IP mismatch. Set
+`ansible_httpapi_resolve_hostname=false` for those switches. You can check what
+you downloaded with:
+
+```bash
+openssl x509 -in certs/fe_switch_cert.pem -noout -text | grep -A1 "Basic Constraints\|Extended Key Usage"
+```
+
+So the setup from steps 1-6 is unaffected by this feature. Being name-based, it
+still requires the switch to accept SNI — which is exactly what an affected
+release refuses, and why the IP SAN above is the better option on 9.3.2.0 and
+9.4.0.0.
+
+To force connecting by name in all cases, set:
+
+```ini
+ansible_httpapi_resolve_hostname=false
+```
+
+Note that a switch running an affected release then aborts the handshake, since
+connecting by name is what sends the SNI extension.
+
 ## Available Playbooks
 
 ### wap_poe_bounce.yml - PoE Power Cycling for WAP Recovery
@@ -695,6 +785,15 @@ ok: [fe_sw_1]
 TASK [Commit software upgrade] ***********************************************
 changed: [fe_sw_1]
 
+TASK [Collect software commit output] ****************************************
+ok: [fe_sw_1]
+
+TASK [Verify software commit succeeded] **************************************
+ok: [fe_sw_1] => {
+    "changed": false,
+    "msg": "Software commit output: ..."
+}
+
 TASK [Verify upgrade succeeded] **********************************************
 ok: [fe_sw_1] => {
     "msg": "Upgrade verified: 9.3.2.0_B003"
@@ -722,6 +821,17 @@ ok: [fe_sw_1] => {
 
 **Note:** The firmware file must be uploaded to /intflash/ on the switch before running
 this playbook. Use SCP, SFTP, or the switch's file transfer commands to upload the file.
+A missing file (device output matching "No such file" or "not found") stops the play at
+`Verify firmware file exists` with the device response. Any other failure of the check, such as
+a permission or connection error, stops it at `Verify firmware file could be checked` with
+"Unable to verify the firmware file", the module message and the available device output.
+
+**Note:** `extreme_fe_command` fails the task when a command returns a non-200 status, also
+with `continue_on_failure: true` (that option only lets the device run the remaining commands
+of the batch). The file check therefore registers its result with `failed_when: false` and
+judges it in the next task, and the commit step keeps `continue_on_failure: true` only so its
+three commands run in one request. Each response's `output` is a list of lines, so the
+playbook joins or searches the lines before matching them.
 
 **Check Mode:** When run with `--check`, the playbook validates parameters, checks the
 current firmware version, and reports whether an upgrade would be needed. All system-modifying

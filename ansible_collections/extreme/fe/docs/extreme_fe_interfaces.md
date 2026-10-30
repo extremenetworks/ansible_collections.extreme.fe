@@ -34,6 +34,16 @@ Through this module administrative state, global interface settings, and per-por
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
+- **Ports:** name ports using slot:port notation, such as `1:5`, and list each port only once in `config`. The list was named `ports` before 1.2.1; that name still works but is deprecated.
+- **Auto-negotiation:** some ports cannot run with auto-negotiation off, for example the copper ports of a 7520-48XT-6C. Setting `auto_negotiation: false` on such a port fails before anything is changed.
+- **Resetting every port:** `deleted` with neither `config` nor `admin` resets every port to its defaults. It does not change a port's admin state, so a port you shut down stays down, and it does not touch `global_settings`.
+- **Protected ports:** to keep your management connection up, `deleted` without `config` and `overridden` never reset the management port, the ports in a management VLAN, or the members of a LAG in a management VLAN. They are skipped with a warning and listed in `skipped_interfaces`, together with any port the switch refuses to reset. A port you name in `config` is always configured, protected or not. If the module cannot read the information it needs to find the protected ports, the task fails before changing anything.
+- **`overridden` needs `config`:** it fails when `config` is empty, so it never resets every port by accident. Use `deleted` without `config` to do that on purpose.
+- **Re-applying `gathered`:** the `gathered` result can be passed back as `config`. If you gathered only some ports with `gather_filter`, re-apply it with `merged` or `replaced`, not `overridden`: `overridden` would reset every port that is not in the list. The operational state under `ports_state` is information only and cannot be passed back.
+- **Partly applied changes:** if the switch rejects a change after applying part of it, the error message lists which settings were applied and which were not.
+- **Lost connections:** if the connection drops during a change and the module cannot confirm the result, it reports `changed: true` with `details.outcome: unknown`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- **`changed` on failure:** a failed task reports `changed: true` if the switch was already modified by an earlier write in the same task, and the error message lists those writes.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 
@@ -52,9 +62,15 @@ Through this module administrative state, global interface settings, and per-por
 | GET | /v0/configuration/ports | Retrieve all port configurations |
 | PUT | /v0/configuration/ports | Update multiple port admin statuses |
 | PATCH | /v0/configuration/ports/{port} | Update specific port settings |
+| PUT | /v0/configuration/ports/{port} | Reset a port to its default settings (`deleted`, `overridden`) |
 | GET | /v0/configuration/ports/global | Get global port settings |
 | PATCH | /v0/configuration/ports/global | Update global port settings |
-| GET | /v1/state/ports | Get port state |
+| GET | /v0/configuration/ports/{port} | Re-read one port's full configuration (also for `gathered`, when the bulk listing omits a field) |
+| GET | /v1/state/ports | Get port state (`ports_state`, `gathered` only) |
+| GET | /v1/state/ports/{port} | Get one port's state (`ports_state` with `gather_filter`) |
+| GET | /v0/state/capabilities/system/ports | Port capabilities (read only when auto-negotiation is to be disabled, and by the reset of `overridden` and `deleted` without `config` to find the management port; for that reset a failed read other than a 404 fails the task before any write) |
+| GET | /v0/configuration/vlan | Management VLAN members, protected from the reset of `overridden` and `deleted` without `config` |
+| GET | /v0/configuration/lag | Member ports of a LAG in a management VLAN (same two cases) |
 
 ---
 
@@ -73,11 +89,11 @@ Through this module administrative state, global interface settings, and per-por
 | `config[].name` | str | Yes | - | Port identifier (slot:port) |
 | `config[].enabled` | bool | No | - | Administrative status |
 | `config[].description` | str | No | - | Interface description (max 255 chars) |
-| `config[].speed` | str | No | - | Speed override (`0M`, `10M`, `100M`, `1G`, `2.5G`, `5G`, `10G`, `20G`, `25G`, `40G`, `50G`, `100G`, `400G`, `AUTO`) |
+| `config[].speed` | str | No | - | Speed override when auto-negotiation is disabled (`0M`, `10M`, `100M`, `1G`, `2.5G`, `5G`, `10G`, `20G`, `25G`, `40G`, `50G`, `100G`, `400G`, `AUTO`). `AUTO` is a VIM speed (VIM-4YE, VIM-6YE ports), not "negotiate the speed"; Fabric Engine refuses it on any other port. To let a regular port negotiate its speed, use `auto_negotiation: true` (optionally with `auto_advertisements`). `speed: AUTO` fails before anything is written on a port whose capabilities (`/v0/state/capabilities/system/ports`) report `vimPort: false`; the check is skipped when the capabilities cannot be read, and a refusal then names the likely cause |
 | `config[].duplex` | str | No | - | Duplex setting (`HALF_DUPLEX`, `FULL_DUPLEX`, `NONE`) |
-| `config[].auto_negotiation` | bool | No | - | Toggle auto-negotiation |
+| `config[].auto_negotiation` | bool | No | - | Toggle auto-negotiation. Disabling it (`false`) fails, before anything is written, on ports whose capabilities (`/v0/state/capabilities/system/ports`) list no supported speed/duplex combination for auto-negotiation off, for example the 10GBASE-T front-panel copper ports of the 7520-48XT-6C. The device would accept the request with HTTP 204 and silently keep auto-negotiation enabled. The check is skipped when the capabilities cannot be read. |
 | `config[].auto_advertisements` | list of str | No | - | Authoritative list of auto-negotiation advertisements |
-| `config[].flow_control` | str | No | - | Flow control mode (`ENABLE`, `DISABLE`) |
+| `config[].flow_control` | str | No | - | Flow control mode (`ENABLE`, `DISABLE`). When omitted, `replaced` and `overridden` reset it to `DISABLE`, except on a port whose current mode is not one of the choices (for example `RX_ENABLE` or `PFC_ENABLE`), which keeps its mode |
 | `config[].debounce_timer` | int | No | - | Debounce timer in ms (0-300000) |
 | `config[].channelized` | bool | No | - | Enable/disable channelization on supported fiber ports |
 | `config[].fec` | str | No | - | Forward error correction mode (`NONE`, `CLAUSE_74`, `CLAUSE_91_108`, `AUTO`) |
@@ -86,7 +102,7 @@ Through this module administrative state, global interface settings, and per-por
 | `config[].flex_uni` | bool | No | - | Flex UNI mode |
 | `config[].native_vlan` | int | No | - | Native VLAN for trunk ports (1-4094). `0` is accepted but is currently a no-op: the device rejects every value the module could use to clear the assignment (`0` with HTTP 422, JSON null with "None is not of type integer", and `1` unless the port is already a VLAN 1 member), so the field is omitted instead. **No state can clear an existing assignment** — `replaced` and `overridden` leave it in place when omitted, and `deleted` drops it from the reset payload for the same reason, so removing a native VLAN has to be done from the CLI. Other values are rejected before the request is sent |
 | `config[].ip_arp_inspection_trusted` | bool | No | - | Mark interface as trusted for ARP inspection |
-| `gather_filter` | list of str | No | - | Limit gathered output to these ports |
+| `gather_filter` | list of str | No | - | Limit the `gathered` configuration and the `ports_state` operational state to these ports |
 
 ---
 
@@ -94,11 +110,11 @@ Through this module administrative state, global interface settings, and per-por
 
 | State | Behaviour | HTTP Methods |
 |-------|-----------|-------------|
-| `merged` | Apply supplied interface changes incrementally. | GET, PUT, PATCH |
-| `replaced` | Make supplied values authoritative for targeted interfaces. | GET, PUT, PATCH |
-| `overridden` | Enforce supplied definitions; clear unlisted overrides. | GET, PUT, PATCH |
-| `deleted` | Remove supplied interface configuration and overrides. | GET, PUT, PATCH |
-| `gathered` | Read-only — return interface state. | GET |
+| `merged` | Apply supplied interface changes incrementally. Needs at least one of `config`, `global_settings`, `admin`. | GET, PUT, PATCH |
+| `replaced` | Make supplied values authoritative for targeted interfaces. Needs at least one of `config`, `global_settings`, `admin`. | GET, PUT, PATCH |
+| `overridden` | Enforce supplied definitions; clear unlisted overrides, except on protected ports (management port, management VLAN members). Requires `config`. | GET, PUT, PATCH |
+| `deleted` | Remove supplied interface configuration and overrides. With neither `config` nor `admin`, reset every port except the protected ones (management port, management VLAN members). | GET, PUT, PATCH |
+| `gathered` | Read-only — return the per-port configuration (`gathered`) and the operational state (`ports_state`). | GET |
 
 ---
 
@@ -107,13 +123,15 @@ Through this module administrative state, global interface settings, and per-por
 | Key | Type | Description |
 |-----|------|-------------|
 | `changed` | bool | Whether any changes were made |
-| `before` | list | Per-port configuration before the task ran. Returned for every state except `gathered`. Ports named in `config` are re-read individually so they carry the full field set; elsewhere the bulk listing may omit fields it treats as unset (typically `description`) — missing means not reported, not cleared |
-| `after` | list | Per-port configuration after the task ran, re-read from the device. Omitted when nothing changed or in check mode. Built the same way as `before`, so the two are directly comparable |
+| `before` | list | Per-port configuration before the task ran. Returned for every state except `gathered`. Ports named in `config` are re-read individually so they carry the full field set; elsewhere the bulk listing may omit fields it treats as unset (typically `description`) - missing means not reported, not cleared |
+| `after` | list | Per-port configuration after the task ran. Returned for every state except `gathered`. After a real change it is re-read from the device; in check mode it is the predicted state, including the ports `overridden` or `deleted` would reset; when nothing changed it equals `before`. Built the same way as `before`, so the two are directly comparable |
 | `global_settings` | dict | Resulting global port configuration |
 | `admin_updates` | list | Ports whose admin status was changed |
 | `port_updates` | list | Ports whose attributes were modified |
 | `port_removals` | list | Ports whose overrides were removed |
-| `ports_state` | list | Interface state details (gathered) |
+| `skipped_interfaces` | list | Ports the reset sweep of `overridden` (ports absent from `config`) or of `deleted` without `config` and `admin` (every port) did not reset, sorted by name, each also named in a warning with the reason - the protected ports (out-of-band management port, management VLAN members, member ports of a LAG in one) and any port the device refused to reset. Returned for `overridden` and for that form of `deleted` |
+| `gathered` | list | Per-port configuration read from `/v0/configuration/ports`, one entry per port in the form `config` accepts, so it can be supplied back as `config` unchanged; re-applying an unfiltered result (no `gather_filter`) with `merged`, `replaced` or `overridden` changes nothing. With `gather_filter` it lists only the selected ports: still safe to re-apply with `merged` or `replaced`, but `overridden` takes it as the complete port list and resets every unlisted port that is not protected. Uses the keys of `before`, sorted by port name, without the fields the device does not report and without values outside an option's choices (for example a FEC mode the module does not offer); an omitted field keeps the value the port holds. Ports whose bulk record lacks a field are re-read individually, so `description` is reported. The global settings and the `admin` state are not included. Returned when state is `gathered` |
+| `ports_state` | list | Operational interface state from the `/v1/state/ports` API, as the device reports it. Not configuration, and cannot be supplied back as `config` (use `gathered`). With `gather_filter` each entry is the port name with its state under `settings`, without it the raw REST list is returned. Kept unchanged for existing playbooks. Returned when state is `gathered` |
 
 ---
 
@@ -146,6 +164,15 @@ Through this module administrative state, global interface settings, and per-por
         duplex: FULL_DUPLEX
         port_mode: true
         native_vlan: 200
+```
+
+### Reset all interfaces except protected
+
+```yaml
+- name: Reset all interfaces except protected
+  extreme.fe.extreme_fe_interfaces:
+    state: deleted
+  register: reset_all
 ```
 
 ### Gather interface state

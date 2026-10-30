@@ -58,16 +58,22 @@ description:
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
-    - SLPP manages two resource types, VLANs and ports, and a task may configure
-      both in one run. They are grouped under the C(config) dict. The former
-      top-level C(vlans) and C(ports) parameters still work and emit a
-      deprecation warning; the two forms cannot be mixed in one task.
-    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin
-      shipped with this project.
-    - Port identifiers must use slot:port notation such as C(1:5).
-    - On Fabric Engine B(Fabric Engine), enabling both C(enable_packet_rx) and C(enable_guard) on the
-      same port at the same time is not allowed.  The module will raise an error if both are
-      set to C(true) in the same port entry.
+    - Tested against Fabric Engine Version 9.3.2.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+    - VLANs and ports are both set under the C(config) dict, as C(config.vlans) and C(config.ports). The older
+      top-level C(vlans) and C(ports) parameters still work but are deprecated, and the two forms cannot be mixed
+      in one task.
+    - Name ports using slot:port notation, such as C(1:5).
+    - A port cannot have C(enable_guard) and C(enable_packet_rx) both set to C(true); such an entry fails before
+      anything is changed.
+    - With C(replaced) and C(overridden), a setting you leave out of a port or VLAN entry is reset to its factory
+      default (for a port, guard off with a 60-second timeout, packet-rx off with a threshold of 1).
+    - C(overridden) resets every port and VLAN missing from C(config) to the SLPP defaults, also when C(config) is
+      empty, and the management port is not protected. A port the switch refuses to reset is skipped with a
+      warning.
+    - C(deleted) resets only the ports and VLANs you list, and changes nothing when C(config) is empty. It cannot
+      be used with C(global_settings).
+    - Supports check mode. Diff mode is not supported.
 requirements:
     - ansible.netcommon
 options:
@@ -134,7 +140,10 @@ options:
                     type: bool
                   guard_timeout:
                     description:
-                      - Time in seconds a port remains disabled after SLPP guard triggers. A value of C(0) means the port will never be automatically re-enabled. Valid range is C(0) or C(10-65535).
+                      - Time in seconds a port remains disabled after SLPP guard triggers.
+                        A value of C(0) means the port will never be automatically re-enabled.
+                        Valid range is C(0) or C(10-65535). The factory default is C(60),
+                        which C(replaced), C(overridden) and C(deleted) restore.
                     type: int
                   enable_packet_rx:
                     description:
@@ -181,7 +190,8 @@ options:
                 description:
                     - Time in seconds a port remains disabled after SLPP guard triggers.
                       A value of C(0) means the port will never be automatically re-enabled.
-                      Valid range is C(0) or C(10-65535).
+                      Valid range is C(0) or C(10-65535). The factory default is C(60),
+                      which C(replaced), C(overridden) and C(deleted) restore.
                 type: int
             enable_packet_rx:
                 description:
@@ -616,10 +626,11 @@ VLAN_FIELD_MAP: dict[str, str] = {
 PORT_FULL_DEFAULTS: dict[str, Any] = {
     "enableGuard": False,      # OpenAPI SlppPortSettings.enableGuard default: false
     # No default in the OpenAPI spec (guardTimeout is an anyOf of 0 and
-    # 10-65535).  The User Guide states 60 seconds, but the device disagrees:
-    # verified via "show slpp-guard" on factory-default ports, which report
-    # Timeout 0.  0 means a guard-disabled port stays down until reenabled.
-    "guardTimeout": 0,
+    # 10-65535).  The User Guide states 60 seconds, and never-configured ports
+    # report Timeout 60 in "show slpp-guard" with no slpp-guard line in the
+    # running configuration.  0 is a configuration, not the default:
+    # it keeps a guard-disabled port down until it is re-enabled by hand.
+    "guardTimeout": 60,
     "enablePacketRx": False,   # OpenAPI SlppPortSettings.enablePacketRx default: false
     "packetRxThreshold": 1,    # OpenAPI SlppPortSettings.packetRxThreshold default: 1
 }
@@ -1078,7 +1089,7 @@ def apply_port_settings(
 # ─── Delete Port Override ─────────────────────────────────────────────────────
 # "Deleting" a port override doesn't actually remove it from the switch;
 # instead, it resets all SLPP fields to their factory defaults:
-#   enableGuard=false, guardTimeout=0, enablePacketRx=false, packetRxThreshold=1
+#   enableGuard=false, guardTimeout=60, enablePacketRx=false, packetRxThreshold=1
 # This is because the Fabric Engine API doesn't support DELETE on individual port entries.
 
 

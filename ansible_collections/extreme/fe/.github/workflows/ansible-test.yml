@@ -2,18 +2,18 @@ name: Ansible Test
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   sanity:
-    name: Sanity ({{ matrix.ansible }})
+    name: Sanity (${{ matrix.ansible }})
     strategy:
       matrix:
         ansible:
-          - stable-2.14
-          - stable-2.15
+          - stable-2.19
+          - stable-2.20
           - devel
     runs-on: ubuntu-latest
     steps:
@@ -25,7 +25,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
+          python-version: '3.12'
 
       - name: Install ansible-base
         run: pip install https://github.com/ansible/ansible/archive/${{ matrix.ansible }}.tar.gz --disable-pip-version-check

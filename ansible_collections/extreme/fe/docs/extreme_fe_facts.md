@@ -33,6 +33,10 @@ This module collects state, hardware, interface, configuration, and neighbor fac
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
+- **Secrets are never returned:** SNMP community strings, SNMPv3 passwords, web server and HTTP proxy passwords, and OSPF authentication keys are removed before the facts are stored, so they never reach hostvars or a fact cache. Settings such as the authentication type are kept.
+- **Unsupported features are skipped:** if the switch does not support a feature (for example PoE on a switch without PoE) or cannot return its data, that part is left out of the facts with a warning naming it, and all other facts are still gathered.
+- **When the task fails:** if the switch cannot be reached, rejects the login, or answers with any other unexpected error (for example a server error or "too many requests"), the task fails and **no facts are set**, not even the ones already read, so you never work with an incomplete set.
+- **Warnings do not quote the switch:** device messages are not copied into warnings or errors, because they could contain a secret. Check the switch directly for the details.
 
 ---
 
@@ -61,7 +65,7 @@ This module collects state, hardware, interface, configuration, and neighbor fac
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `gather_subset` | list of str | No | `[default]` | Fact subsets to collect: `default`, `hardware`, `interfaces`, `config`, `neighbors`, `all` |
+| `gather_subset` | list of str | No | `[default]` | Fact subsets to collect: `default`, `hardware`, `interfaces`, `config`, `neighbors`, `all`. Prefix with `!` to exclude one from `all`. `min` is the same as `default`, the minimal set; `!all` gathers that minimal set plus only the subsets listed next to it, also when `all` is listed too |
 | `gather_network_resources` | list of str | No | - | Network resources to collect: `interfaces`, `l2_interfaces`, `l3_interfaces`, `vlans`, `lag_interfaces`, `vrfs`, `static_routes`, `ospfv2`, `vrrp`, `lldp`, `cdp`, `ntp`, `dns`, `snmp_server`, `syslog`, `anycast_gateway`, `isid`, `all` |
 
 ---

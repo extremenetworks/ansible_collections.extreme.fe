@@ -36,8 +36,18 @@ Through this module, Link Aggregation Groups (LAGs) can be created and deleted o
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- Fabric Engine cannot patch an existing LAG's aggregation mode; delete and recreate the LAG to change `mode`.
-- `replaced` and `overridden` reset omitted attributes to the factory defaults listed under [Factory Defaults](#factory-defaults). `mode` is never reset, because the API cannot patch it.
+- **LAGs:** list each `lag_id` only once in `config`. The old top-level parameters (`lag_id`, `name`, `member_ports`, ...) still work for a single LAG but are deprecated, and cannot be mixed with `config`.
+- **`mode` and `lacp_key` cannot be cleared:** the switch cannot change a LAG's `mode`, and a key cannot be removed once set. Delete the LAG and create it again to change either. `replaced` and `overridden` never reset them.
+- **LACP keys:** use a key from `1` to `512`.
+- **Omitted settings:** `replaced` and `overridden` reset the other settings you leave out to the factory defaults listed under [Factory Defaults](#factory-defaults) (for example `name` back to `MLT-<lag_id>`).
+- **Member ports:** `replaced` requires `member_ports`, and the list is complete: ports not in it are removed. With `overridden`, a LAG without `member_ports` loses all its members. With `merged`, use `add_member_ports` / `remove_member_ports`, or `purge_member_ports: true` to make `member_ports` complete.
+- **Load balancing:** Fabric Engine always uses `CUSTOM`. Any other `load_balance_algo` is ignored with a warning.
+- **Deleting every LAG:** `deleted` without `config` deletes every LAG on the switch, and `overridden` deletes every LAG not in `config`, except protected ones.
+- **Protected LAGs:** to keep management and MLAG working, LAGs in the management VLAN, the vIST LAG, MLAG ports and LAGs in the vIST VLAN are never deleted by those sweeps. They are skipped with a warning and listed in `skipped_lags`, together with any LAG the switch refuses to delete. A LAG you name in `config` is always acted on, protected or not. If the module cannot read the information it needs to find the protected LAGs, the task fails before deleting anything.
+- **Re-applying `gathered`:** `gathered` can be passed back as `config` and changes nothing. The raw switch records are still returned under `lags`, as up to 1.2.1.
+- **Lost connections:** if the connection drops during a change, the task reports `changed: true`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- **`changed` on failure:** a failed task reports `changed: true` if the switch was already modified, and the error message names what was applied (for example `LAG 81 was created, but failed to set 'flexUni'`).
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 
@@ -60,6 +70,9 @@ Through this module, Link Aggregation Groups (LAGs) can be created and deleted o
 | DELETE | /v0/configuration/lag/{lag_id} | Delete LAG |
 | POST | /v0/configuration/lag/{lag_id}/memberPorts | Add member ports |
 | DELETE | /v0/configuration/lag/{lag_id}/memberPorts/{port} | Remove member port |
+| GET | /v0/configuration/vlan | Management and vIST VLAN members (protection for `overridden` and `deleted` without `config`) |
+| GET | /v0/configuration/mlag/peers | MLAG peers, their vIST LAG and vIST VLAN (protection for `overridden` and `deleted` without `config`) |
+| GET | /v0/configuration/mlag/peers/{peer_id}/ports | MLAG ports of a peer (protection for `overridden` and `deleted` without `config`) |
 
 ---
 
@@ -68,11 +81,12 @@ Through this module, Link Aggregation Groups (LAGs) can be created and deleted o
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `state` | str | No | `merged` | Operation state |
-| `lag_id` | raw | Yes | - | LAG identifier |
+| `config` | list of dict | No | - | LAGs to manage, one entry per LAG with the suboptions below. Required for `merged`, `replaced` and `overridden` unless the deprecated top-level parameters are used. Omitting it, or an empty list, with `state: deleted` deletes every LAG except the protected ones |
+| `lag_id` | raw | Yes | - | LAG identifier. Each LAG may appear only once in `config`; entries that resolve to the same identifier (for example `80` and `'80'`) are rejected before the device is contacted |
 | `name` | str | No | - | Friendly name for the LAG |
-| `mode` | str | No | - | Aggregation mode: `STATIC`, `LACP`, or `VLACP` |
+| `mode` | str | No | - | Aggregation mode: `STATIC`, `LACP`, or `VLACP`. A LAG created with `VLACP` needs at least one `member_ports` (or `add_member_ports`) entry: Fabric Engine creates a VLACP LAG without members as `LACP`, so the module refuses it |
 | `lacp_key` | str | No | - | LACP key for the LAG. Valid values are `1`-`512`. Never reset by `replaced`/`overridden` - see [Factory Defaults](#factory-defaults) |
-| `load_balance_algo` | str | No | - | Load balancing algorithm: `L2`, `L3`, `L3_L4`, `CUSTOM`, `PORT`. Fabric Engine always applies `CUSTOM`; other values are accepted by the API and ignored |
+| `load_balance_algo` | str | No | - | Load balancing algorithm: `L2`, `L3`, `L3_L4`, `CUSTOM`, `PORT`. Fabric Engine always applies `CUSTOM`; other values are never sent to the device (neither on create nor on update) and are ignored. For an existing LAG the device reports as `CUSTOM`, a different value emits a warning (once per LAG) and is ignored, so it never causes a change |
 | `flex_uni` | bool | No | - | Enable or disable Flex-UNI (switched UNI) on the LAG. Must be `true` before the LAG can be used in a Switched UNI (SUNI) ISID endpoint, and `false` for Transparent UNI (TUNI) membership. Device factory default is `false`. With `merged` it is applied only when supplied; with `replaced`/`overridden` an omitted value is reset to `false` |
 | `member_ports` | list of str | No | - | Authoritative list of member ports |
 | `add_member_ports` | list of str | No | - | Ports to add to the LAG |
@@ -88,8 +102,8 @@ Through this module, Link Aggregation Groups (LAGs) can be created and deleted o
 |-------|-----------|-------------|
 | `merged` | Create LAG if missing; add/update attributes and members incrementally. | GET, POST, PATCH, DELETE |
 | `replaced` | Make supplied attributes and members authoritative for the LAG; omitted attributes are reset to factory defaults. | GET, POST, PATCH, DELETE |
-| `overridden` | Like `replaced` for each listed LAG, and authoritative across the **whole device**: any LAG not listed in `config` is **deleted** (reported in `deleted_lags`; failures in `skipped_lags`). The deprecated top-level form manages a single LAG and never deletes unlisted ones. | GET, POST, PATCH, DELETE |
-| `deleted` | Delete the LAG entirely or remove specified members. | GET, DELETE |
+| `overridden` | Like `replaced` for each listed LAG, and authoritative across the **whole device**: any LAG not listed in `config` is **deleted** (reported in `deleted_lags`), except the protected ones (management VLAN or vIST VLAN members, vIST LAGs, MLAG ports); protected LAGs and failed deletes are reported in `skipped_lags`. The deprecated top-level form manages a single LAG and never deletes unlisted ones. | GET, POST, PATCH, DELETE |
+| `deleted` | Delete the LAG entirely or remove specified members. With `config` omitted or empty, delete **every** LAG except the protected ones (management VLAN or vIST VLAN members, vIST LAGs, MLAG ports), which are kept with a warning and listed in `skipped_lags`; deleted LAGs are reported in `deleted_lags`. | GET, DELETE |
 | `gathered` | Read-only — return current LAG configuration. | GET |
 
 ---
@@ -132,7 +146,12 @@ To clear an LACP key, delete and recreate the LAG.
 | `lag_removed` | dict | LAG configuration that was deleted |
 | `member_additions` | list | Ports that were added |
 | `member_removals` | list | Ports that were removed |
-| `lags` | list | LAG configurations (gathered) |
+| `lags` | list | When `state=gathered`, the raw LAG records retrieved from the device (REST field names such as `lagId` and `memberPorts`), as returned up to 1.2.1; use `gathered` to feed the configuration back into a task. Otherwise one entry per LAG in `config`, each carrying `lag_id`, `changed`, `before` and `after` |
+| `before` | list | LAG configuration on the device before the task ran. Returned when state is not `gathered` |
+| `after` | list | LAG configuration on the device after the task ran; in check mode this is the predicted state. Returned when state is not `gathered` |
+| `gathered` | list | Current LAG configuration in the shape of `config` (`lag_id`, `name`, `mode`, `lacp_key`, `load_balance_algo`, `flex_uni`, `member_ports`), so it can be supplied back as `config`. `lacp_key` is present only for a configurable key (`1`-`512`). The gather fails for a LAG record without a valid `memberPorts` list. Changed in 1.3.0; up to 1.2.1 it held the raw REST records, which are still returned under `lags`. Returned when `state=gathered` |
+| `deleted_lags` | list | LAG identifiers deleted by `overridden` because `config` did not list them, or by `deleted` with `config` omitted or empty (in check mode, the ones that would be deleted) |
+| `skipped_lags` | list | LAGs that `overridden`, or `deleted` without `config`, left on the device. Each entry holds `lag_id` and `reason`: the device error for a rejected delete, or the protection (with `protected: true`) for a protected LAG |
 
 ---
 
@@ -206,8 +225,9 @@ An empty list clears every member while keeping the LAG:
 ### Enforce the complete LAG inventory
 
 `overridden` is authoritative across the **whole device**: each listed LAG is
-handled as for `replaced`, and any LAG the task does not list is **deleted**.
-LAGs it could not delete are reported in `skipped_lags`. Use it only when the
+handled as for `replaced`, and any LAG the task does not list is **deleted**,
+except protected LAGs (management VLAN or vIST VLAN members, vIST LAGs, MLAG ports).
+Protected LAGs and LAGs it could not delete are reported in `skipped_lags`. Use it only when the
 task describes every LAG the device should have - to reset a single LAG without
 touching the others, use `replaced`.
 
@@ -256,6 +276,24 @@ members are pruned and the LAG itself is kept.
           - "1:4"
 ```
 
+### Delete all LAGs (except protected)
+
+`deleted` with `config` omitted (or empty) deletes **every** LAG on the device. LAGs in the
+management VLAN or a vIST VLAN, vIST LAGs and MLAG ports are protected: they are kept,
+warned about and listed in `skipped_lags`. Run it with `--check` first to see
+what `deleted_lags` would contain.
+
+```yaml
+- name: Delete all LAGs (except protected)
+  extreme.fe.extreme_fe_lag:
+    state: deleted
+  register: lag_cleanup
+
+- name: Show what was kept
+  ansible.builtin.debug:
+    var: lag_cleanup.skipped_lags
+```
+
 ### Gather LAG configuration
 
 ```yaml
@@ -271,6 +309,11 @@ members are pruned and the LAG itself is kept.
       - "10"
       - "11"
   register: lag_subset
+
+- name: Re-apply the gathered configuration (reports no change)
+  extreme.fe.extreme_fe_lag:
+    state: replaced
+    config: "{{ lag_subset.gathered }}"
 ```
 
 ---

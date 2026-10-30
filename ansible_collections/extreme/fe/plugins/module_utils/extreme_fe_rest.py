@@ -1,15 +1,12 @@
-# -*- coding: utf-8 -*-
 # Copyright (c) 2025 Extreme Networks
 # GNU General Public License v3.0+ (see LICENSE or https://www.gnu.org/licenses/gpl-3.0.txt)
 
-from __future__ import absolute_import, division, print_function
-__metaclass__ = type
 
-import json
-from ansible.module_utils.connection import Connection, ConnectionError
 from ansible.module_utils.common.text.converters import to_text
+from ansible.module_utils.connection import Connection, ConnectionError
 
-class ExtremeFeRest(object):
+
+class ExtremeFeRest:
     def __init__(self, module):
         self.module = module
         self.connection = Connection(module._socket_path)
