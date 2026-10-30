@@ -32,35 +32,17 @@ This module manages LLDP interface-level settings on Fabric Engine devices using
 
 ## [Notes](#table-of-contents)
 
-- On Fabric Engine, `transmit_enabled` and `receive_enabled` must use the same value; if only one is supplied, the module mirrors it to the other.
-- If LLDP transmit or receive is disabled, the device ignores advertisement/location attributes in the same request; the module submits only the basic LLDP enable flags in that case.
-- The MED network policy is written through a separate endpoint, and only while LLDP is enabled. Disabling a port's LLDP therefore leaves the policy the device already holds in place, just as it leaves the advertisement and location attributes.
-- When `med_policy` is supplied, it is treated as the authoritative list for that interface because the device API replaces the full MED policy list.
-- The device returns `civic_address` with a `ldp location-identification civic-address` CLI prefix attached.
-  That prefix is stripped from gathered output, so a value read back from the device can be re-applied unchanged.
-- `civic_address` is validated before any request is sent. It must start with `country-code` followed by exactly two
-  letters, must contain at least one more supported label, and every label needs a value. An unsupported or
-  misspelled label (for example `postal-code`) makes the task fail naming the interface and label, because the device
-  would silently drop it or append it to the previous value and advertise a wrong emergency location. Unquoted values
-  run to the next supported label, so a value containing a label-like word must be quoted, for example
-  `street "Main room"`.
-- `state: gathered` returns the interface list under the standard `gathered` key, each entry in the shape of a
-  `config` entry, so the list can be applied back as `config` without a change. It is also still returned under
-  `interfaces_settings` in the `{name, settings}` form used up to 1.2.1, so existing playbooks keep working; that
-  form is deprecated and will be removed in 2.0.0.
-- `state: deleted` without `config` (or with an empty list) resets every discovered interface to its LLDP defaults.
-- Returns `before` and `after` snapshots of every targeted interface, whether or not anything changed, in the same
-  shape as `gathered`.
-- Supports check mode (`--check`) to preview a change without sending it, and diff mode (`--diff`) to show the
-  before and after interface settings.
-- Each interface is written with up to two requests, the LLDP settings PUT and then the MED policy PUT, and is
-  re-read afterwards. Both requests always send their whole section, so the settings PUT is resent unchanged for a
-  MED-policy-only change. When a request fails after the settings PUT succeeded, the task fails and the message
-  names the request that failed and the one(s) already applied; it reports `changed=true` only when one of the
-  applied requests differed from the interface's settings. A failure on a later interface also reports
-  `changed=true` and lists the interfaces this task already changed (`details.changed_interfaces`).
 - Tested against Fabric Engine Version 9.3.2.
-- A PUT that fails without an answer (a lost connection) may have been applied, so the task reports `changed: true` with `details.outcome: unknown`.
+- **Ports:** name ports using slot:port notation, such as `1:5`. The list was named `interfaces` up to 1.2.1; that name still works but is deprecated.
+- **Transmit and receive go together:** Fabric Engine needs `transmit_enabled` and `receive_enabled` to have the same value. If you set only one, the module sets the other to match; setting them to different values fails.
+- **Disabling LLDP keeps the rest:** when LLDP is off on a port, the switch ignores the advertisement, location and MED policy settings, so the module sends only the enable flags and the port keeps its other settings.
+- **MED policy is a complete list:** when you supply `med_policy` for a port, it replaces that port's whole MED policy list.
+- **Civic address:** `civic_address` must start with `country-code` and a two-letter code, followed by at least one more label, each with a value. A misspelled label (for example `postal-code`) fails the task, because the switch would otherwise advertise a wrong emergency location. Quote a value that contains a label word, for example `street "Main room"`.
+- **Resetting every port:** `deleted` without `config` resets LLDP on every port to its defaults.
+- **Re-applying `gathered`:** the `gathered` result can be passed back as `config`. The old `interfaces_settings` result is still returned but is deprecated and will be removed in 2.0.0.
+- **Partly applied changes:** each port's LLDP settings and MED policy are written separately. If a write fails, the error message says which parts and ports were already changed, and the task reports `changed: true` when the switch was modified.
+- **Lost connections:** if the connection drops during a change, the task reports `changed: true` with `details.outcome: unknown`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

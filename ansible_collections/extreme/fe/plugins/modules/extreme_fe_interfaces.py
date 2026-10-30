@@ -22,55 +22,33 @@ description:
 author:
     - Bjorn Haas (@bhaas_extr)
 notes:
-    - Each port may be listed once in C(config); a port listed twice fails before any request.
-    - A write that fails without an answer (a lost connection) and cannot be re-read may have been applied, so
-      the task reports C(changed=true) with C(details.outcome=unknown).
-    - Ports are supplied through the C(config) list. The parameter was named
-      C(ports) before 1.2.1; that name still works as a deprecated alias so
-      existing playbooks keep running.
-    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-    - Port names must use slot and port notation such as C(1:5).
-    - Setting C(auto_negotiation) to C(false) is rejected for a port whose capabilities report an empty
-      C(autoNegOffSupportedSpeedDuplexList) (for example 7520-48XT-6C copper ports), because the device cannot
-      disable auto-negotiation there. The task fails before any port is modified, also in check mode.
-    - Supports check mode and diff mode. Under C(--diff) the module reports the per-port configuration of the whole
-      device before and after the change, including ports that C(overridden) resets to defaults; combined with
-      C(--check) the reported C(after) is the state that would have been written.
-    - Each port update and the global settings update is sent as one PATCH carrying every changed field. The device
-      can apply part of such a request and still reject it, so on a rejected update the module re-reads the port
-      (or the global settings) and reports which fields were and were not applied. The failure message names them,
-      C(details) carries C(attempted_payload), C(applied_fields), C(not_applied_fields), C(status_code) and
-      C(resource), and C(changed) is C(true) when any field was applied. If the re-read fails too, C(details) carries
-      C(reread_error) and which fields were applied is unknown.
-    - The admin state of the C(admin) ports is written with one PUT to C(/v0/configuration/ports), and C(deleted) and
-      C(overridden) reset a port with one PUT of its default values. A rejected PUT is attributed the same way, the
-      admin flags as C(<port>.enabled). For a reset, the fields the port already held at their default are listed in
-      C(unchanged_fields) and never count as applied. A reset that C(overridden) skips with a warning still reports
-      C(changed=true) when the re-read shows part of it applied.
-    - A task that fails after one of its writes succeeded (the global settings PATCH, the admin PUT, a port PATCH or
-      reset PUT) reports C(changed=true), whichever later request or read-back failed, and the failure message lists
-      the writes already applied.
-    - C(state=deleted) with neither C(config) nor C(admin) resets every port the device lists to its defaults,
-      except the admin state (C(enabled)), which is left alone so a port that was shut down stays down; the global
-      settings are not touched either. Protected ports
-      are skipped, each with a warning naming the port and the reason, and listed in C(skipped_interfaces). They
-      are the out-of-band management port (C(mgmt) or C(<slot>:mgmt), or flagged C(managementPort) in the port
-      capabilities), every port that is a tagged or untagged member of a management VLAN (C(isMgmtInterface) in
-      C(/v0/configuration/vlan)), and the member ports of a LAG that is a member of one (C(/v0/configuration/lag)).
-      A port the device refuses to reset is skipped with a warning and listed there too.
-    - C(overridden) protects the same ports when it resets the ports absent from C(config), with the same warning
-      and the same C(skipped_interfaces) list. A port named in C(config) is always applied as C(replaced), protected
-      or not.
-    - The VLAN list, and the LAG list when a management VLAN has a LAG member, are read before anything is written,
-      and only when at least one swept port would be reset (it is not at its defaults, or C(admin) names it). If
-      either read fails the task fails without changing the device, also in check mode, so the management
-      connection is never put at risk; list the ports in C(config) to change them instead. A management-VLAN LAG
-      missing from the LAG list, or without a C(memberPorts) list (absent, not a list, or with a blank or
-      non-string member name), fails the task the same way; an empty list is a memberless LAG.
-    - The port capabilities (C(/v0/state/capabilities/system/ports)), which flag C(managementPort), are read at
-      the same point. On firmware without that endpoint (HTTP 404) the management port is identified by its name
-      only, with a warning. Any other failure of that read fails the task the same way, without changing the
-      device.
+    - Tested against Fabric Engine Version 9.3.2.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+    - Name ports using slot:port notation, such as C(1:5), and list each port only once in C(config). The list
+      was named C(ports) before 1.2.1; that name still works but is deprecated.
+    - Some ports cannot run with auto-negotiation off, for example the copper ports of a 7520-48XT-6C. Setting
+      C(auto_negotiation=false) on such a port fails before anything is changed.
+    - C(deleted) with neither C(config) nor C(admin) resets every port to its defaults. It does not change a
+      port's admin state, so a port you shut down stays down, and it does not touch C(global_settings).
+    - To keep your management connection up, C(deleted) without C(config) and C(overridden) never reset the
+      management port, the ports in a management VLAN, or the members of a LAG in a management VLAN. They are
+      skipped with a warning and listed in C(skipped_interfaces), together with any port the switch refuses to
+      reset. A port you name in C(config) is always configured, protected or not. If the module cannot read the
+      information it needs to find the protected ports, the task fails before changing anything.
+    - C(overridden) fails when C(config) is empty, so it never resets every port by accident. Use C(deleted)
+      without C(config) to do that on purpose.
+    - The C(gathered) result can be passed back as C(config). If you gathered only some ports with
+      C(gather_filter), re-apply it with C(merged) or C(replaced), not C(overridden), which would reset every
+      port that is not in the list. The operational state under C(ports_state) is information only and cannot
+      be passed back.
+    - If the switch rejects a change after applying part of it, the error message lists which settings were
+      applied and which were not.
+    - If the connection drops during a change and the module cannot confirm the result, it reports
+      C(changed=true) with C(details.outcome=unknown), because the change may have been applied. Run the task
+      again to bring the switch to the requested state.
+    - A failed task reports C(changed=true) if the switch was already modified by an earlier write in the same
+      task, and the error message lists those writes.
+    - Supports check mode and diff mode.
 requirements:
     - ansible.netcommon
 options:

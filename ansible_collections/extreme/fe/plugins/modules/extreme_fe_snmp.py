@@ -76,21 +76,16 @@ options:
       - gathered
     default: merged
 notes:
-  - This module targets Fabric Engine only.
-  - A task that fails after its PATCH was applied (for example when the re-read of the result fails) reports
-    C(changed=true). A PATCH that fails without an answer (a lost connection) may have been applied, so it
-    reports C(changed=true) with C(details.outcome=unknown) as well.
-  - Uses GET /v1/configuration/snmp to read the current system name,
-    falling back to GET /v0/configuration/snmp if v1 returns no data.
-  - Uses PATCH /v0/configuration/snmp to update the system name.
-  - The system name is a singleton resource (one per device).
-  - Secret values are never returned. The SNMP community strings and the SNMPv3
-    authentication and encryption passwords of the device are removed from every
-    returned value, including C(api_responses).
-  - The secret values read from the device are also removed from every message text the
-    device returns, so they never appear in C(msg), C(details) or C(api_responses).
-  - A failed read of the SNMP configuration is reported generically, with the path and the
-    HTTP status code only. The text of the device error is not returned.
+  - Tested against Fabric Engine Version 9.3.2.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - The module manages the switch's SNMP system name only. An unset name is shown as C(""); clear it with
+    C(deleted) or with an empty C(name).
+  - SNMP community strings and SNMPv3 passwords are never returned; they are removed from every result and
+    error message.
+  - If the connection drops while the name is being written, the task reports C(changed=true) with
+    C(details.outcome=unknown), because the change may have been applied. Run the task again to make sure.
+  - A task that fails after the name was written reports C(changed=true).
+  - Supports check mode and diff mode.
 """
 
 EXAMPLES = r"""

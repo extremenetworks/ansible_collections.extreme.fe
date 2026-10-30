@@ -32,33 +32,18 @@ Version added: 1.0.0
 
 ## [Notes](#table-of-contents)
 
-- When `state=overridden`, the module resets interfaces not listed in `config` to device defaults; `config` must not be empty. The protected interfaces absent from `config` (the same ones `deleted` without `config` protects, see below) are not reset; an interface named in `config` is always applied as `replaced`, protected or not.
-- On a `TRUNK` LAG that is not in LACP mode and has no member ports, the device ignores `untagged_vlan` and reports 0, so the module neither compares nor sends it, including its automatic membership in the allowed VLAN list. Only explicitly listed tagged VLANs are written. If the untagged VLAN is the only difference, no request is sent and nothing is reported as changed; the value is not stored or pending on the device. When other attributes of the LAG change, the request omits `portVlan`. The module warns once per such interface; run the task again after adding member ports to apply the value. `ACCESS` LAGs are not affected. In check mode a LAG that the task turns into `TRUNK` is predicted with `untagged_vlan` 0, the value a real run reads back.
-- Interfaces that cannot be reset during overridden (e.g., LACP LAGs), and the protected ones, are skipped with a warning and returned in `skipped_interfaces`.
-- A task that fails after one of its writes succeeded reports `changed: true`, whichever later request or read-back failed, and the failure message names the interfaces already written. Under `overridden`, an interface whose reset the device accepted but whose read-back or retry then fails fails the task instead of being listed in `skipped_interfaces`.
-- `state: gathered` returns the interface list under the standard `gathered` key, one entry per interface
-  with `name`, `port_type`, `untagged_vlan` and `tagged_vlans`, the form `config` accepts. It can be supplied
-  back as `config` unchanged, and re-applying a result gathered without `config` with `merged`, `replaced`
-  or `overridden` changes nothing. Gathered with `config`, the result lists only the named interfaces: it is
-  still safe to re-apply with `merged` or `replaced`, but `overridden` takes it as the complete interface list
-  and resets every unlisted interface that is not protected, so re-apply such a result with `overridden` only
-  to do that.
-  `tagged_vlans` does not repeat `untagged_vlan`, and a memberless non-LACP `TRUNK` LAG is reported with
-  `untagged_vlan` 0, which re-applies without a request or a warning. A `port_type` other than `ACCESS` or
-  `TRUNK` is left out, and such a type is kept when the result is re-applied. Interfaces named in `config`
-  that the device does not have are left out, with a warning.
-- The interfaces are also still returned under `interfaces` in the per-interface result form used up to 1.2.1
-  (`name`, `before`, `after`, `differences`, `changed`), so existing playbooks keep working; that form cannot
-  be supplied back as `config`, is deprecated and will be removed in 2.0.0.
-- Returns `before` and `after` snapshots for every interface the task touched — those named in `config`,
-  plus every interface `overridden` or `deleted` without `config` was able to reset — populated whether or not anything changed.
-  Interfaces reported in `skipped_interfaces` are not covered.
-- `state: deleted` without `config` resets every interface the device lists, ports and LAGs, exactly as `deleted` resets a listed interface without VLAN parameters (port type kept, untagged VLAN 0, no tagged VLANs). Protected interfaces are skipped, each with a warning naming the interface and the reason, and listed in `skipped_interfaces`. They are the out-of-band management port (`mgmt` or `<slot>:mgmt`), every port and LAG that is a tagged or untagged member of a management VLAN (`isMgmtInterface` in `/v0/configuration/vlan`), and the member ports of such a LAG. LACP/VLACP LAGs and interfaces the device refuses to reset are skipped as `overridden` skips them.
-- `overridden` and `deleted` without `config` read the VLAN list, and the LAG list when a swept interface is a LAG, before anything is written, and only when at least one interface they sweep would be reset. If it cannot be read the task fails without changing the device, also in check mode, so the management connection is never put at risk. A management-VLAN LAG whose record is missing from the LAG list, or has no `memberPorts` list (absent, not a list, or with a blank or non-string member name), fails the task the same way, since its member ports could not be protected; an empty list is a memberless LAG.
-- Supports check mode (`--check`) and diff mode (`--diff`).
 - Tested against Fabric Engine Version 9.3.2.
-- Each interface may be listed once in `config`; one listed twice fails before any request.
-- A PUT that fails without an answer (a lost connection) may have been applied, so the task reports `changed=true` with `details.outcome=unknown`; a reset sweep (`deleted` without `config`, `overridden`) fails then instead of listing the interface in `skipped_interfaces`.
+- **Interfaces:** list each port or LAG only once in `config`.
+- **Omitted settings:** with `replaced` and `overridden`, an omitted `untagged_vlan` is reset to VLAN 1, and the port type follows `tagged_vlans` (`TRUNK` when you give tagged VLANs, `ACCESS` otherwise). Set `untagged_vlan` explicitly to keep a different one.
+- **`overridden`:** every interface not listed in `config` is reset to `ACCESS` with untagged VLAN 1 and no tagged VLANs. It fails when `config` is empty, so it never resets every interface by accident.
+- **`deleted` without `config`:** removes the VLAN membership of every port and LAG (untagged VLAN 0, no tagged VLANs) and keeps each interface's port type.
+- **Protected interfaces:** to keep your management connection up, `overridden` and `deleted` without `config` never reset the management port, the ports and LAGs in a management VLAN, or the member ports of such a LAG. They also skip LACP/VLACP LAGs, which the switch cannot reset, and any interface the switch refuses to reset. Skipped interfaces get a warning and are listed in `skipped_interfaces`. An interface you name in `config` is always configured, protected or not. If the module cannot read the information it needs to find the protected interfaces, the task fails before changing anything.
+- **Empty TRUNK LAGs:** a `TRUNK` LAG with no member ports and not in LACP mode ignores `untagged_vlan`. The module warns and leaves it out; run the task again after adding member ports.
+- **Re-applying `gathered`:** the `gathered` result can be passed back as `config`. If you gathered only some interfaces, re-apply it with `merged` or `replaced`, not `overridden`: `overridden` would reset every interface that is not in the list.
+- **Deprecated:** the per-interface result list under `interfaces` is the form used up to 1.2.1 and will be removed in 2.0.0. Use `gathered`, `before` and `after` instead.
+- **Lost connections:** if the connection drops during a change, the module cannot tell whether it was applied, so it reports `changed: true` with `details.outcome: unknown`. Run the task again to bring the switch to the requested state.
+- **`changed` on failure:** a failed task reports `changed: true` if the switch was already modified by an earlier write in the same task, and the error message names the interfaces already written.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

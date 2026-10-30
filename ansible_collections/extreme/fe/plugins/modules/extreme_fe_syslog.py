@@ -134,61 +134,22 @@ requirements:
   - ansible.netcommon
 notes:
   - Tested against Fabric Engine Version 9.3.2.
-  - A PATCH or PUT that fails without an answer (a lost connection) may have been applied, so the task
-    reports C(changed=true) with C(details.outcome=unknown).
-  - C(enabled) (the global syslog admin state) is marked C(x-nos=fabric-engine)
-    in the OpenAPI spec, meaning it applies only to Fabric Engine (VOSS),
-    which matches this collection's target platform.
-  - C(config.servers[].vr_name) does not exist in this module - the REST
-    C(vrName) field is marked C(x-nos=switch-engine) (Switch Engine/EXOS
-    only) and is never read or written.
-  - Secure forwarding (mode, TCP port, server certificate name) and
-    C(syslog max-hosts) are documented in the Fabric Engine CLI but are not
-    present anywhere in the OpenAPI schema for these two endpoints, so this
-    module never reads or writes them.
-  - C(config.servers[].host_id) is the resource identifier for a syslog
-    server, matching the VOSS CLI's C(syslog host <1-10>). The OpenAPI
-    spec types it as a 1-10 character string; the VOSS CLI further
-    restricts it to the decimal range 1-10, confirmed against a live
-    device, and that firmware-confirmed range is what this module enforces.
-  - C(config.servers[].address) is required on every server entry for
-    C(merged), C(replaced) and C(overridden), including one that already
-    exists on the device. There is no per-server C(PATCH), so every write
-    is a full read-modify-write of the whole servers list, and requiring
-    the address on every entry avoids inventing a "required only when
-    creating" rule.
-  - C(config.servers[].port) accepts the OpenAPI-documented Fabric Engine
-    (VOSS) range of 514-530, confirmed by the User Guide's C(udp-port
-    <514-530>) parameter and by a live device. This is narrower than the
-    OpenAPI schema's raw C(0-65535) bounds, which describe the field's
-    general type rather than the Fabric Engine-specific range stated in
-    the same field's description.
-  - Neither C(config.servers[].port), C(config.servers[].enabled),
-    C(config.servers[].facility) nor C(config.servers[].log_level) has a
-    documented OpenAPI default. All four factory defaults, and the global
-    C(config.enabled) default, were confirmed against a live device on
-    2026-09-22/2026-09-23 rather than assumed - see the module's
-    FULL_DEFAULTS and SERVER_FULL_DEFAULTS comments for the exact source
-    of each value.
-  - For C(replaced) and C(overridden), the servers list is treated as a
-    set, matching the module skill's singleton-with-sub-resource-list
-    pattern - the supplied C(servers) list (when that key is present in
-    config at all) becomes the complete list, and any server on the
-    device but not in it is removed. C(replaced) leaves the current list
-    untouched only when C(servers) is omitted from config entirely;
-    C(overridden) always treats an omitted C(servers) key as "no servers
-    desired" (a full wipe). The two states therefore behave identically
-    for the servers list whenever C(servers) is supplied, and differ only
-    in how they treat the scalar C(enabled) field when it is omitted.
-  - Supports check mode and diff mode. Under C(--diff) the module reports
-    the syslog configuration before and after the change; combined with
-    C(--check) the reported "after" is the state that would have been
-    written.
-  - The admin state (C(enabled), a PATCH) and the servers list (a PUT) are
-    two requests. When the PUT fails after the PATCH succeeded, the task fails
-    with C(changed=true) and a message saying the admin state was already
-    applied. A failure of the first request reports C(changed=false); a
-    failure of the re-read after the writes reports C(changed=true).
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - Each server in C(config.servers) needs its C(address), even one that already exists on the switch.
+  - Fabric Engine stores only four severity levels, so C(EMERGENCY) and C(ALERT) are saved as C(CRITICAL), and
+    C(NOTICE) and C(DEBUG) as C(INFORMATIONAL). The module does the same mapping and warns when it does, so a
+    repeated task reports no change.
+  - With C(replaced) and C(overridden), the C(servers) list you supply becomes the complete list and any other
+    server is removed. C(replaced) keeps the current admin state (C(enabled)) and server list when you omit
+    them, and an existing server keeps the settings you omit. C(overridden) resets everything you omit to the
+    factory defaults (syslog enabled, no servers, default settings for each listed server).
+  - C(deleted) returns the admin state to its default, enabled. To turn syslog off, use C(merged) with
+    C(enabled=false).
+  - The admin state and the server list are written separately. If the server list fails after the admin state
+    was written, the task fails with C(changed=true) and says so.
+  - If the connection drops during a change, the task reports C(changed=true) with C(details.outcome=unknown),
+    because the change may have been applied. Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 options:
   config:
     description:

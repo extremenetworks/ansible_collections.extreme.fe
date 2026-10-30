@@ -90,47 +90,20 @@ requirements:
   - ansible.netcommon
 notes:
   - Tested against Fabric Engine Version 9.3.2.
-  - A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read
-    omits an attempted flag, may have been applied, so the task reports C(changed=true); with no flag
-    confirmed applied, C(details.outcome=unknown).
-  - This module manages only the C(ssh.enabled) and C(ssh.globalEnabled) flags of the
-    System Services configuration. All other System Services fields are left
-    completely untouched - the module never reads or writes C(telnet), C(ftp),
-    C(iqagent), C(webServer), C(cloudConnector) or C(vxlanGwFullInterworkingMode).
-  - C(global_enabled) (REST C(globalEnabled)) is marked with the OpenAPI attribute
-    C(x-nos=fabric-engine), meaning it applies only to Fabric Engine (VOSS), which
-    matches this collection's target platform.
-  - The OpenAPI spec's description of the C(ssh) object states that on Fabric Engine
-    (VOSS) both C(enabled) and C(global_enabled) must be C(true) to connect over SSH.
-    This is a behavioural note only; the two fields can still be set independently in
-    one C(merged) task.
-  - C(overridden) behaves exactly like C(replaced) for this module, because the SSH
-    configuration is a singleton object with no listed/unlisted sub-resources to
-    reconcile.
-  - Neither C(enabled) nor C(global_enabled) has a documented default in the OpenAPI
-    spec. The factory default used by C(replaced), C(overridden) and C(deleted) for
-    both fields is C(false), confirmed with the requester rather than assumed - the
-    User Guide's own Variable Definitions table for the CLI C(sshd) boot-config flag
-    states a default of "disabled", and no separate non-Zero-Touch-Deployment default
-    was found for the global ssh flag.
-  - A flag the device does not report (or reports as null) is unknown. It is C(null) in
-    C(before) and C(after), a requested value for it is always sent, and C(gathered)
-    fails rather than publishing it.
-  - Supports check mode and diff mode. Under C(--diff) the module reports the ssh
-    configuration before and after the change; combined with C(--check) the reported
-    "after" is the state that would have been written.
-  - When the PATCH fails, the module re-reads the ssh configuration and reports in the
-    failure C(details) which of the attempted fields the device applied
-    (C(applied_fields), C(not_applied_fields)), or C(reread_error) when the re-read
-    failed too (with C(reread_error_code) when the device gave a numeric error code);
-    C(changed) is true when a field was applied. An error document in a 2xx answer,
-    to the GET or to the PATCH, is reported by its numeric code only, never by its
-    message or payload, which could quote a stored credential. A re-read that does
-    not report an attempted field (or reports it as null) lists it in
-    C(unknown_fields), without assuming a default, and still attributes the fields it
-    reports (one that reports none of them counts as a failed re-read). When the PATCH succeeds
-    but the following re-read fails, the task fails with C(changed=true) and a message
-    saying the PATCH was applied.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - SSH access works only when both C(enabled) and C(global_enabled) are C(true).
+  - The factory default of both flags is C(false). C(deleted) without C(config), and C(replaced) or C(overridden)
+    with a flag left out, set it to C(false) and stop SSH access to the switch. C(replaced) and C(overridden)
+    behave the same for this module.
+  - Only the SSH flags are changed; other system services, such as Telnet, FTP or the web server, are never
+    touched.
+  - If the switch does not report a flag, it shows as C(null) in C(before) and C(after), and C(gathered) fails
+    instead of returning an incomplete configuration.
+  - If the switch rejects a change after applying part of it, the task reports which flags were applied, with
+    C(changed=true) when any was.
+  - If the connection drops during a change and the module cannot confirm the result, it reports C(changed=true),
+    because the change may have been applied. Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 options:
   config:
     description:

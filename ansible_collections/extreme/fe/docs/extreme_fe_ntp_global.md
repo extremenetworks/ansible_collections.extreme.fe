@@ -41,25 +41,15 @@ This module manages the Network Time Protocol configuration on Fabric Engine dev
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- Each server may be listed once in `config.servers`. An address is compared in its canonical form (an IPv6 address in any notation, a host name in any case), so the same server written twice fails before any request.
-- A PUT that fails without an answer (a lost connection) may have been applied, so the task reports `changed: true` with `details.outcome: unknown`.
-- `host_type` is validated against `address`. Tagging an IP address as `hostname` is rejected, as is
-  tagging an IPv4 address `IPv6` or the reverse — the discriminator is sent to the device as given, so a
-  mismatch would be written under the wrong type and would also skip IP canonicalization, breaking
-  idempotency. Omit `host_type` to have it detected from the address.
-- When the device reports no NTP configuration at all, the module warns and treats the device as
-  unconfigured, returning factory defaults rather than failing.
-- The OpenAPI schema marks `vrName` as read-only and states that it is ignored on Fabric Engine, where the NTP properties are global. The PUT endpoint still requires the virtual router in the URL, so `vr_name` is a required parameter. It is never sent in the request body.
-- `vr_name` is normalized the same way `extreme_fe_vrf` normalizes VRF names, using the collection's shared `normalize_vrf_name()` helper, because the REST path is case-sensitive. User virtual router names are lowercased and the system routers are mapped to their canonical casing, so `globalrouter` and `GlobalRouter` both reach `/v0/configuration/ntp/GlobalRouter`. Supplying a mixed-case name that has to be converted raises a warning.
-- The normalized `vr_name` is then matched case-insensitively against the virtual routers the device reports. For the action states, a `vr_name` the device does not report fails the task and the error lists the names that are available - this prevents writing to the wrong resource. That check only applies when the device reports virtual routers at all; on a device with no NTP configuration anywhere the factory defaults are used as the baseline, so a first-time configuration works. For `gathered` a missing `vr_name` raises a warning and returns the factory-default values.
-- Server addresses are canonicalized before they are compared, so the same server is recognised however it is spelled. IP addresses are put in their canonical form and host names are lowercased, DNS being case-insensitive; both are reported and sent to the device in that form.
-- `poll_interval` is an exponent - the interval between NTP updates in seconds is 2 raised to the power of this value. The factory default of `8` is therefore 256 seconds.
-- `gathered`, `before` and `after` contain only the `config` option fields (`enabled`, `poll_interval`, `servers`), so `gathered` can be passed back as `config`. The virtual router is reported in the separate top-level `vr_name` result.
-- Supports check mode and diff mode. Under `--diff` the module reports the whole NTP configuration before and after the change; combined with `--check` the reported "after" is the state that would have been written.
-- A rejected PUT fails the task with `changed=false`. When the PUT succeeds but the re-read that follows it fails, the task fails with `changed=true` and a message saying the configuration was applied.
-- The broadcast client setting and the per-server NTP version, minimum poll and maximum poll attributes are Switch Engine (EXOS) only and are not supported by this module.
-- `merged` never enables a server that is currently disabled unless `config[].servers[].enabled` is supplied explicitly.
-- `deleted` with a `config` that contains an empty `servers` list removes nothing. Omit `config`, or give it with no option set (`{}`), to reset the whole NTP configuration.
+- **`vr_name` is required:** NTP settings are global on Fabric Engine, but the switch still needs a virtual router name, normally `GlobalRouter`. Case does not matter; a name the switch does not report fails the task and the error lists the available names.
+- **`poll_interval` is an exponent:** the time between NTP updates is 2 to the power of this value, in seconds. The default, `8`, is 256 seconds.
+- **Server addresses:** each server can be listed only once. IPv6 addresses in any notation and host names in any case are recognised as the same server. Leave `host_type` out to have it detected from the address.
+- **Omitted settings:** `replaced` replaces the server list but keeps `enabled` and `poll_interval` when you leave them out. `overridden` resets everything you leave out to the factory defaults (NTP off, `poll_interval` 8, no servers).
+- **Server admin state:** a new server is enabled unless you set `enabled`; `merged` and `replaced` never change the state of an existing server unless you set it.
+- **`deleted`:** without `config` (or with `config: {}`) it resets the whole NTP configuration. With `config`, it resets the settings you name and removes the servers you list; an empty `servers` list removes nothing.
+- **Not supported:** the broadcast client setting and the per-server version, minimum poll and maximum poll settings exist only on Switch Engine (EXOS).
+- **Lost connections:** if the connection drops during a change, the module cannot tell whether it was applied, so it reports `changed: true` with `details.outcome: unknown`. Run the task again to bring the switch to the requested state.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

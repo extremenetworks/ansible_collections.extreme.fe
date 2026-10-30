@@ -20,50 +20,28 @@ description:
 author:
     - Bjorn Haas (@bhaas_extr)
 notes:
-    - Ports are supplied through the C(config) list. The parameter was named
-      C(ports) before 1.2.1; that name still works as a deprecated alias.
-    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-    - Each port may be listed once in C(config); a port listed twice fails before any request.
-    - A PATCH or DELETE that fails without an answer (a lost connection) and cannot be confirmed (the
-      re-read fails, or the PATCH carries a key the re-read cannot compare and no other field is
-      confirmed applied) may have been applied, so the task reports C(changed=true) with
-      C(details.outcome=unknown). A per-port DELETE
-      answered with 404 counts as done; the override was just read as present, and a DELETE resent after
-      a lost answer finds it gone.
-    - When the device does not report whether it implements the per-port DELETE, check mode cannot tell
-      and warns; its prediction assumes the DELETE and shows the ports removed.
-    - Port identifiers must use slot:port notation such as C(1:5).
-    - The Fabric Attach authentication key (C(global_settings.fabric_attach.auth_key.value)) and the ISIS Hello
-      authentication key (C(global_settings.isis.hello_auth.key.value)) are secrets. A supplied value is masked in
-      the task invocation, and the module never returns the stored key, so C(gathered), C(global_settings),
-      C(before), C(after) and C(--diff) omit C(value); C(is_encrypted) is not a secret and stays visible. The
-      C(extreme_fe) HTTPAPI plugin also keeps the C(/v0/configuration/autosense) request and response bodies out
-      of the C(-vvv) log and the HTTP trace file. A device error message is reported with any key value removed; a
-      connection or transport failure on that endpoint is reported with its detail redacted.
-    - Supports check mode and diff mode. Under C(--diff) the module reports the global settings and the per-port
-      overrides of the whole device before and after the change, including the ports that C(overridden) removes;
-      combined with C(--check) the reported C(after) is the state that would have been written.
-    - The global settings and each port override are updated with one PATCH carrying every changed field. The device
-      may apply part of such a request and still reject it, so on a rejected update the module re-reads the resource
-      and reports which fields were and were not applied. The failure message names them, and C(details) holds
-      C(attempted_payload) (secret key values masked), C(applied_fields), C(not_applied_fields),
-      C(unverifiable_fields) (secret keys whose read-back differs, as the device may return them obscured),
-      C(unchanged_fields) (already at the requested value), C(resource) and C(status_code) when known, all as dotted
-      REST paths such as C(fabricAttach.proxy.mgmtIsid). The task then reports C(changed=true) when any field was
-      applied. If the re-read fails as well, C(details) holds C(reread_error) and part of the payload may be applied.
-    - A PATCH answered with a success status but an error document (C(errorCode), a C(statusCode) of 400 or more,
-      or an C(errors) list) fails the same way, for the global settings and for a port.
-    - A per-port DELETE answered that way is not taken as a removal. An embedded 405 falls back to the PATCH like an
-      HTTP 405; any other error fails the task with the device's message, leaving the override as it is. Its body is reported in
-      C(details) with any key value masked, and key values are removed from the failure message.
-    - A task that fails after one of its writes succeeded (the global settings PATCH, a port PATCH or DELETE)
-      reports C(changed=true), whichever later request failed.
-    - Before removing a port override, the module reads C(/v0/state/capabilities/urls) once to learn whether the
-      device implements the per-port DELETE. Where it does not (Fabric Engine 9.4 lists only GET and PATCH), the
-      device lists every port, and removing an override resets the port to its factory defaults with a PATCH
-      (C(enable=true), C(nsi=0), C(wait_interval=35)); a port already at those values gets no request. When the
-      capabilities do not say, the first DELETE answered 405 decides for the rest of the task, and check mode then
-      predicts a change for a port that already holds those values.
+    - Tested against Fabric Engine Version 9.3.2.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+    - List ports in C(config) using slot:port notation, such as C(1:5), and list each port only once. The list
+      was named C(ports) before 1.2.1; that name still works but is deprecated.
+    - C(deleted) removes a port's override, which returns the port to its factory defaults (autosense enabled,
+      C(nsi=0), C(wait_interval=35)). To turn autosense off on a port, use C(merged) with C(enable=false).
+    - With C(replaced) and C(overridden), a setting you leave out is reset to its factory default. A few global
+      settings have no factory default and always keep their current value when omitted;
+      C(global_settings.fabric_attach.auth_key), the C(global_settings.dot1x_multihost) counts,
+      C(global_settings.isis.l1_metric) and C(global_settings.wait_interval). A port's own C(wait_interval) does
+      reset, to 35.
+    - The Fabric Attach key (C(global_settings.fabric_attach.auth_key.value)) and the ISIS Hello key
+      (C(global_settings.isis.hello_auth.key.value)) are secrets and are never returned, logged or shown in
+      C(--diff). Because the module cannot read a stored key back, supply the key C(value) whenever you change its
+      other fields (C(is_encrypted), C(key_id) or C(type)); otherwise the task fails before changing anything.
+    - If the device rejects a change after applying part of it, the error message lists which settings were
+      applied and which were not.
+    - If the connection drops during a change and the module cannot confirm the result, it reports
+      C(changed=true) with C(details.outcome=unknown), because the change may have been applied. Run the task
+      again to bring the device to the requested state.
+    - A failed task reports C(changed=true) if the device was already modified by an earlier write in the same task.
+    - Supports check mode and diff mode.
 requirements:
     - ansible.netcommon
 options:

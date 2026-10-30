@@ -35,9 +35,11 @@ Through this module one or more CLI commands can be executed on Fabric Engine de
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- Some commands, for example `show sys-info`, return status 400 together with complete output. The module treats them as successful with a warning (see `cli_warnings` in the return values). A 400 whose output is a CLI error message is not: a line starting with `%` (for example `% Invalid input detected at '^' marker.` for an unknown command) or with `Error:` (for example `Error: Invalid VLAN ID` for `vlan delete` on a missing VLAN) makes the command a failure.
-- With `continue_on_failure: false` the device stops a batch at the first command that does not return 200 and reports every following command as 409 (not executed). When that first command is a 400 with output that is not a CLI error, the module re-sends the skipped commands in follow-up requests until the batch completes. The follow-up requests start without any CLI mode that an earlier command of the batch entered, so a batch whose later commands depend on such a mode should set `continue_on_failure: true`, which keeps everything in one request.
-- A command that fails for real (a 400 without output, a 400 whose output is a CLI error message as described above, or any other non-200 status) still stops the batch and fails the task; the commands after it are not re-sent.
+- **Always reports a change:** the module cannot tell whether a command changed anything, so a successful task always reports `changed: true`. In check mode no command is sent and `responses` holds no output.
+- **Commands that answer with a warning:** some commands, for example `show sys-info`, return their full output with an error status. The module accepts them and lists them in `cli_warnings`. Output that is a CLI error (a line starting with `%` or `Error:`) fails the task.
+- **Stopping at the first failure:** by default the batch stops at the first command that fails, and the task fails. With `continue_on_failure: true` the switch runs the remaining commands anyway; the task still fails, but `responses` holds the output of every command.
+- **CLI modes:** when the module has to re-send the rest of a batch after a command that answered with a warning, the new request starts outside any CLI mode an earlier command entered (for example `configure terminal`). If later commands depend on such a mode, set `continue_on_failure: true`, which keeps the whole batch in one request.
+- **`changed` on failure:** a failed task reports `changed: true` if any command ran before the failure; the error lists the commands that ran and any whose result is unknown, so check the switch before running them again.
 
 ---
 

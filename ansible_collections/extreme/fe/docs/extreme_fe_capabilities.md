@@ -38,9 +38,9 @@ This module reads device-capability information on Fabric Engine devices using t
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- Supports check mode and diff mode. Both are no-ops here because the module never writes to the device - `changed` is always `false` and, since nothing ever changes, the module never populates `diff`.
-- `gather_filter=all` calls the combined `/v0/state/capabilities` endpoint, which returns `system`, `urls` and `openapi` together. `system` already contains a nested `ports` list, but it is the same data as the dedicated `ports` dataset below, not a per-port lookup.
-- `port` is only used when `ports` is included in `gather_filter`. When supplied, the single-port endpoint is used instead of the bulk one and `gathered.ports` becomes a single object instead of a list. Supplying `port` without `ports` in `gather_filter` fails the task with a clear error.
+- **Read-only:** the module never changes the switch, so `changed` is always `false`.
+- **Single port:** `port` works only together with `ports` in `gather_filter`; without it the task fails. With `port`, `gathered.ports` holds that one port's data as a single object instead of a list.
+- Supports check mode (`--check`); it makes no difference, since nothing is ever written.
 
 ---
 

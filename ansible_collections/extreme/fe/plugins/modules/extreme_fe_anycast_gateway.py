@@ -50,124 +50,27 @@ description:
 author:
   - Andreea-Lavinia Vraja (@avraja_extr)
 notes:
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI
-    connection plugin.
-  - Once created, C(ip_address), C(mask_length), C(one_ip), and C(vr_id) cannot
-    be changed. Use C(state=replaced) (DELETE + re-POST) to change these fields.
-  - C(state=merged) will fail if you try to change immutable fields on an existing
-    interface. Use C(state=replaced) or delete the interface first.
-  - For C(state=replaced) and C(state=overridden), omitted immutable fields are
-    treated as "don't care" — only provided immutable fields are compared for
-    differences. If you want to enforce specific immutable values on an existing
-    interface, provide all immutable fields or use C(state=deleted) first.
-  - "C(mask_length) can only be specified when C(one_ip=true). Fabric Engine constraint:
-    'IP Address mask allowed only with Anycast Gateway ONE-IP.' The module never sends
-    a mask length for a gateway that is not in ONE-IP mode, and it reports
-    C(mask_length) as C(null) for such a gateway (the device reports 0 for it, which
-    means not set)."
-  - The module automatically disables an interface (C(enabled=false)) before
-    deleting it, as required by Fabric Engine.
-  - With C(state=replaced) or C(state=overridden), changing an immutable field of an
-    existing interface is a DELETE followed by a POST. Immutable fields that are
-    omitted are taken from the existing interface (C(mask_length) only when the
-    resulting interface is in ONE-IP mode). The POST body is validated locally
-    before the interface is deleted, so a request that cannot succeed (for example
-    a C(mask_length) without ONE-IP, or ONE-IP without a C(mask_length)) fails
-    without touching the device.
-  - Creating a new interface with C(one_ip=true) requires C(mask_length). Without it the
-    task fails before anything is sent to the device, also in check mode.
-  - If the re-create fails after the DELETE (the POST or the follow-up C(enabled)
-    PATCH is rejected), the module restores the original interface from the state
-    it captured before the change, re-enables it if it was enabled, and then fails
-    the task with the original error plus a statement that the original was
-    restored. In that case C(changed) is C(false) unless other interfaces of the
-    same task were already modified. If the restore itself fails, the message says
-    so, C(changed) is C(true), and C(details.original_payload) holds the POST body
-    needed to re-create the interface by hand.
-  - A DELETE or POST of a re-create that fails without an answer from the device (a
-    transport error, for example a lost response) does not prove the device did not
-    carry it out, so the module reads that VLAN back. If the DELETE was in fact carried
-    out (the gateway is gone), or the POST was (the gateway exists with the requested
-    C(ip_address), C(one_ip), C(vr_id) and, for ONE-IP, C(mask_length)), the re-create
-    continues and a warning says the response was lost. Otherwise the failure is
-    handled as described above. An error that the device returns in the response body,
-    or an HTTP error status, is definitive and is handled as described above without
-    reading the VLAN back. The exceptions are HTTP 409 on the POST and HTTP 404 on the
-    DELETE, which a resend of a request that was already carried out gets back; the
-    VLAN is read back for them as for a transport error.
-  - If the follow-up C(enabled) PATCH fails without an answer, the new interface is read
-    back. If it already has the requested C(enabled), the re-create succeeds and a warning
-    says the response was lost; if it does not, the original is restored as described
-    above. If it cannot be read back, the new interface may be enabled, so before it is
-    deleted to restore the original it is disabled (checked the same way as any disable
-    before a delete). If it cannot be disabled, it is not deleted; the task fails with a
-    message that the new interface still exists and the original was not restored,
-    C(changed) is C(true), and C(details) hold C(rollback=not restored),
-    C(replacement_kept=true) and C(original_payload).
-  - The DELETE of the new interface and the POST of the original during that restore
-    are checked the same way. If one of them fails without an answer (or with the HTTP
-    404 or 409 of a resend) and the read-back shows it was carried out (the new
-    interface is gone, or the original exists again with its C(ip_address), C(one_ip),
-    C(vr_id) and, for ONE-IP, C(mask_length)), the restore continues, the original is
-    re-enabled if it was enabled, and a warning says the response was lost; the task
-    then fails exactly as after any successful restore. If the device rejects the DELETE
-    of the new interface (an error in the response body or an HTTP error status), or the
-    read-back shows that it was not deleted, or that the VLAN holds a gateway with other
-    values than the original, the message says so, C(changed) is C(true), and C(details)
-    hold C(rollback=not restored) (with C(replacement_kept=true) when the new interface
-    is still there). If the VLAN cannot be read back, the task fails with a message that
-    the state of the gateway is unknown, C(changed) is C(true), and C(details) also
-    hold C(rollback=unknown) and C(rollback_error).
-  - The PATCH that disables an interface before it is deleted (re-create, C(deleted),
-    C(overridden)) is checked the same way. If it fails without an answer and the
-    read-back shows the interface disabled, the module re-enables it and fails the task
-    with the original error plus a statement that the gateway was re-enabled;
-    C(changed) is then C(false) unless other interfaces of the same task were already
-    modified, and C(true) if it could not be re-enabled. The same C(changed) rule applies
-    when the disable of C(deleted) or C(overridden) fails without changing that interface.
-  - The DELETE of C(deleted) and of the C(overridden) pre-pass is checked the same way.
-    If it fails without an answer (or with the HTTP 404 of a resend), the module reads
-    that VLAN back. If the gateway is gone, the DELETE was carried out; the interface is
-    reported as deleted, a warning says the response was lost and the task continues. If
-    the gateway is still there, the task fails with the DELETE error plus a statement
-    that the gateway is still configured (and disabled, if the module disabled it for the
-    delete; it is not re-enabled). Any other DELETE failure is definitive and the VLAN is
-    not read back. When the task fails because the gateway is still configured, C(changed)
-    is C(true) if the module left it disabled, and otherwise C(false) unless other
-    interfaces of the same task were already modified.
-  - If the VLAN cannot be read back after such a failure, the task fails with a message
-    that the state of the gateway is unknown, C(changed) is C(true), and C(details) hold
-    C(vlan_id), C(original_payload), C(original_enabled), the request error
-    (C(patch_error), C(delete_error) or C(post_error)) and C(read_error). After the
-    DELETE of C(deleted) or the C(overridden) pre-pass the message advises running the
-    task again if the gateway is still there; after a re-create it advises re-creating
-    the original from C(original_payload) if the VLAN has no gateway.
-  - A read of a single VLAN treats HTTP 404 and 422 as "no Anycast Gateway", whether the
-    device raises the status or returns it in the response body (for example a body
-    with C(statusCode) 404). The same applies to the read of the state endpoint that
-    checks whether a gateway is still there after a failed request.
-  - An C(enabled) PATCH (of C(merged), of C(replaced) or C(overridden) when only
-    C(enabled) differs, after a create or re-create, and when the original is re-enabled
-    during a restore) and the POST that creates a missing interface are checked the same
-    way when they fail without an answer (for the POST also the HTTP 409 of a resend).
-    The VLAN is read back. If the request was carried out (the gateway has the requested
-    C(enabled), or exists with the requested C(ip_address), C(one_ip), C(vr_id) and, for
-    ONE-IP, C(mask_length)), the task continues and a warning says the response was lost.
-    If it was not, the task fails with the request error. If the VLAN cannot be read back,
-    the task fails with a message that the state of the gateway is unknown, C(changed) is
-    C(true), and C(details) hold C(vlan_id), C(state=unknown), the request error and
-    C(read_error) (a restore that cannot tell whether the original was re-enabled also
-    holds C(rollback=unknown)).
-  - A failed task reports C(changed=true) whenever the device was already modified, for
-    example by an earlier entry of C(config), by the C(overridden) pre-pass, or by the
-    POST of a new interface whose C(enabled) PATCH then failed (the message then says
-    the interface was created). It reports C(changed=false) when nothing was written,
-    and always in check mode.
-  - IPv6 Anycast is currently not supported by the device firmware.
-  - Supports check mode and diff mode. Under C(--diff) the module reports the
-    Anycast Gateway configuration of the whole device before and after the change;
-    combined with C(--check) the reported C(after) is the state that would have been
-    written.
+  - Tested against Fabric Engine Version 9.3.2.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - C(ip_address), C(mask_length), C(one_ip) and C(vr_id) cannot be changed on an existing interface,
+    and C(state=merged) fails if you try. Use C(state=replaced) (or C(overridden)) instead; the module
+    deletes the interface and creates it again with the new values. Only C(enabled) can be changed in place.
+  - With C(replaced) and C(overridden), a creation setting you leave out (C(ip_address), C(one_ip), C(vr_id),
+    C(mask_length)) keeps its current value, so the interface is not re-created by accident. An omitted
+    C(enabled) is reset to its default C(false), which disables the interface; set C(enabled=true) to keep it up.
+  - C(mask_length) is only used with C(one_ip=true), and it is required when you create a ONE-IP
+    interface. For any other interface, leave it out; it is reported as C(null).
+  - The new settings are checked before the old interface is deleted. If the device still rejects them,
+    the module puts the original interface back and the task fails with the device's error. In the rare
+    case that the original cannot be restored, the error message says so and C(details.original_payload)
+    holds what you need to re-create it by hand.
+  - Fabric Engine only deletes a disabled interface, so the module disables it for you first.
+  - If the connection drops during a change, the module checks the device to find out whether the change
+    was applied, and warns you when it was.
+  - A failed task reports C(changed=true) if the device was already modified (for example by an earlier
+    entry in C(config)), and C(changed=false) if nothing was written.
+  - IPv6 Anycast is not supported by the current device firmware.
+  - Supports check mode and diff mode.
 requirements:
   - ansible.netcommon
 options:

@@ -35,9 +35,14 @@ This module manages global, per-VLAN, and per-port SLPP settings on Fabric Engin
 
 ## [Notes](#table-of-contents)
 
-- Port identifiers must use slot:port notation such as `1:5`.
-- On Fabric Engine devices, `enable_packet_rx` and `enable_guard` are mutually exclusive for a given port; the module will fail if both are set to `true`.
 - Tested against Fabric Engine Version 9.3.2.
+- **VLANs and ports:** both are set under the `config` dict, as `config.vlans` and `config.ports`. The older top-level `vlans` and `ports` parameters still work but are deprecated, and the two forms cannot be mixed in one task.
+- **Ports:** name ports using slot:port notation, such as `1:5`.
+- **Guard or packet-rx, not both:** a port cannot have `enable_guard` and `enable_packet_rx` both set to `true`; such an entry fails before anything is changed.
+- **Omitted settings:** with `replaced` and `overridden`, a setting you leave out of a port or VLAN entry is reset to its factory default (for a port, guard off with a 60-second timeout, packet-rx off with a threshold of 1).
+- **`overridden` resets everything you do not list:** every port and VLAN missing from `config` is reset to the SLPP defaults, also when `config` is empty, and the management port is not protected. A port the switch refuses to reset is skipped with a warning.
+- **`deleted`:** resets only the ports and VLANs you list, and changes nothing when `config` is empty. It cannot be used with `global_settings`.
+- Supports check mode (`--check`). Diff mode is not supported.
 
 ---
 

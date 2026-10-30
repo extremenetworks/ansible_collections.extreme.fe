@@ -28,98 +28,40 @@ description:
 author:
   - Bjorn Haas (@bhaas_extr)
 notes:
-  - A VLAN is deleted with C(DELETE /v0/configuration/vrf/{vr_name}/vlan/{vlan_id}). The VLAN list the module re-reads
-    for C(after) once the task has changed the device is checked against the deleted VLANs, because a device has been
-    seen to answer that request as successful and keep the VLAN. A VLAN still listed is not reported as deleted; it
-    fails C(deleted) and is listed in C(skipped_vlans) by C(overridden). Delete it from the CLI (C(vlan delete)).
-  - A VLAN DELETE that fails without an HTTP status (a lost connection) may have been applied before the answer was
-    lost. Its outcome is unknown, and the task fails with C(changed=true), C(details.outcome=unknown) and the DELETE
-    error in C(details.delete_error), in both states. A DELETE answered with 404 counts as deleted, since the VLAN
-    was just read as present and a resent DELETE (after a lost answer) finds it gone; the check against C(after)
-    still reports it if it is listed. A DELETE refused with any other HTTP status is reported as it is.
-  - VLANs are supplied through the C(config) list. The former top-level
-    parameters (C(vlan_id), C(vlan_name), C(vlan_type), ...) still work as a
-    single-entry config and emit a deprecation warning; the two forms cannot
-    be mixed in one task.
   - Tested against Fabric Engine Version 9.3.2.
-  - A VLAN create (C(POST)) that fails without an answer (a lost connection), or a C(PATCH) that does and cannot
-    be re-read, may have been applied, so the task reports C(changed=true) with C(details.outcome=unknown).
-    A create answered with 409 (a resend after a lost answer) is checked against a re-read; it counts as done
-    when the VLAN is there with the submitted settings, otherwise the outcome is unknown.
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI
-    plugin shipped with this project.
-  - For the VLANs a task lists, C(replaced) and C(overridden) enforce
-    membership authoritatively per VLAN, but only for the interface types
-    the entry mentions. Neither state reconciles membership on a per-port
-    basis across VLANs, so under C(replaced) a port keeps its membership in
-    VLANs the task does not list. Under C(overridden) those VLANs are
-    deleted outright, which removes the port from them as a side effect.
-  - Mentioning an interface type makes it authoritative for both tagged and
-    untagged members. Supplying C(lag_interfaces) as an empty list therefore
-    clears every LAG from that VLAN, and listing only tagged members removes
-    the untagged ones. Omit the key entirely to leave a type alone under
-    C(replaced); under C(overridden) an unmentioned type is cleared anyway.
-  - ISIS logical interfaces named in C(isis_logical_interfaces) must already
-    exist on the device; create them first through the SPBM Isis Circuit
-    Management endpoints. The VLAN endpoints return HTTP 204 even for an
-    interface that does not exist and then drop the entry, so the module
-    checks existence before writing and re-reads the VLAN afterwards. The
-    REST API can only create layer-3 ISIS logical interfaces, which do not
-    carry VLANs, so ISIS logical interface VLAN membership may not be
-    manageable through the VLAN endpoints on a given device; the task then
-    fails with a message saying the membership was accepted but not stored.
-    An ISIS membership already present on the VLAN is left alone and sends
-    nothing.
-  - The VLAN name, type and STP instance (and the ISIS logical interface
-    lists) are written in one PATCH, which the device may apply in part
-    before refusing it. When that PATCH fails, the module re-reads the VLAN
-    and the error message and C(details) report which fields were and were
-    not applied (C(applied_fields), C(not_applied_fields), as REST key
-    names), together with
-    C(attempted_payload), C(status_code) and C(resource); the task then
-    reports C(changed=true) if any field was applied. If the re-read fails
-    too, C(details.reread_error) says why and nothing is attributed.
-  - A LAG membership request is answered per interface. When some of its
-    interfaces fail and others are applied, the task fails with
-    C(changed=true) and C(details.applied_interfaces) lists the applied ones
-    next to C(details.failures). Each requested interface must be
-    confirmed by a successful result naming it; a duplicate or unrelated
-    result, an empty list or a body the module does not recognise confirms
-    nothing, and the task fails as incomplete, listing the interfaces without
-    a result in C(details.unconfirmed_interfaces); a body it does not
-    recognise is returned in C(details.response). A LAG requested both
-    tagged and untagged needs a result for each tag; a result without a
-    tagType then confirms neither. An answer without a body
-    is a success.
-  - A task that fails after one of its writes succeeded (a VLAN create,
-    PATCH, membership request or delete) reports C(changed=true), whichever
-    later request or read-back failed, and the failure message lists the
-    writes already applied, for example C(created VLAN 20). Writes that a
-    read-back shows changed nothing, such as an ISIS membership the device
-    accepted but did not store, are not counted.
-  - C(overridden) deletes every VLAN not listed in C(config), so an
-    incomplete C(config) removes working configuration. VLANs carrying L3
-    interfaces, SPBM ISIDs or RSMLT instances may be refused by the
-    device; those are reported in C(skipped_vlans) and raised as warnings
-    rather than aborting the run.
-  - C(overridden) and C(deleted) without C(config) never delete a protected
-    VLAN. Protected are VLAN 1 (default VLAN), VLAN 4048 (reserved system
-    VLAN), the management VLAN (C(isMgmtInterface) true), dynamically created
-    VLANs (C(dynamic) true) and BROUTER VLANs (C(vlanType) BROUTER), all read
-    from the VLAN list the module already fetches. A VLAN whose list record
-    omits C(vlanType) is re-read on its own first; one whose type is still not
-    reported is protected too, since it could be a BROUTER VLAN. VLANs 1 and 4048 are kept
-    silently, as before. Every other protected VLAN left alone is raised as
-    a warning with the reason and listed in C(skipped_vlans) with
-    C(protected=true).
-  - A VLAN listed in C(config) is never skipped. C(overridden) applies it as
-    C(replaced), and C(deleted) with C(config) sends the delete for it even
-    when it is protected, leaving the decision to the device.
-  - Supports check mode and diff mode. Under C(--diff) the module reports the
-    whole VLAN configuration of the device before and after the change,
-    including the VLANs that C(overridden) or C(deleted) removes; combined
-    with C(--check) the reported C(after) is the state that would have been
-    written.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - VLANs go in C(config). The former top-level parameters (C(vlan_id), C(vlan_name), C(vlan_type), ...) still
+    work as a single VLAN but are deprecated (removal in 2.0.0) and cannot be mixed with C(config). Even in that
+    form, C(overridden) deletes every other VLAN on the switch.
+  - This module manages LAG and ISIS logical interface members. Add or remove ports with
+    M(extreme.fe.extreme_fe_l2_interfaces).
+  - With C(replaced) and C(overridden), naming C(lag_interfaces) or C(isis_logical_interfaces) makes that list the
+    complete set of members of that type, tagged and untagged; an empty list removes them all. Leave the key out
+    to keep the current members under C(replaced); under C(overridden) an unnamed type is cleared.
+    C(remove_lag_interfaces) and C(remove_isis_logical_interfaces) work in every state and are applied after
+    additions.
+  - ISIS logical interfaces must exist first; the task fails before any change if one you name does not exist.
+    On some switches the VLAN accepts an ISIS membership without storing it; the task then fails instead of
+    reporting a change.
+  - C(overridden) deletes every VLAN not in C(config), so an incomplete list removes working configuration. Use
+    C(replaced) to change only the VLANs you list.
+  - C(overridden) and C(deleted) without C(config) never delete VLAN 1, VLAN 4048, the management VLAN, dynamic
+    VLANs, BROUTER VLANs or a VLAN whose type the switch does not report. A VLAN the switch refuses to delete (for
+    example one still used by an L3 interface or an I-SID) is skipped too. Both are listed in C(skipped_vlans)
+    with a warning. A VLAN you name in C(config) is always acted on, protected or not.
+  - A VLAN the switch still lists after a successful delete is not reported as deleted; remove it with the CLI
+    (C(vlan delete <id>)). You do not need C(vr_name) to delete a VLAN.
+  - The C(gathered) result can be passed back as C(config). If you gathered only some VLANs with C(gather_filter),
+    re-apply it with C(merged) or C(replaced), not C(overridden), which would delete every VLAN not in the list.
+    C(before), C(after) and the deprecated C(vlans) key keep the 1.2.1 form, which includes port members.
+  - If the switch rejects a change after applying part of it, the failure reports what was applied (the error
+    message for VLAN settings, C(details.applied_interfaces) for LAG members).
+  - If the connection drops during a change and the module cannot confirm the result, it reports C(changed=true)
+    with C(details.outcome=unknown), because the change may have been applied. Run the task again to bring the
+    switch to the requested state.
+  - A failed task reports C(changed=true) if the switch was already modified by an earlier write in the same task,
+    and the error message lists those writes.
+  - Supports check mode and diff mode.
 requirements:
   - ansible.netcommon
 options:

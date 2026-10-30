@@ -82,44 +82,26 @@ author:
 requirements:
   - ansible.netcommon
 notes:
-  - When the device reports no NTP configuration at all, the module warns and treats
-    the device as unconfigured, returning factory defaults rather than failing.
   - Tested against Fabric Engine Version 9.3.2.
-  - Each server may be listed once in C(config.servers). An address is compared in its canonical form
-    (an IPv6 address in any notation, a host name in any case), so the same server written twice fails
-    before any request.
-  - A PUT that fails without an answer (a lost connection) may have been applied, so the task reports
-    C(changed=true) with C(details.outcome=unknown).
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin
-    shipped with this project.
-  - The OpenAPI schema marks C(vrName) as read-only and states that it is ignored on
-    Fabric Engine, where the NTP properties are global. The PUT endpoint still requires
-    the virtual router in the URL, so C(vr_name) is a required parameter and is never
-    sent in the request body.
-  - C(vr_name) is normalized the same way C(extreme_fe_vrf) normalizes VRF names,
-    because the REST path is case-sensitive. User virtual router names are lowercased
-    and the system routers are mapped to their canonical casing, so C(globalrouter)
-    and C(GlobalRouter) both reach C(/v0/configuration/ntp/GlobalRouter). Supplying a
-    mixed-case name that has to be converted raises a warning.
-  - The broadcast client setting and the per-server NTP version, minimum poll and
-    maximum poll attributes are Switch Engine (EXOS) only and are not supported by
-    this module.
-  - C(poll_interval) is an exponent - the interval between NTP updates in seconds is
-    2 raised to the power of this value.
-  - Server addresses are canonicalized before they are compared, so the same server
-    is recognised however it is spelled. IP addresses are put in their canonical form
-    and host names are lowercased, DNS being case-insensitive; both are reported and
-    sent to the device in that form.
-  - Supports check mode and diff mode. Under C(--diff) the module reports the whole
-    NTP configuration before and after the change; combined with C(--check) the
-    reported "after" is the state that would have been written.
-  - C(gathered), C(before) and C(after) contain only the C(config) option fields
-    (C(enabled), C(poll_interval), C(servers)), so C(gathered) can be passed back as
-    C(config). The virtual router is reported in the separate top-level C(vr_name)
-    result.
-  - A rejected PUT fails the task with C(changed=false). When the PUT succeeds but
-    the re-read that follows it fails, the task fails with C(changed=true) and a
-    message saying the configuration was applied.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - NTP settings are global on Fabric Engine, but the switch still needs a virtual router name in C(vr_name),
+    normally C(GlobalRouter). Case does not matter; a name the switch does not report fails the task and the error
+    lists the available names.
+  - C(poll_interval) is an exponent; the time between NTP updates is 2 to the power of this value, in seconds. The
+    default, C(8), is 256 seconds.
+  - Each server can be listed only once. IPv6 addresses in any notation and host names in any case are recognised as
+    the same server. Leave C(host_type) out to have it detected from the address.
+  - C(replaced) replaces the server list but keeps C(enabled) and C(poll_interval) when you leave them out.
+    C(overridden) resets everything you leave out to the factory defaults (NTP off, C(poll_interval) 8, no servers).
+  - A new server is enabled unless you set C(enabled); C(merged) and C(replaced) never change the state of an
+    existing server unless you set it.
+  - C(deleted) without C(config) (or with C(config={})) resets the whole NTP configuration. With C(config), it resets
+    the settings you name and removes the servers you list; an empty C(servers) list removes nothing.
+  - The broadcast client setting and the per-server version, minimum poll and maximum poll settings exist only on
+    Switch Engine (EXOS) and are not supported.
+  - If the connection drops during a change, the module cannot tell whether it was applied, so it reports
+    C(changed=true) with C(details.outcome=unknown). Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 options:
   vr_name:
     description:

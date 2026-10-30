@@ -67,16 +67,11 @@ requirements:
   - ansible.netcommon
 notes:
   - Tested against Fabric Engine Version 9.3.2.
-  - Supports check mode and diff mode. Both are no-ops here because the module
-    never writes to the device - C(changed) is always C(false) and, since
-    nothing ever changes, the module never populates C(diff).
-  - C(gather_filter=all) calls the combined C(/v0/state/capabilities) endpoint,
-    which returns C(system), C(urls) and C(openapi) together. C(system) already
-    contains a nested C(ports) list, but it is the same data as the dedicated
-    C(ports) dataset below, not a per-port lookup.
-  - C(port) is only used when C(ports) is included in C(gather_filter). When
-    supplied, the single-port endpoint is used instead of the bulk one and
-    C(gathered.ports) becomes a single object instead of a list.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - The module is read-only and never changes the switch, so C(changed) is always C(false).
+  - C(port) works only together with C(ports) in C(gather_filter); without it the task fails. With C(port),
+    C(gathered.ports) holds that one port's data as a single object instead of a list.
+  - Supports check mode; it makes no difference, since nothing is ever written.
 options:
   gather_filter:
     description:

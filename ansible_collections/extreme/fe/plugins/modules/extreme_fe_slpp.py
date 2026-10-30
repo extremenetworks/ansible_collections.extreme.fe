@@ -58,16 +58,22 @@ description:
 author:
     - ExtremeNetworks Networking Automation Team
 notes:
-    - SLPP manages two resource types, VLANs and ports, and a task may configure
-      both in one run. They are grouped under the C(config) dict. The former
-      top-level C(vlans) and C(ports) parameters still work and emit a
-      deprecation warning; the two forms cannot be mixed in one task.
-    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin
-      shipped with this project.
-    - Port identifiers must use slot:port notation such as C(1:5).
-    - On Fabric Engine B(Fabric Engine), enabling both C(enable_packet_rx) and C(enable_guard) on the
-      same port at the same time is not allowed.  The module will raise an error if both are
-      set to C(true) in the same port entry.
+    - Tested against Fabric Engine Version 9.3.2.
+    - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+    - VLANs and ports are both set under the C(config) dict, as C(config.vlans) and C(config.ports). The older
+      top-level C(vlans) and C(ports) parameters still work but are deprecated, and the two forms cannot be mixed
+      in one task.
+    - Name ports using slot:port notation, such as C(1:5).
+    - A port cannot have C(enable_guard) and C(enable_packet_rx) both set to C(true); such an entry fails before
+      anything is changed.
+    - With C(replaced) and C(overridden), a setting you leave out of a port or VLAN entry is reset to its factory
+      default (for a port, guard off with a 60-second timeout, packet-rx off with a threshold of 1).
+    - C(overridden) resets every port and VLAN missing from C(config) to the SLPP defaults, also when C(config) is
+      empty, and the management port is not protected. A port the switch refuses to reset is skipped with a
+      warning.
+    - C(deleted) resets only the ports and VLANs you list, and changes nothing when C(config) is empty. It cannot
+      be used with C(global_settings).
+    - Supports check mode. Diff mode is not supported.
 requirements:
     - ansible.netcommon
 options:

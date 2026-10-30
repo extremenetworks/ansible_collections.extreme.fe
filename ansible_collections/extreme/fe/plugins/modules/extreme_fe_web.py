@@ -27,35 +27,23 @@ author:
 requirements:
   - ansible.netcommon
 notes:
-  - Tested against Fabric Engine Version 9.3.2. The fix for the secure_only factory default is based on reports
-    from Fabric Engine 9.4 and 9.5; it has not been tested on those versions.
-  - A PATCH that fails without an answer (for example because disabling the web server cut the
-    session) may have been applied. When it cannot be re-read, or the re-read omits an attempted
-    field, the task reports C(changed=true) with C(details.outcome=unknown).
-  - C(replaced) and C(overridden) have identical behavior because web-server settings
-    form a singleton resource.
+  - Tested against Fabric Engine Version 9.3.2. The C(secure_only) factory default is based on reports from Fabric
+    Engine 9.4 and 9.5 and has not been tested there.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - This collection talks to the switch through its web server. Disabling the web server, or turning on
+    C(secure_only) while you connect over plain HTTP, can cut off the current task and every later one. C(deleted),
+    C(replaced) and C(overridden) do this too when you leave out C(enabled) (default C(false)) or C(secure_only)
+    (default C(true)). Keep another way to reach the switch before running such a task.
+  - C(replaced) and C(overridden) are the same, because the web server settings are a single resource; both reset
+    every setting you leave out to its factory default (C(enabled=false), C(secure_only=true)).
+  - C(gathered) can be passed back as C(config) and changes nothing. If the switch does not report one of the two
+    settings, C(gathered) fails instead of returning an incomplete result.
+  - If the connection drops during a change (for example because the change disabled the web server) and the module
+    cannot confirm the result, it reports C(changed=true) with C(details.outcome=unknown), because the change may have
+    been applied.
+  - If the switch rejects a change after applying part of it, the error message lists which settings were applied
+    and which were not.
   - Supports check mode and diff mode.
-  - C(gathered), C(before) and C(after) always contain both C(enabled) and C(secure_only). A value the
-    device does not report (or reports as null) is unknown. It is C(null) in C(before) and C(after), a
-    requested value for it is always sent, and C(gathered) fails rather than publishing it. A complete
-    C(gathered) can be passed back as C(config), and re-applying it changes nothing.
-  - The REST API session used by this collection can depend on the device web server. Disabling the web
-    server (C(enabled=false)), which C(deleted), C(replaced) and C(overridden) also do when C(enabled) is
-    omitted, can cut off that session and every later task on the device; enabling C(secure_only), which
-    the same states also do when C(secure_only) is omitted (its factory default is C(true)), can do the
-    same for an HTTP (non-HTTPS) connection. Keep the device reachable through another management path
-    before running such a task.
-  - Both supported attributes are sent in one PATCH. If the device rejects it, the module re-reads the
-    system-services configuration and reports in C(details.applied_fields) and C(details.not_applied_fields)
-    which REST fields the device applied, together with C(details.attempted_payload),
-    C(details.status_code) and C(details.resource); the task then reports C(changed=true) if any field was
-    applied. If the re-read fails too, for example because the PATCH has just disabled the web server,
-    C(details.reread_error) says why and nothing is attributed, with C(details.reread_error_code) when the
-    device gave a numeric error code. An error document in a 2xx answer, to the GET or to the PATCH, is
-    reported by its numeric code only, never by its message or payload, which could quote a stored credential.
-    A re-read that does not report an attempted field (or reports it as null) lists it in
-    C(details.unknown_fields), without assuming a default, and still attributes the fields it reports (one
-    that reports none of them counts as a failed re-read).
 options:
   config:
     description:

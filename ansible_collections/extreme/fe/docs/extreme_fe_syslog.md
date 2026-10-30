@@ -40,17 +40,15 @@ This module manages the global syslog admin state and the syslog servers list on
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- A PATCH or PUT that fails without an answer (a lost connection) may have been applied, so the task reports `changed: true` with `details.outcome: unknown`.
-- `enabled` (the global syslog admin state) is marked with the OpenAPI attribute `x-nos=fabric-engine`, meaning it applies only to Fabric Engine (VOSS), which matches this collection's target platform.
-- `config.servers[].vr_name` does not exist in this module - the REST `vrName` field is marked `x-nos=switch-engine` (Switch Engine/EXOS only) and is never read or written.
-- Secure forwarding (mode, TCP port, server certificate name) and `syslog max-hosts` are documented in the Fabric Engine CLI but are not present anywhere in the OpenAPI schema for these two endpoints, so this module never reads or writes them.
-- `config.servers[].host_id` is the resource identifier for a syslog server, matching the VOSS CLI's `syslog host <1-10>`. The OpenAPI spec types it as a 1-10 character string; the VOSS CLI further restricts it to the decimal range 1-10, confirmed against a live device, and that firmware-confirmed range is what this module enforces.
-- `config.servers[].address` is required on every server entry for `merged`, `replaced` and `overridden`, including one that already exists on the device. There is no per-server `PATCH`, so every write is a full read-modify-write of the whole servers list, and requiring the address on every entry avoids inventing a "required only when creating" rule.
-- `config.servers[].port` accepts the OpenAPI-documented Fabric Engine (VOSS) range of 514-530, confirmed by the User Guide's `udp-port <514-530>` parameter and by a live device. This is narrower than the OpenAPI schema's raw `0-65535` bounds, which describe the field's general type rather than the Fabric Engine-specific range stated in the same field's description.
-- Neither `config.servers[].port`, `config.servers[].enabled`, `config.servers[].facility` nor `config.servers[].log_level` has a documented OpenAPI default. All four factory defaults, and the global `config.enabled` default, were confirmed against a live device rather than assumed.
-- For `replaced` and `overridden`, the servers list is treated as a set - the supplied `servers` list (when that key is present in config at all) becomes the complete list, and any server on the device but not in it is removed. `replaced` leaves the current list untouched only when `servers` is omitted from config entirely; `overridden` always treats an omitted `servers` key as "no servers desired" (a full wipe). The two states therefore behave identically for the servers list whenever `servers` is supplied, and differ only in how they treat the scalar `enabled` field when it is omitted.
-- Supports check mode and diff mode. Under `--diff` the module reports the syslog configuration before and after the change; combined with `--check` the reported "after" is the state that would have been written.
-- The admin state (`enabled`, a PATCH) and the servers list (a PUT) are two requests. When the PUT fails after the PATCH succeeded, the task fails with `changed=true` and a message saying the admin state was already applied. A failure of the first request reports `changed=false`; a failure of the re-read after the writes reports `changed=true`.
+- **Server address on every entry:** each server in `config.servers` needs its `address`, even one that already exists on the switch.
+- **Severity levels:** Fabric Engine stores only four levels, so `EMERGENCY` and `ALERT` are saved as `CRITICAL`, and `NOTICE` and `DEBUG` as `INFORMATIONAL`. The module does the same mapping and warns when it does, so a repeated task reports no change.
+- **`replaced` vs `overridden`:** with both, the `servers` list you supply becomes the complete list and any other server is removed. They differ in what you leave out:
+  - `replaced` keeps the current admin state (`enabled`) and server list when you omit them, and an existing server keeps the settings you omit;
+  - `overridden` resets everything you omit to the factory defaults: syslog enabled, no servers, and default settings for each listed server.
+- **`deleted` turns syslog back on:** it returns the admin state to its default, enabled. To turn syslog off, use `merged` with `enabled: false`.
+- **Partly applied changes:** the admin state and the server list are written separately. If the server list fails after the admin state was written, the task fails with `changed: true` and says so.
+- **Lost connections:** if the connection drops during a change, the task reports `changed: true` with `details.outcome: unknown`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

@@ -17,41 +17,21 @@ description:
 author:
 - Bjorn Haas (@bhaas_extr)
 notes:
-- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
-  with this project.
-- Targets Fabric Engine platforms. Resources not available on Fabric Engine are
-  skipped automatically.
-- Secret values are never returned in the facts. Every secret field is removed from the
-  device data before it is stored in C(ansible_facts), so it does not reach hostvars or a
-  fact cache. This covers the SNMP community strings, the SNMPv3 authentication and
-  encryption passwords, the web server and IQ agent HTTP proxy passwords and the OSPF
-  authentication key strings. Non-secret fields such as the authentication type or the
-  C(isEncrypted) flags are kept.
-- An endpoint that answers with an error document, or with 404, is left out of the facts.
-  For an error document a warning names the endpoint and the error code. A 404 is left out
-  silently, also when it is embedded in the answer (a status of 404 with no other failure
-  status next to it, or a "not found" message with no status at all, including a
-  multi-status answer whose every entry is one, unless the wrapper itself carries another
-  failure status); an embedded error with any other status is an error document and
-  warned about, even when its message says "not found".
-  An error document is a response carrying C(errorCode), C(statusCode), C(code) or
-  C(status) of 400 or more, a non-empty C(errors) list, an C(error) object, or an C(errorMessage)
-  without any status code; a list response counts as one when any of its entries does,
-  and so does a C(responses) or C(items) wrapper whose list holds one. A bare text entry of
-  such an array or wrapper (for example a quoted device message) counts as one too,
-  except in the documented string array of C(/v0/configuration/system/images); strings
-  inside a configuration object, such as C(view[].oids), are data. An HTTP 207
-  (multi-status) answer is checked the same way, so a failed multi-status read leaves
-  the endpoint out with a warning instead of failing the task.
-- An endpoint the device does not serve or refuses (HTTP 400, 403, 405, 410 or 501, for example the
-  PoE endpoint of a switch without PoE) is left out with a warning that names the endpoint and the
-  status code, and the other facts are still gathered. Any other HTTP status (such as 401, 429 or a
-  server error) and a request that gets no answer at all fail the task, since the facts would be
-  incomplete.
-- Text from the device, such as the message of an error document or of a failed request,
-  is never copied into a warning or a failure message, since it could quote a secret.
-- An endpoint whose response is not structured data (a body that could not be parsed as
-  JSON) is left out of the facts with a warning.
+- Tested against Fabric Engine Version 9.3.2.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+- Secrets are never returned. SNMP community strings, SNMPv3 passwords, web server and HTTP proxy
+  passwords, and OSPF authentication keys are removed before the facts are stored, so they never
+  reach hostvars or a fact cache. Settings such as the authentication type are kept.
+- If the switch does not support a feature (for example PoE on a switch without PoE) or cannot return
+  its data, that part is left out of the facts with a warning naming it, and all other facts are still
+  gathered.
+- If the switch cannot be reached, rejects the login, or answers with any other unexpected error (for
+  example a server error or too many requests), the task fails and no facts are set, not even the ones
+  already read, so you never work with an incomplete set. The error message gives the HTTP status code
+  when there is one. Check the connection settings and credentials in your inventory, then run the task
+  again.
+- Device messages are not copied into warnings or errors, because they could contain a secret. Check
+  the switch directly for the details.
 options:
   gather_subset:
     description:

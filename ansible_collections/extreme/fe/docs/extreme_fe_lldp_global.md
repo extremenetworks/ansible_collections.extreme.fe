@@ -31,12 +31,13 @@ This module manages device-wide LLDP timer settings on Fabric Engine devices usi
 
 ## [Notes](#table-of-contents)
 
-- `overridden` is functionally equivalent to `replaced` because LLDP global is a singleton.
 - Tested against Fabric Engine Version 9.3.2.
-- A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read omits an attempted timer, may have been applied, so the task reports `changed: true`; with no timer confirmed applied, `details.outcome: unknown`.
-- Supports check mode and diff mode. The top-level `before` and `after` keys hold the configurable LLDP global settings (`advertisement_interval`, `hold_multiplier`); in check mode `after` is the predicted configuration, and when nothing changes it equals `before`.
-- `state: gathered` returns the configurable settings under `gathered` in the shape of `config`, so the value can be fed straight back as `config` into a `merged`, `replaced` or `overridden` task, which then reports no change. The read-only `init_delay_seconds` is not configurable on Fabric Engine and is left out of `gathered`, `before` and `after`; it is still reported in `lldp.config`, `lldp.before` and `lldp.after`. The gather fails when the device does not report one of the two timers (absent or null), since re-applying a configuration without it would reset it.
-- Both timers are sent in one PATCH. If the device rejects it, the module re-reads the LLDP configuration and the failure reports in `details.applied_fields` and `details.not_applied_fields` which REST fields (`advertisementInterval`, `holdMultiplier`) the device applied, with `details.attempted_payload`, `details.status_code` and `details.resource`; the task reports `changed: true` when any field was applied. If the re-read fails too, `details.reread_error` says why and nothing is attributed. A re-read that does not report an attempted field (or reports it as null) lists it in `details.unknown_fields`, without assuming a default, and still attributes the fields it reports (one that reports none of them counts as a failed re-read).
+- **Global settings only:** this module manages the switch-wide LLDP timers. Use `extreme_fe_lldp_interfaces` for per-port LLDP settings.
+- **`replaced` and `overridden` are the same:** both reset a timer you leave out to its default (`advertisement_interval` 30, `hold_multiplier` 4). `deleted` resets the timers you name, or both when `config` is omitted.
+- **Re-applying `gathered`:** the `gathered` result can be passed back as `config` and changes nothing. The read-only `init_delay_seconds` is not part of it; it is still reported under `lldp`.
+- **Partly applied changes:** if the switch rejects a change after applying part of it, the error message lists which timers were applied and which were not.
+- **Lost connections:** if the connection drops during a change and the module cannot confirm the result, it reports `changed: true`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

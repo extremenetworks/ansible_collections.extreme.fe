@@ -31,60 +31,33 @@ description:
 author:
 - Bjorn Haas (@bhaas_extr)
 notes:
-- Each interface may be listed once in C(config); one listed twice fails before any request.
-- A PUT that fails without an answer (a lost connection) may have been applied, so the task reports
-  C(changed=true) with C(details.outcome=unknown); a reset sweep (C(deleted) without C(config), C(overridden))
-  fails then instead of listing the interface in C(skipped_interfaces).
-- Requires the C(ansible.netcommon) collection and the C(extreme_fe)
-  HTTPAPI plugin shipped with this project.
-- When C(state=overridden), the module reads all interface VLAN
-  settings and resets any interface not listed in C(config) to the
-  device defaults (ACCESS mode, untagged VLAN 1, no tagged VLANs).
-  C(config) must not be empty.  Interfaces that cannot be reset
-  (e.g. LACP LAGs) are skipped with a warning and listed in the
-  C(skipped_interfaces) return value, and so are the protected
-  interfaces absent from C(config), the same ones C(deleted) without
-  C(config) protects (see below). An interface named in C(config) is
-  always applied as C(replaced), protected or not.
-- On a C(TRUNK) LAG that is not in LACP mode and has no member ports,
-  the device ignores C(untagged_vlan) and reports C(0), so the module neither
-  compares nor sends it, including its automatic membership in the allowed
-  VLAN list. Only explicitly listed tagged VLANs are written. If the untagged
-  VLAN is the only difference, no request is sent and nothing is reported as
-  changed; the value is not stored or pending on the device. When other
-  attributes of the LAG change, the request omits C(portVlan). The module
-  warns once per such interface; run the task again after adding member ports
-  to apply the value. C(ACCESS) LAGs are not affected. In check mode a LAG
-  that the task turns into C(TRUNK) is predicted with C(untagged_vlan) 0, the
-  value a real run reads back.
-- A task that fails after one of its writes succeeded reports
-  C(changed=true), whichever later request or read-back failed, and the
-  failure message names the interfaces already written. Under
-  C(overridden), an interface whose reset the device accepted but whose
-  read-back or retry then fails fails the task instead of being listed in
-  C(skipped_interfaces).
-- C(state=deleted) without C(config) resets every interface the device
-  lists, ports and LAGs, exactly as C(deleted) resets a listed interface
-  without VLAN parameters (port type kept, untagged VLAN 0, no tagged
-  VLANs). Protected interfaces are skipped, each with a warning naming the
-  interface and the reason, and listed in C(skipped_interfaces). They are
-  the out-of-band management port (C(mgmt) or C(<slot>:mgmt)), every port
-  and LAG that is a tagged or untagged member of a management VLAN
-  (C(isMgmtInterface) in C(/v0/configuration/vlan)), and the member ports
-  of such a LAG. LACP/VLACP LAGs and interfaces the device refuses to
-  reset are skipped as C(overridden) skips them.
-- C(overridden) and C(deleted) without C(config) read the VLAN list, and
-  the LAG list when a swept interface is a LAG, before anything is written,
-  and only when at least one interface they sweep would be reset. If it cannot be read the task fails without
-  changing the device, also in check mode, so the management connection is
-  never put at risk. A management-VLAN LAG missing from the LAG list, or
-  without a C(memberPorts) list (absent, not a list, or with a blank or
-  non-string member name), fails the task the same way; an empty list is a
-  memberless LAG.
-- Supports check mode (C(--check)) to simulate changes without making
-  them, and reports whether the change would succeed.
-- Supports diff mode (C(--diff)) to display before and after interface
-  states for proposed changes.
+- Tested against Fabric Engine Version 9.3.2.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+- List each port or LAG only once in C(config).
+- With C(replaced) and C(overridden), an omitted C(untagged_vlan) is reset to VLAN 1, and the port type follows
+  C(tagged_vlans) (C(TRUNK) when you give tagged VLANs, C(ACCESS) otherwise). Set C(untagged_vlan) explicitly to
+  keep a different one.
+- C(overridden) resets every interface not listed in C(config) to C(ACCESS) with untagged VLAN 1 and no tagged
+  VLANs. It fails when C(config) is empty, so it never resets every interface by accident.
+- C(deleted) without C(config) removes the VLAN membership of every port and LAG (untagged VLAN 0, no tagged
+  VLANs) and keeps each interface's port type.
+- To keep your management connection up, C(overridden) and C(deleted) without C(config) never reset the
+  management port, the ports and LAGs in a management VLAN, or the member ports of such a LAG. They also skip
+  LACP/VLACP LAGs, which the switch cannot reset, and any interface the switch refuses to reset. Skipped
+  interfaces get a warning and are listed in C(skipped_interfaces). An interface you name in C(config) is always
+  configured, protected or not. If the module cannot read the information it needs to find the protected
+  interfaces, the task fails before changing anything.
+- A C(TRUNK) LAG with no member ports and not in LACP mode ignores C(untagged_vlan). The module warns and leaves it
+  out; run the task again after adding member ports.
+- The C(gathered) result can be passed back as C(config). If you gathered only some interfaces, re-apply it with
+  C(merged) or C(replaced), not C(overridden), which would reset every interface that is not in the list.
+- The per-interface result list under C(interfaces) is the form used up to 1.2.1 and will be removed in 2.0.0.
+  Use C(gathered), C(before) and C(after) instead.
+- If the connection drops during a change, the module cannot tell whether it was applied, so it reports
+  C(changed=true) with C(details.outcome=unknown). Run the task again to bring the switch to the requested state.
+- A failed task reports C(changed=true) if the switch was already modified by an earlier write in the same task,
+  and the error message names the interfaces already written.
+- Supports check mode and diff mode.
 requirements:
 - ansible.netcommon
 options:

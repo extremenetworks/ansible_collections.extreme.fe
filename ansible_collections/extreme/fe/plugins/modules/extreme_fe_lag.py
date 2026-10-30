@@ -20,78 +20,33 @@ description:
 author:
     - Bjorn Haas (@bhaas_extr)
 notes:
-    - "Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project."
-    - "A write that fails without an answer (a lost connection) may have been applied, so the task reports
-      C(changed=true) and lists it in C(details.applied_requests) as possibly applied; the delete sweep
-      (C(deleted) without C(config), C(overridden)) fails then instead of listing the LAG in C(skipped_lags).
-      A LAG or member-port DELETE answered with 404 counts as done, since a DELETE resent after a lost
-      answer finds it gone. A LAG create or member-port addition answered with 409 (a resend) is checked
-      against a re-read; it counts as done when the LAG shows the submitted settings and reports a valid
-      member list (a missing one leaves the members unknown, even for a LAG created without members),
-      otherwise the outcome is unknown."
-    - "Fabric Engine does not support patching an existing LAG's aggregation mode; delete and recreate the LAG to modify
-      C(mode)."
-    - "LAGs are supplied through the C(config) list. The former top-level parameters (C(lag_id), C(name),
-      C(member_ports), ...) still work as a
-      single-entry config and emit a deprecation warning; the two forms cannot be mixed in one task."
-    - "Each C(lag_id) may appear only once in C(config). A task that lists the same LAG twice (also as C(80) and
-      C('80')) fails before any request is sent, in check mode as well; merge the attributes into one entry."
-    - "With C(config), C(overridden) is authoritative across the whole device: LAGs that the task does not list are
-      deleted. LAGs it could not delete
-      are reported in C(skipped_lags) and raised as warnings. The deprecated top-level form manages a single LAG and
-      never deletes unlisted ones."
-    - "C(state=deleted) with C(config) omitted or empty (and no deprecated top-level LAG parameter) deletes every LAG on
-      the device except the protected ones, in the order the device lists them. A LAG whose delete the device rejects
-      is skipped and reported as for C(overridden). C(overridden) keeps the same protected LAGs when it deletes the
-      unlisted ones."
-    - "A LAG is protected when it is a member (tagged or untagged) of the management VLAN (C(isMgmtInterface) in
-      C(GET /v0/configuration/vlan)), when it is the vIST LAG (C(lagId)) or an MLAG port of an MLAG peer
-      (C(GET /v0/configuration/mlag/peers) and its C(ports)), or when it is a member of the vIST VLAN of an MLAG peer
-      (C(vistVlanId)). Each protected LAG is kept with a warning and listed in C(skipped_lags) with C(protected=true).
-      A LAG listed in C(config) is never skipped, and naming a protected LAG in a C(deleted) task deletes it."
-    - "The protection data is read only when there is a LAG to delete, and before the first write. MLAG endpoints that
-      answer HTTP 404, an empty body or an empty list mean no MLAG protection (an empty object does not). Any other
-      read error or response shape, on those endpoints or on the VLAN list, fails the task with C(changed=false) and no LAG deleted. So does an
-      error document (also as one entry of a list), an MLAG peer without C(peerId), an MLAG port without C(portId), a
-      VLAN without C(id), or a management or vIST VLAN whose C(taggedInterfaces) or C(untaggedInterfaces) is not a
-      list of C(interfaceType)/C(interfaceName) entries."
-    - "C(replaced) and C(overridden) reset omitted attributes to the factory defaults of a bare MLT: C(name) back to
-      C(MLT-<lag_id>),
-      C(load_balance_algo) to C(CUSTOM), and C(flex_uni) to C(false)."
-    - "Fabric Engine always uses C(CUSTOM) load balancing. When C(load_balance_algo) is set to another value and the
-      device reports C(CUSTOM),
-      the module emits a warning (once per LAG) and ignores the value: it is not sent, not counted as a difference, and
-      check mode predicts C(CUSTOM)."
-    - "C(mode) and C(lacp_key) are never reset. Fabric Engine cannot patch the aggregation mode, and C('0') — the key an
-      MLT created without one
-      carries — is a value the device computes but will not accept as input. To clear either, delete and recreate the
-      LAG."
-    - "The LACP key space is partitioned by the device: C(0) means no key configured, C(1)-C(512) are the configurable
-      keys (matching the CLI C(lacp
-      key <1-512|defVal>)), and values of C(1024) and above are assigned internally per port (C(1024) bitwise-OR the
-      port ifIndex) so that
-      unaggregated ports can never match one another. The module rejects values outside C(1)-C(512) before contacting
-      the device. C('0') is the one
-      exception: it is accepted as a no-op when the LAG has no key configured yet, so a task that echoes the value the
-      device reports still applies, and
-      rejected with an explanation when the LAG has a real key."
-    - "C(state=gathered) returns the LAGs under C(gathered) in the shape of C(config), so the list can be fed straight
-      back as C(config) into a C(merged), C(replaced) or C(overridden) task, which then reports no change.
-      C(lacp_key) is included only for a configurable key (C(1)-C(512)); it is left out for a LAG without a key, and
-      an omitted C(lacp_key) is never reset. The raw REST records are still returned
-      under C(lags), as up to 1.2.1. The gather fails when a LAG record has no C(memberPorts) list (or a null or
-      blank member), since publishing C([]) for unknown members would make a C(replaced) or C(overridden)
-      re-apply remove them; an empty list is gathered as C(member_ports=[])."
-    - "A task that fails after one of its requests already changed the device (a LAG created or deleted, an attribute
-      or a member port written) reports C(changed=true). The message names what was already applied, for example
-      C(LAG 81 was created, but failed to set 'flexUni'), and C(details) lists it (C(lag_created), C(applied_fields),
-      C(failed_field), C(added_ports), C(removed_ports), C(failed_port), C(changed_lags), C(deleted_lags)).
-      C(details.applied_requests) lists every write the device accepted, also when only a later read failed. A write
-      answered with a success status but an error document counts as rejected, not as applied."
-    - "Supports check mode and diff mode. Under C(--diff) the module reports the whole LAG configuration of the device
-      before and after the change,
-      including LAGs that C(overridden) deletes; combined with C(--check) the reported C(after) is the state that would
-      have been written."
+    - "Tested against Fabric Engine Version 9.3.2."
+    - "Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin."
+    - "List each C(lag_id) only once in C(config). The old top-level parameters (C(lag_id), C(name), C(member_ports),
+      ...) still work for a single LAG but are deprecated, and cannot be mixed with C(config)."
+    - "The switch cannot change a LAG's C(mode), and a C(lacp_key) cannot be removed once set. Delete the LAG and create
+      it again to change either. C(replaced) and C(overridden) never reset them."
+    - "Use an LACP key from C(1) to C(512)."
+    - "C(replaced) and C(overridden) reset the other settings you leave out to their factory defaults (C(name) back to
+      C(MLT-<lag_id>), C(load_balance_algo) to C(CUSTOM), C(flex_uni) to C(false))."
+    - "C(replaced) requires C(member_ports), and the list is complete; ports not in it are removed. With C(overridden),
+      a LAG without C(member_ports) loses all its members. With C(merged), use C(add_member_ports) and
+      C(remove_member_ports), or C(purge_member_ports=true) to make C(member_ports) complete."
+    - "Fabric Engine always uses C(CUSTOM) load balancing. Any other C(load_balance_algo) is ignored with a warning."
+    - "C(deleted) without C(config) deletes every LAG on the switch, and C(overridden) deletes every LAG not in
+      C(config), except protected ones."
+    - "To keep management and MLAG working, LAGs in the management VLAN, the vIST LAG, MLAG ports and LAGs in the vIST
+      VLAN are never deleted by those sweeps. They are skipped with a warning and listed in C(skipped_lags), together
+      with any LAG the switch refuses to delete. A LAG you name in C(config) is always acted on, protected or not. If
+      the module cannot read the information it needs to find the protected LAGs, the task fails before deleting
+      anything."
+    - "C(gathered) can be passed back as C(config) and changes nothing. The raw switch records are still returned under
+      C(lags), as up to 1.2.1."
+    - "If the connection drops during a change, the task reports C(changed=true), because the change may have been
+      applied. Run the task again to bring the switch to the requested state."
+    - "A failed task reports C(changed=true) if the switch was already modified, and the error message names what was
+      applied (for example C(LAG 81 was created, but failed to set 'flexUni'))."
+    - "Supports check mode and diff mode."
 requirements:
     - ansible.netcommon
 options:

@@ -61,38 +61,24 @@ author:
 - Bjorn Haas (@bhaas_extr)
 notes:
 - Tested against Fabric Engine Version 9.3.2.
-- Each interface may be listed once in C(config); one listed twice fails before any request.
-- An address PUT that fails without an answer (a lost connection) may have been applied, so the task reports
-  C(changed=true) with C(details.outcome=unknown).
-- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-- VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
-- A VLAN named in C(config) that does not exist fails the task with C(merged), C(replaced), C(overridden) and
-  C(gathered). With C(state=deleted) there is nothing to delete, so such a VLAN is skipped without a request,
-  does not count as a change and is left out of C(before), C(after) and C(interfaces).
-- The REST API does not list a loopback that has no IP address, so a loopback named in C(config) that the device
-  does not list is treated as having none. Deleting its addresses is then a no-op.
-- C(state=gathered) returns all VLANs including system-protected ones (dynamic, management, BROUTER). When
-  C(state=overridden), those VLANs are skipped with a warning instead of being cleared. Other states pass requests
-  to the device as-is and let the REST API reject invalid operations.
-- C(config) is required for C(merged), C(replaced) and C(overridden).
-- C(state=deleted) without C(config) removes the addresses of every interface the device lists, as C(overridden)
-  with an empty list would. System-protected VLANs (dynamic, management, BROUTER) are skipped with a warning.
-- Fabric Engine does not allow the IP address of the virtual IST (vIST) VLAN to change while the vIST exists, but
-  answers the address PUT with 204 and keeps the address. The module reads the vIST VLANs (C(vistVlanId)) from
-  C(GET /v0/configuration/mlag/peers) before the first write, when a VLAN address is about to change. C(overridden)
-  and C(deleted) without C(config) skip an unlisted vIST VLAN with a warning, like the other protected VLANs. A task
-  that asks for a change on the vIST VLAN explicitly (C(merged), C(replaced), C(deleted), or the VLAN listed in
-  C(overridden)) fails before any write, also in check mode. An MLAG peers read that fails (other than HTTP 404 or
-  an empty answer) fails the task before any write.
-- After a write, the re-read is compared with the previous addresses. An interface that still holds exactly its
-  previous addresses was not changed by the device, so the task fails naming it, and that write does not count as
-  a change.
-- An address moved from one interface to another in one task is removed from its old interface first, so the
-  device does not reject it as a duplicate.
-- A task that fails after one of its writes succeeded reports C(changed=true), and the failure message names the
-  interfaces already written.
-- Supports check mode (C(--check)) to simulate changes without making them; C(after) is then the predicted state.
-- Supports diff mode (C(--diff)) to display the C(before) and C(after) interface states.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+- Create VLANs and loopbacks first; this module only manages their IP addresses. A VLAN named in C(config) that
+  does not exist fails the task, except with C(deleted), where it is skipped.
+- List each interface only once in C(config).
+- The switch does not list a loopback that has no IP address, so such a loopback is treated as having none.
+- You can move an address from one interface to another in the same task; the module removes it from the old
+  interface first.
+- To keep your management connection up, C(overridden) and C(deleted) without C(config) skip dynamic, management
+  and BROUTER VLANs, and the virtual IST (vIST) VLAN of an MLAG, each with a warning. The switch does not allow the
+  vIST VLAN's address to change while the vIST exists, so a task that changes it explicitly fails before changing
+  anything.
+- C(deleted) without C(config) removes the addresses of every interface except the protected VLANs above.
+- If the switch accepts an address change but does not apply it, the task fails and names the interface.
+- If the connection drops during a change, the module cannot tell whether it was applied, so it reports
+  C(changed=true) with C(details.outcome=unknown). Run the task again to bring the switch to the requested state.
+- A failed task reports C(changed=true) if the switch was already modified by an earlier write in the same task,
+  and the error message names the interfaces already written.
+- Supports check mode and diff mode.
 requirements:
 - ansible.netcommon
 options:

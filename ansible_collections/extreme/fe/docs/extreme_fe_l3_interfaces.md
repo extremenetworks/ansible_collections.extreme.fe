@@ -37,19 +37,16 @@ This module manages IPv4 and IPv6 addresses on VLAN and loopback interfaces of F
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- Each interface may be listed once in `config`; one listed twice fails before any request.
-- An address PUT that fails without an answer (a lost connection) may have been applied, so the task reports `changed=true` with `details.outcome=unknown`.
-- Requires the `ansible.netcommon` collection and the `extreme_fe` HTTPAPI plugin shipped with this project.
-- VLANs and loopbacks must exist prior to invoking this module; creation is out of scope.
-- A VLAN named in `config` that does not exist fails the task with `merged`, `replaced`, `overridden` and `gathered`. With `state=deleted` there is nothing to delete, so such a VLAN is skipped without a request, does not count as a change and is left out of `before`, `after` and `interfaces`.
-- The REST API does not list a loopback that has no IP address, so a loopback named in `config` that the device does not list is treated as having none. Deleting its addresses is then a no-op.
-- `state=gathered` returns all VLANs including system-protected ones (dynamic, management, BROUTER). When `state=overridden`, those VLANs are skipped with a warning instead of being cleared. Other states pass requests to the device as-is and let the REST API reject invalid operations.
-- `config` is required for `merged`, `replaced` and `overridden`.
-- `state=deleted` without `config` removes the addresses of every interface the device lists, as `overridden` with an empty list would. System-protected VLANs (dynamic, management, BROUTER) are skipped with a warning.
-- An address moved from one interface to another in one task is removed from its old interface first, so the device does not reject it as a duplicate.
-- A task that fails after one of its writes succeeded reports `changed=true`, and the failure message names the interfaces already written.
-- Supports check mode (`--check`) to simulate changes without making them; `after` is then the predicted state.
-- Supports diff mode (`--diff`) to display the `before` and `after` interface states.
+- **Create VLANs and loopbacks first:** this module only manages their IP addresses. A VLAN named in `config` that does not exist fails the task, except with `deleted`, where it is skipped.
+- **Interfaces:** list each interface only once in `config`.
+- **Loopbacks without addresses:** the switch does not list a loopback that has no IP address, so such a loopback is treated as having none.
+- **Moving an address:** you can move an address from one interface to another in the same task; the module removes it from the old interface first.
+- **Protected VLANs:** to keep your management connection up, `overridden` and `deleted` without `config` skip dynamic, management and BROUTER VLANs, and the virtual IST (vIST) VLAN of an MLAG, each with a warning. The switch does not allow the vIST VLAN's address to change while the vIST exists, so a task that changes it explicitly fails before changing anything.
+- **`deleted` without `config`:** removes the addresses of every interface except the protected VLANs above.
+- **Ignored changes:** if the switch accepts an address change but does not apply it, the task fails and names the interface.
+- **Lost connections:** if the connection drops during a change, the module cannot tell whether it was applied, so it reports `changed: true` with `details.outcome: unknown`. Run the task again to bring the switch to the requested state.
+- **`changed` on failure:** a failed task reports `changed: true` if the switch was already modified by an earlier write in the same task, and the error message names the interfaces already written.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

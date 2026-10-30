@@ -38,10 +38,11 @@ This module manages the SNMP system name (`sysName`) on Fabric Engine devices vi
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- A task that fails after its PATCH was applied (for example when the re-read of the result fails) reports `changed: true`. A PATCH that fails without an answer (a lost connection) may have been applied, so it reports `changed: true` with `details.outcome: unknown` as well.
-- Secret values are never returned. The SNMP community strings and the SNMPv3 authentication and encryption passwords of the device are removed from every returned value, including `api_responses`.
-- The secret values read from the device are also removed from every message text the device returns, so they never appear in `msg`, `details` or `api_responses`.
-- A failed read of the SNMP configuration is reported generically, with the path and the HTTP status code only. The text of the device error is not returned.
+- **System name only:** the module manages the switch's SNMP system name. An unset name is shown as `""`; clear it with `deleted` or with `name: ""`.
+- **Secrets are never returned:** SNMP community strings and SNMPv3 passwords are removed from every result and error message.
+- **Lost connections:** if the connection drops while the name is being written, the task reports `changed: true` with `details.outcome: unknown`, because the change may have been applied. Run the task again to make sure.
+- **`changed` on failure:** a task that fails after the name was written reports `changed: true`.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 

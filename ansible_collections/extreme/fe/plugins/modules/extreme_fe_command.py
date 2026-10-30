@@ -21,20 +21,21 @@ description:
 author:
 - Bjorn Haas (@bhaas_extr)
 notes:
-- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped
-  with this project.
-- Designed for Fabric Engine targets; other platforms are not supported.
-- Some commands, for example C(show sys-info), return status 400 together with complete output. The module
-  treats them as successful with a warning (see C(cli_warnings) in the return values).
-- With C(continue_on_failure=false) the device stops a batch at the first command that does not return 200 and
-  reports every following command as 409 (not executed). When that first command is a 400 with output that is not a
-  CLI error, the module re-sends the skipped commands in follow-up requests until the batch completes. The follow-up requests
-  start without any CLI mode that an earlier command of the batch entered, so a batch whose later commands depend
-  on such a mode should set C(continue_on_failure=true), which keeps everything in one request.
-- A command that fails for real (a 400 without output, a 400 whose output is a CLI error message, that is a line
-  starting with C(%) such as C(% Invalid input detected), or with the word C(Error) and a colon as in the answer to
-  C(vlan delete) on a missing VLAN, or any other non-200 status) still stops the batch and fails the task; the commands
-  after it are not re-sent.
+- Tested against Fabric Engine Version 9.3.2.
+- Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+- The module cannot tell whether a command changed anything, so a successful task always reports C(changed=true).
+  In check mode no command is sent and C(responses) holds no output.
+- Some commands, for example C(show sys-info), return their full output with an error status. The module accepts
+  them and lists them in C(cli_warnings). Output that is a CLI error (a line starting with C(%) or C(Error)
+  followed by a colon) fails the task.
+- By default the batch stops at the first command that fails, and the task fails. With C(continue_on_failure=true)
+  the switch runs the remaining commands anyway; the task still fails, but C(responses) holds the output of every
+  command.
+- When the module has to re-send the rest of a batch after a command that answered with a warning, the new request
+  starts outside any CLI mode an earlier command entered (for example C(configure terminal)). If later commands
+  depend on such a mode, set C(continue_on_failure=true), which keeps the whole batch in one request.
+- A failed task reports C(changed=true) if any command ran before the failure; the error lists the commands that
+  ran and any whose result is unknown, so check the switch before running them again.
 requirements:
 - ansible.netcommon
 options:

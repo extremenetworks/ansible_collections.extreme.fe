@@ -23,36 +23,27 @@ description:
 author:
   - Bjorn Haas (@bhaas_extr)
 notes:
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-  - A PUT that fails without an answer (a lost connection) may have been applied, so the task reports
-    C(changed=true) with C(details.outcome=unknown).
-  - Port identifiers must use slot:port notation such as C(1:5).
-  - On Fabric Engine, C(transmit_enabled) and C(receive_enabled) should be set
-    to the same value. If only one is supplied, this module mirrors the same
-    value to the other field.
-  - If LLDP transmit or receive is disabled, the device ignores advertisement
-    and location attributes in the same request. This module submits only the
-    basic LLDP enable flags in that case.
-  - The MED network policy is written through a separate endpoint, and only
-    while LLDP is enabled. Disabling a port's LLDP therefore leaves the policy
-    the device already holds in place, just as it leaves the advertisement and
-    location attributes.
-  - C(civic_address) is validated before any request is sent. It must start with C(country-code) followed by exactly
-    two letters, must contain at least one more supported label, and every label needs a value. An unsupported or
-    misspelled label (for example C(postal-code)) fails the task, because the device would silently drop it or append
-    it to the previous value. Unquoted values run to the next supported label, so a value containing a label-like word
-    must be quoted, for example C(street "Main room").
-  - The device returns C(civic_address) with a C(ldp location-identification
-    civic-address) CLI prefix attached. That prefix is stripped from gathered
-    output, so a value read back from the device can be re-applied unchanged.
-  - Supports check mode (C(--check)) to preview a change without sending it, and diff mode (C(--diff)) to show the
-    before and after interface settings.
-  - Each interface is written with up to two requests, the LLDP settings PUT and then the MED policy PUT, and is
-    re-read afterwards. Both requests always send their whole section, so the settings PUT is resent unchanged for a
-    MED-policy-only change. When a request fails after the settings PUT succeeded, the task fails and the message
-    names the request that failed and the one(s) already applied; it reports C(changed=true) only when one of the
-    applied requests differed from the interface's settings. A failure on a later interface also reports
-    C(changed=true) and lists the interfaces this task already changed (C(details.changed_interfaces)).
+  - Tested against Fabric Engine Version 9.3.2.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - Name ports using slot:port notation, such as C(1:5). The list was named C(interfaces) up to 1.2.1; that name
+    still works but is deprecated.
+  - Fabric Engine needs C(transmit_enabled) and C(receive_enabled) to have the same value. If you set only one,
+    the module sets the other to match; setting them to different values fails.
+  - When LLDP is off on a port, the switch ignores the advertisement, location and MED policy settings, so the
+    module sends only the enable flags and the port keeps its other settings.
+  - When you supply C(med_policy) for a port, it replaces that port's whole MED policy list.
+  - C(civic_address) must start with C(country-code) and a two-letter code, followed by at least one more label,
+    each with a value. A misspelled label (for example C(postal-code)) fails the task, because the switch would
+    otherwise advertise a wrong emergency location. Quote a value that contains a label word, for example
+    C(street "Main room").
+  - C(deleted) without C(config) resets LLDP on every port to its defaults.
+  - The C(gathered) result can be passed back as C(config). The old C(interfaces_settings) result is still
+    returned but is deprecated and will be removed in 2.0.0.
+  - Each port's LLDP settings and MED policy are written separately. If a write fails, the error message says
+    which parts and ports were already changed, and the task reports C(changed=true) when the switch was modified.
+  - If the connection drops during a change, the task reports C(changed=true) with C(details.outcome=unknown),
+    because the change may have been applied. Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 requirements:
   - ansible.netcommon
 options:

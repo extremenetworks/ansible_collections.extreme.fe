@@ -25,28 +25,20 @@ description:
 author:
   - Bjorn Haas (@bhaas_extr)
 notes:
-  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI plugin shipped with this project.
-  - A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read omits
-    an attempted timer, may have been applied, so the task reports C(changed=true); with no timer confirmed
-    applied, C(details.outcome=unknown).
-  - This module manages the singleton global LLDP resource only. It does not manage per-port LLDP settings.
-  - C(overridden) is functionally equivalent to C(replaced) because the LLDP global configuration is a singleton object.
-  - C(deleted) resets supplied attributes to device defaults. If C(config) is omitted with C(state=deleted),
-    all configurable global LLDP attributes are reset.
-  - Supports check mode and diff mode. The top-level C(before) and C(after) keys hold the configurable LLDP
-    global settings; in check mode C(after) is the predicted configuration, and when nothing changes it equals
-    C(before).
-  - C(state=gathered) returns the configurable settings under C(gathered) in the shape of C(config), so the value
-    can be fed straight back as C(config) into a C(merged), C(replaced) or C(overridden) task, which then reports
-    no change. The read-only C(init_delay_seconds) is left out of it. The gather fails when the device does not
-    report one of the two timers (absent or null), since re-applying a configuration without it would reset it.
-  - Both timers are sent in one PATCH. If the device rejects it, the module re-reads the LLDP configuration
-    and reports in C(details.applied_fields) and C(details.not_applied_fields) which REST fields the device
-    applied, together with C(details.attempted_payload), C(details.status_code) and C(details.resource); the
-    task then reports C(changed=true) if any field was applied. If the re-read fails too,
-    C(details.reread_error) says why and nothing is attributed. A re-read that does not report an attempted
-    field (or reports it as null) lists it in C(details.unknown_fields), without assuming a default, and
-    still attributes the fields it reports (one that reports none of them counts as a failed re-read).
+  - Tested against Fabric Engine Version 9.3.2.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - This module manages the switch-wide LLDP timers. Use M(extreme.fe.extreme_fe_lldp_interfaces) for per-port
+    LLDP settings.
+  - C(replaced) and C(overridden) are the same; both reset a timer you leave out to its default
+    (C(advertisement_interval=30), C(hold_multiplier=4)). C(deleted) resets the timers you name, or both when
+    C(config) is omitted.
+  - The C(gathered) result can be passed back as C(config) and changes nothing. The read-only
+    C(init_delay_seconds) is not part of it; it is still reported under C(lldp).
+  - If the switch rejects a change after applying part of it, the error message lists which timers were applied
+    and which were not.
+  - If the connection drops during a change and the module cannot confirm the result, it reports C(changed=true),
+    because the change may have been applied. Run the task again to bring the switch to the requested state.
+  - Supports check mode and diff mode.
 requirements:
   - ansible.netcommon
 options:

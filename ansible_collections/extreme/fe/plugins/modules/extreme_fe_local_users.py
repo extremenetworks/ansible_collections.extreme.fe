@@ -44,150 +44,34 @@ requirements:
   - ansible.netcommon
 notes:
   - Tested against Fabric Engine Version 9.3.2.
-  - A write (C(POST), C(PATCH), C(DELETE)) that fails without an answer (a lost connection) may have
-    been applied, so the task reports C(changed=true). A C(DELETE) answered with 404 counts as done;
-    the account was just read as present, and a DELETE resent after a lost answer finds it gone. An account
-    C(POST) answered with 409 (a resend) is checked against a re-read; it counts as done when the account is
-    there with the submitted level and the POST carried no password. Otherwise the outcome is unknown and
-    the task fails with C(changed=true); the stored password is encrypted and cannot be compared, so
-    another writer may have created the account with a different one. Running the task again with
-    I(update_password=always) and I(old_secret), or I(super_user_name) and I(super_user_password),
-    re-applies it.
-  - Every error is scrubbed of the stored passwords the module read from the device as well, so an
-    error that quotes another account's stored (encrypted) password does not return it.
-  - This module supports check mode and diff mode.
-  - The device stores passwords encrypted, so a cleartext password supplied in
-    C(config) can never be compared against the stored value. Idempotency for
-    the password is therefore controlled by I(update_password) rather than by
-    comparison. This mirrors the convention used by the C(ios_user),
-    C(eos_user), C(nxos_user) and C(vyos_user) modules.
-  - The account password is never returned by this module. C(gathered),
-    C(before) and C(after) omit C(secret) entirely (neither C(secret.value) nor
-    C(secret.is_encrypted)), so they use the C(config) option shape and
-    C(gathered) can be re-applied as C(config) without writing a password.
-    Failure C(details) carry no C(secret.value) either. The same holds for C(old_secret) and C(super_user_password), the
-    other two credentials a task can submit; neither is echoed back in any
-    field of the result, structured or free text. The device echoes the
-    encrypted password back on a GET (the OpenAPI spec notes this
-    explicitly), and this redaction does not depend on the task having
-    submitted a value to compare the response against - the module finds a
-    credential structurally wherever a response carries one - C(secret.value),
-    C(oldSecret.value), C(superUserPassword) - and scrubs that value from
-    every string field of the same response, not only from the field it was
-    found under, so a free-text message that quotes it is caught too. A
-    response the device answers as plain text rather than JSON has no such
-    structure to search, so it is redacted in full instead, since every
-    operation this module performs is against the secrets-bearing accounts
-    endpoint. The C(extreme_fe) HTTPAPI plugin applies the same protection
-    one layer earlier, before a 207 or HTTP-error message ever reaches this
-    module. It never logs the request or response bodies of this endpoint,
-    and it keeps the device's error message for a C(POST) or C(PATCH) (for
-    example C(Cannot update user password and user state at the same time.))
-    with every submitted or returned credential masked. The error of a GET,
-    of a C(DELETE) and a plain-text answer keep only the status code.
-  - A device that reports no account collection at all - a 404, either at the
-    transport level or embedded in an error document - is treated as an empty
-    inventory rather than as a failure, so C(gathered), C(deleted) and
-    C(overridden) still run against it.
-  - C(level) and C(enabled) are required for every entry when I(state) is
-    C(merged), C(replaced) or C(overridden). They are not required for
-    C(deleted), which needs only C(username).
-  - Because C(level) and C(enabled) are mandatory and C(secret) cannot be reset
-    to a default, C(replaced) and C(merged) behave identically for an existing
-    account. C(replaced) is retained for interface consistency with the other
-    resource modules in this collection.
-  - C(removable) is present only in the REST POST body, so it can be set when an
-    account is created but never changed afterwards. Supplying a value that
-    differs from the account's current value fails with an explicit error.
-  - Accounts with C(removable=false) are part of the device default
-    configuration and cannot be deleted. C(deleted) and C(overridden) skip them
-    when clearing all accounts, and fail if such an account is named explicitly.
-    Each skipped account (including the connecting account below) is reported
-    in C(skipped_users) with the reason, and a warning is emitted for it.
-  - The account used by the current Ansible connection is never deleted by a
-    C(deleted) run with no C(config), nor by C(overridden). Naming it explicitly
-    fails with an explicit error. If the connecting account name cannot be
-    determined, both a C(deleted) run with no C(config) and C(overridden)
-    fail rather than risk removing it.
-  - C(username) is limited to 20 characters. The OpenAPI spec's
-    C(UsernameString) schema states 1-32, but a real Fabric Engine device
-    rejects anything over 20 with C(Username must be provided and length
-    should be between 1 and 20 characters) - confirmed against a live
-    device on 2026-09-22. The firmware limit is enforced here rather than
-    the wider spec value.
-  - Whenever a password is written to an existing account, the module
-    always includes C(level) in the PATCH body alongside C(secret), even
-    when C(level) is unchanged. A real device rejects a PATCH carrying
-    C(secret) without C(level), regardless of C(old_secret) or the
-    super-user fields also being present - confirmed against a live
-    device on 2026-09-22, which demanded C(secret), C(level), C(value)
-    and C(oldSecret) together, or C(secret), C(level), C(value),
-    C(superUsername) and C(superUserpassword) together. This is handled
-    automatically; no playbook change is needed. The device reads the
-    super-user fields as C(superUserName) and C(superUserPassword), the
-    names of the OpenAPI C(UserAccountAttributes) schema, which the module
-    sends.
-  - On the Fabric Engine 9.4 and 9.5 devices tested, a password change
-    verified with C(super_user_name) and C(super_user_password) was refused
-    with C(Invalid username or password.) even for valid administrator
-    credentials. Use C(old_secret) to change a password.
-  - A PATCH that changes both C(enabled) and the password is refused by the
-    device (C(Cannot update user password and user state at the same
-    time.)), so the module sends the two changes as two PATCH requests,
-    disabling before and enabling after the password change. When the second
-    request fails, the task fails with C(changed=true) and
-    C(details.applied_earlier) naming what the first one applied.
-  - Changing C(level) on an existing account was rejected by the device -
-    alone, together with a password, and together with C(enabled), each
-    with a different error (confirmed 2026-09-22) - and the User Guide
-    states a custom account's access level "cannot be changed later" once
-    created. Supplying a C(level) that differs from the account's current
-    value fails with an explicit error before any write request is sent
-    (only the account list is read, to compare with); delete
-    the account and recreate it with the desired level instead.
-  - When a password is written to an existing account, the module requires
-    either C(old_secret) or both C(super_user_name) and
-    C(super_user_password) to be supplied, matching the device's own
-    verification requirement. Supplying neither fails with an explicit
-    error before any write request is sent, rather than letting the device
-    reject an incomplete PATCH.
-  - A new account can be created only with C(level) C(ADMIN),
-    C(ADMIN_LIMITED) or C(READ_ONLY). C(L3_LIMITED), C(L2_LIMITED) and
-    C(L1_LIMITED) are the levels of the built-in C(l3), C(l2) and C(l1)
-    accounts. They are accepted for an account that already has that level,
-    so C(gathered) output can be re-applied, and creating an account with
-    one fails before any write request is sent. The module reads the account
-    list first, to tell a new account from an existing one.
-  - A C(secret) or C(old_secret) without C(value) writes nothing and is
-    ignored, with a warning when it carries C(is_encrypted). Gathered output
-    of earlier releases, which carried C(secret.is_encrypted), can therefore
-    be re-applied unchanged.
-  - A new account is always created enabled. A real device silently
-    ignores C(enabled=false) on the C(POST) that creates the account -
-    confirmed 2026-09-22, and consistent with the User Guide's account
-    creation CLI syntax, which has no disabled-creation form. The
-    module issues a follow-up C(PATCH) automatically when C(enabled) is
-    set to C(false) at creation, so that setting still takes effect; no
-    playbook change is needed. If that follow-up C(PATCH) fails, the task
-    fails with C(changed=true) and a message saying the account was created
-    (and is still enabled unless the re-read shows otherwise).
-  - When a C(PATCH) of an account fails, the module re-reads the account and
-    reports in the failure C(details) which of the attempted fields the device
-    applied (C(applied_fields), C(not_applied_fields), C(unchanged_fields)
-    for a value the account already held, such as the C(level) sent with a
-    password), or C(reread_error) when the re-read itself failed. C(secret) is
-    listed in C(unknown_fields), since the stored password is encrypted and
-    cannot be compared; no field value is ever reported. C(changed) is true
-    when the re-read shows a field applied. A failed re-read is described
-    generically, with its numeric error code; the device text is never copied,
-    and neither is that of an error document answering any GET of the
-    accounts, since it could quote a stored credential.
-  - A task that fails after one of its requests already changed the device
-    (an account created, updated or deleted earlier in the same task)
-    reports C(changed=true), and the message and C(details.changed_users)
-    name the accounts already changed. The failing account is named too when
-    it was created before its follow-up PATCH failed, or when the re-read of a
-    rejected PATCH shows a field applied.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - A C(username) is up to 20 characters, and each one may appear only once in C(config).
+  - C(level) and C(enabled) are required for every entry with C(merged), C(replaced) and C(overridden);
+    C(deleted) needs only C(username). For an existing account, C(replaced) therefore behaves like C(merged).
+  - The switch stores passwords encrypted, so the module cannot compare them. With the default
+    C(update_password=always), a task that sets C(secret.value) reports C(changed) on every run. Use
+    C(update_password=on_create) to write the password only when the account is created.
+  - To change a password, supply C(old_secret). On the Fabric Engine 9.4 and 9.5 devices tested, a change
+    confirmed with C(super_user_name) and C(super_user_password) was refused even with valid administrator
+    credentials.
+  - Passwords are never returned in C(gathered), C(before), C(after), C(--diff) or error messages, so
+    C(gathered) can be passed back as C(config) without writing a password.
+  - A new account can only be created with level C(ADMIN), C(ADMIN_LIMITED) or C(READ_ONLY). C(L3_LIMITED),
+    C(L2_LIMITED) and C(L1_LIMITED) belong to the built-in C(l3), C(l2) and C(l1) accounts and are accepted only
+    for an account that already has that level. Changing the level of an existing account may not be supported
+    by the switch; delete and re-create the account instead.
+  - C(removable) can only be set when an account is created. A different value for an existing account fails.
+  - The switch's built-in accounts (C(removable=false)) and the account Ansible is connected with are never
+    deleted. C(deleted) without C(config) and C(overridden) skip them with a warning and list them in
+    C(skipped_users); naming one in C(deleted) fails before anything is deleted. If the module cannot tell which
+    account the connection uses, C(deleted) without C(config) and C(overridden) fail instead.
+  - With C(deleted), an account that does not exist is not an error. Without C(config) (or with an empty list),
+    every account except the protected ones is deleted.
+  - If the connection drops during a change, the task reports C(changed=true), because the change may have
+    been applied. Run the task again to make sure.
+  - A failed task reports C(changed=true) if an account was already created, changed or deleted in the same
+    task, and the error message names it.
+  - Supports check mode and diff mode.
 options:
   state:
     description:

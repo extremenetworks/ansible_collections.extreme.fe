@@ -33,83 +33,36 @@ author:
 requirements:
   - ansible.netcommon
 notes:
-  - Tested against Fabric Engine Version 9.3.2. Some fixes in this version are based on reports from Fabric Engine 9.4
-    and 9.5; they have not been tested on those versions.
-  - C(deleted) and C(overridden) can remove the AAA servers used by C(LOGIN). When the device
-    authenticates its management users through RADIUS, keep a local account (or another server)
-    that can log in before running such a task, or later connections may be refused.
-  - A write that fails without an answer (a lost connection) may have been applied, so the task
-    reports C(changed=true). For the PATCH of the globals the re-read decides; it reports
-    C(changed=false) only when it proves that none of the attempted fields was applied. A DELETE
-    answered with 404 counts as done (and as a change); the server or profile was just read as
-    present, and a DELETE resent after a lost answer finds it gone. Likewise a server or profile
-    POST answered with 409 (a resend finding the object a first attempt created) is checked against a
-    re-read; it counts as created when the object is there with the submitted settings and the POST
-    carried no credential. Otherwise the outcome is unknown and the task fails with C(changed=true);
-    a server POST always carries its shared secret, and a stored secret, private key or passphrase
-    cannot be compared, so another writer may have created the object with a different one. Running
-    the task again re-applies it.
-  - An error the device returns, an HTTP error or an error document, is reported with every
-    credential masked; those of its own request, the stored ones the module read (the global
-    password, shared secrets and profile keys) and those the task has already written.
+  - Tested against Fabric Engine Version 9.3.2. Some fixes are based on reports from Fabric Engine 9.4 and 9.5 and
+    have not been tested there.
+  - Requires the C(ansible.netcommon) collection and the C(extreme_fe) HTTPAPI connection plugin.
+  - C(deleted) and C(overridden) can remove the AAA servers the switch uses to authenticate management logins. If the
+    switch logs users in through RADIUS, keep a local account (or another server) that works before running such a
+    task.
+  - An existing AAA server cannot be updated in place, so a changed server is deleted and created again, which can
+    briefly interrupt service.
+  - The built-in C(default) secure profile cannot be created or deleted, and C(replaced), C(overridden) and
+    C(deleted) always keep it.
+  - Shared secrets, the global reachability password, private keys and passphrases are never returned. They are left
+    out of C(gathered), C(before), C(after) and the diff, and are masked in error messages.
+  - The switch does not return secrets, so a supplied secret, key, passphrase or C(global.password) is always sent and
+    the task reports changed on every run. Leave them out of tasks you run repeatedly; an omitted secret is never sent
+    and the stored one is kept.
+  - C(deleted) without C(config) and C(overridden) never reset the global password. To change it, set
+    C(global.password); to reset it to its factory default, name it under C(global) with C(deleted).
+  - C(gathered) can be passed back as C(config) and changes nothing; the stored secrets are kept. A secret that is only
+    the device mask of six asterisks is ignored with a warning, so a placeholder never replaces a real secret.
+  - Server addresses are compared as addresses, so C(2001:db8::10) matches the C(2001:db8:0:0:0:0:0:10) the switch
+    reports.
+  - C(global.account_enabled=true) needs at least one C(AAA) server (a C(DYN_AUTH) client does not count). The module
+    disables accounting before RADIUS itself when you turn both off. The switch can reject accounting changes made a
+    few seconds apart.
+  - If the connection drops during a change, the task reports C(changed=true) unless it can confirm nothing was
+    applied, because the change may have gone through. Run the task again to bring the switch to the requested state.
+  - If the switch rejects a change to the global settings after applying part of it, the error message lists which
+    settings were applied and which were not. A failed task reports C(changed=true) if the switch was already
+    modified.
   - Supports check mode and diff mode.
-  - Fabric Engine supports C(AAA) and C(DYN_AUTH) server modes.
-  - The API has no update operation for an existing AAA server. A changed AAA
-    server is deleted and recreated, which can briefly interrupt service.
-  - The built-in C(default) secure profile cannot be created or deleted and is
-    retained by C(replaced), C(overridden), and C(deleted).
-  - Shared secrets, private keys, and passphrases cannot be compared reliably
-    with GET responses. When supplied, they are always applied and the task can
-    report changed on every run. C(overridden) leaves the global password
-    unchanged when it is omitted because GET responses cannot expose its
-    current value for comparison. Global RADIUS accounting can be enabled only
-    when at least one C(AAA) server exists in the resulting configuration.
-    Global RADIUS accounting must be disabled before global RADIUS is disabled;
-    the module performs these updates in separate requests when necessary.
-  - The global reachability C(password) is write-only. C(deleted) without
-    C(config) and C(overridden) do not reset it, so they stay idempotent; to
-    change it, set C(global.password) explicitly (C(merged), C(replaced),
-    C(overridden)) or name it under C(global) with C(deleted), which resets it
-    to its factory default. A supplied password is always sent and reports
-    changed.
-  - Secret material is never returned. Shared secrets, the global password,
-    private keys, and passphrases, including any mask or encrypted value the
-    device reports for them, are left out of C(gathered), C(before), C(after),
-    and the diff.
-  - C(gathered), C(before), and C(after) use the C(config) option shape and can
-    be passed back as C(config). Server rows contain only the fields valid for
-    their C(server_mode). Re-applying gathered output changes nothing and
-    leaves the stored shared secrets untouched, because an omitted secret is
-    never sent. A C(servers[].secret) that is exactly the device mask of six
-    asterisks, or the string that the masked secret object of an earlier
-    release's gathered output becomes, is ignored with a warning, so a
-    placeholder never replaces a stored secret. Any other value, an
-    all-asterisk one of another length included, is a real secret and is sent.
-  - A server address is compared as an IP address. Fabric Engine reports an
-    IPv6 address uncompressed (C(2001:db8:0:0:0:0:0:10)), and a server written
-    as C(2001:db8::10) is the same server. Requests to an existing server use
-    the address as the device reports it.
-  - Device-reported values that are not options (for example
-    C(igap_timeout_log_fsize), server C(server_status) and C(vr_name), and
-    profile certificate hashes) are returned in C(read_only_config).
-  - All changed global fields are sent in one PATCH. If the device rejects it,
-    the module re-reads the global settings and reports in
-    C(details.applied_fields) and C(details.not_applied_fields) which REST
-    fields the device applied, together with C(details.attempted_payload),
-    C(details.status_code) and C(details.resource). Write-only or trigger
-    fields (C(password), C(clearStat)) cannot be verified and are listed in
-    C(details.unknown_fields) by name only, and so is a field the re-read does
-    not report (or reports as null); the fields it reports are still
-    attributed, and a re-read reporting none of them counts as a failed
-    re-read. The task reports C(changed=true)
-    if any field was applied or an earlier request of the same task (server,
-    client, or profile change) succeeded. If the re-read fails too,
-    C(details.reread_error) says why and nothing is attributed.
-  - An error document answering a GET, the re-read included, is reported by
-    its numeric error code only, never by its message, which could quote a
-    stored RADIUS credential. An error document answering a write keeps its
-    message, with every credential removed that the request submitted or the
-    response itself carries.
 options:
   state:
     description:

@@ -39,15 +39,13 @@ This module manages the SSH service flags on Fabric Engine devices using the RES
 ## [Notes](#table-of-contents)
 
 - Tested against Fabric Engine Version 9.3.2.
-- A PATCH that fails without an answer (a lost connection) and cannot be re-read, or whose re-read omits an attempted flag, may have been applied, so the task reports `changed: true`; with no flag confirmed applied, `details.outcome: unknown`.
-- This module manages only the `ssh.enabled` and `ssh.globalEnabled` flags of the System Services configuration. All other System Services fields are left completely untouched - the module never reads or writes `telnet`, `ftp`, `iqagent`, `webServer`, `cloudConnector` or `vxlanGwFullInterworkingMode`.
-- `global_enabled` (REST `globalEnabled`) is marked with the OpenAPI attribute `x-nos=fabric-engine`, meaning it applies only to Fabric Engine (VOSS), which matches this collection's target platform.
-- The OpenAPI spec's description of the `ssh` object states that on Fabric Engine (VOSS) both `enabled` and `global_enabled` must be `true` to connect over SSH. This is a behavioural note only; the two fields can still be set independently in one `merged` task.
-- `overridden` behaves exactly like `replaced` for this module, because the SSH configuration is a singleton object with no listed/unlisted sub-resources to reconcile.
-- Neither `enabled` nor `global_enabled` has a documented default in the OpenAPI spec. The factory default used by `replaced`, `overridden` and `deleted` for both fields is `false`, confirmed with the requester rather than assumed - the User Guide's own Variable Definitions table for the CLI `sshd` boot-config flag states a default of "disabled", and no separate non-Zero-Touch-Deployment default was found for the global `ssh` flag.
-- Supports check mode and diff mode. Under `--diff` the module reports the ssh configuration before and after the change; combined with `--check` the reported "after" is the state that would have been written.
-- A flag the device does not report (or reports as null) is unknown: it is `null` in `before` and `after`, a requested value for it is always sent, and `gathered` fails rather than publishing it.
-- When the PATCH fails, the module re-reads the ssh configuration and reports in the failure `details` which of the attempted fields the device applied (`applied_fields`, `not_applied_fields`), or `reread_error` when the re-read failed too (with `reread_error_code` when the device gave a numeric error code); `changed` is true when a field was applied. An error document in a 2xx answer, to the GET or to the PATCH, is reported by its numeric code only, never by its message or payload, which could quote a stored credential. A re-read that does not report an attempted field (or reports it as null) lists it in `unknown_fields`, without assuming a default, and still attributes the fields it reports (one that reports none of them counts as a failed re-read). When the PATCH succeeds but the following re-read fails, the task fails with `changed=true` and a message saying the PATCH was applied.
+- **Both flags are needed to connect:** SSH access works only when both `enabled` and `global_enabled` are `true`.
+- **Careful, resets turn SSH off:** the factory default of both flags is `false`. `deleted` without `config`, and `replaced` or `overridden` with a flag left out, set it to `false` and stop SSH access to the switch. `replaced` and `overridden` behave the same for this module.
+- **Only SSH is changed:** other system services, such as Telnet, FTP or the web server, are never touched.
+- **Unreported flags:** if the switch does not report a flag, it shows as `null` in `before` and `after`, and `gathered` fails instead of returning an incomplete configuration.
+- **Partly applied changes:** if the switch rejects a change after applying part of it, the task reports which flags were applied, with `changed: true` when any was.
+- **Lost connections:** if the connection drops during a change and the module cannot confirm the result, it reports `changed: true`, because the change may have been applied. Run the task again to bring the switch to the requested state.
+- Supports check mode (`--check`) and diff mode (`--diff`).
 
 ---
 
